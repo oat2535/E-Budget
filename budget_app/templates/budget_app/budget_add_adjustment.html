@@ -106,6 +106,22 @@
         };
         const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
 
+        // Carry-forward budget: a month with an entered headcount (>0) contributes
+        // its own count to cost and adds to the running total; a blank/zero month
+        // inherits the running total instead of showing 0 (a position adjustment
+        // continues costing the salary/allowance difference in the months after
+        // it's made, not just the month typed).
+        const computeMonthlyBudget = (monthCounts, rate) => {
+            let cumulative = 0;
+            return monthCounts.map((count) => {
+                if (count > 0) {
+                    cumulative += count;
+                    return { count, cost: count * rate };
+                }
+                return { count: 0, cost: cumulative * rate };
+            });
+        };
+
         // Table 1 Config
         const cols1 = [
             { type: 'dropdown', title: 'ตำแหน่งเดิม', width: 200, source: items, autocomplete: true },
@@ -233,32 +249,35 @@
             }
             table1.setValueFromCoords(22, y, sumHC, true);
 
+            const monthCounts = [];
+            for (let i = 10; i <= 21; i++) {
+                monthCounts.push(getNum(rowData1[i]));
+            }
+
             // Sync with Table 2 (Salary Diff)
             table2.setValueFromCoords(0, y, oldPos, true);
             table2.setValueFromCoords(1, y, newPos, true);
             table2.setValueFromCoords(2, y, diffSal, true);
-            
+
+            const salaryBudget = computeMonthlyBudget(monthCounts, diffSal);
             let sumSalCost = 0;
-            for(let i = 10; i <= 21; i++) {
-                const count = getNum(rowData1[i]);
-                const cost = count * diffSal;
-                table2.setValueFromCoords(i - 7, y, cost, true); // table2 jan is col 3 (10 - 7 = 3)
-                sumSalCost += cost;
-            }
+            salaryBudget.forEach((m, idx) => {
+                table2.setValueFromCoords(idx + 3, y, m.cost, true); // table2 jan is col 3
+                sumSalCost += m.cost;
+            });
             table2.setValueFromCoords(15, y, sumSalCost, true);
 
             // Sync with Table 3 (Allowance Diff)
             table3.setValueFromCoords(0, y, oldPos, true);
             table3.setValueFromCoords(1, y, newPos, true);
             table3.setValueFromCoords(2, y, diffAllow, true);
-            
+
+            const allowanceBudget = computeMonthlyBudget(monthCounts, diffAllow);
             let sumAllowCost = 0;
-            for(let i = 10; i <= 21; i++) {
-                const count = getNum(rowData1[i]);
-                const cost = count * diffAllow;
-                table3.setValueFromCoords(i - 7, y, cost, true); // table3 jan is col 3
-                sumAllowCost += cost;
-            }
+            allowanceBudget.forEach((m, idx) => {
+                table3.setValueFromCoords(idx + 3, y, m.cost, true); // table3 jan is col 3
+                sumAllowCost += m.cost;
+            });
             table3.setValueFromCoords(15, y, sumAllowCost, true);
             
             isUpdating = false;
@@ -334,21 +353,22 @@
                 if (oldPos && newPos) {
                     let diffSal = newSal - oldSal;
                     let diffAllow = newAllow - oldAllow;
-                    let monthlyData = {
-                        'jan': { 'headcount': getNum(row[10]), 'salary_diff_cost': getNum(row[10]) * diffSal, 'allowance_diff_cost': getNum(row[10]) * diffAllow },
-                        'feb': { 'headcount': getNum(row[11]), 'salary_diff_cost': getNum(row[11]) * diffSal, 'allowance_diff_cost': getNum(row[11]) * diffAllow },
-                        'mar': { 'headcount': getNum(row[12]), 'salary_diff_cost': getNum(row[12]) * diffSal, 'allowance_diff_cost': getNum(row[12]) * diffAllow },
-                        'apr': { 'headcount': getNum(row[13]), 'salary_diff_cost': getNum(row[13]) * diffSal, 'allowance_diff_cost': getNum(row[13]) * diffAllow },
-                        'may': { 'headcount': getNum(row[14]), 'salary_diff_cost': getNum(row[14]) * diffSal, 'allowance_diff_cost': getNum(row[14]) * diffAllow },
-                        'jun': { 'headcount': getNum(row[15]), 'salary_diff_cost': getNum(row[15]) * diffSal, 'allowance_diff_cost': getNum(row[15]) * diffAllow },
-                        'jul': { 'headcount': getNum(row[16]), 'salary_diff_cost': getNum(row[16]) * diffSal, 'allowance_diff_cost': getNum(row[16]) * diffAllow },
-                        'aug': { 'headcount': getNum(row[17]), 'salary_diff_cost': getNum(row[17]) * diffSal, 'allowance_diff_cost': getNum(row[17]) * diffAllow },
-                        'sep': { 'headcount': getNum(row[18]), 'salary_diff_cost': getNum(row[18]) * diffSal, 'allowance_diff_cost': getNum(row[18]) * diffAllow },
-                        'oct': { 'headcount': getNum(row[19]), 'salary_diff_cost': getNum(row[19]) * diffSal, 'allowance_diff_cost': getNum(row[19]) * diffAllow },
-                        'nov': { 'headcount': getNum(row[20]), 'salary_diff_cost': getNum(row[20]) * diffSal, 'allowance_diff_cost': getNum(row[20]) * diffAllow },
-                        'dec': { 'headcount': getNum(row[21]), 'salary_diff_cost': getNum(row[21]) * diffSal, 'allowance_diff_cost': getNum(row[21]) * diffAllow }
-                    };
-                    
+
+                    const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+                    const monthCounts = [];
+                    for (let i = 10; i <= 21; i++) monthCounts.push(getNum(row[i]));
+                    const salaryBudget = computeMonthlyBudget(monthCounts, diffSal);
+                    const allowanceBudget = computeMonthlyBudget(monthCounts, diffAllow);
+
+                    let monthlyData = {};
+                    monthKeys.forEach((key, idx) => {
+                        monthlyData[key] = {
+                            headcount: monthCounts[idx],
+                            salary_diff_cost: salaryBudget[idx].cost,
+                            allowance_diff_cost: allowanceBudget[idx].cost,
+                        };
+                    });
+
                     dataToSave.push({
                         'old_position_name': oldPos,
                         'new_position_name': newPos,
