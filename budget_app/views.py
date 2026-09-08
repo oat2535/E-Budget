@@ -25,15 +25,6 @@ def login_required_json(view_func):
         return view_func(request, *args, **kwargs)
     return wrapper
 
-def get_master_fks(item_name_val):
-    try:
-        master = ebudget_budget_item_master.objects.filter(item_name=item_name_val).first()
-        if master:
-            return master, master.general_ledger
-    except:
-        pass
-    return None, None
-
 def login_view(request):
     if request.method == 'POST':
         employee_id = request.POST.get('employee_id')
