@@ -364,6 +364,10 @@
                     monthKeys.forEach((key, idx) => {
                         monthlyData[key] = {
                             headcount: monthCounts[idx],
+                            // BudgetMonthlyDetail only has one 'cost' column, so the two
+                            // per-month budgets shown on screen (table2/table3) are combined
+                            // here into the single total that actually gets persisted.
+                            cost: salaryBudget[idx].cost + allowanceBudget[idx].cost,
                             salary_diff_cost: salaryBudget[idx].cost,
                             allowance_diff_cost: allowanceBudget[idx].cost,
                         };
