@@ -106,19 +106,16 @@
         };
         const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
 
-        // Carry-forward budget: a month with an entered headcount (>0) contributes
-        // its own count to cost and adds to the running total; a blank/zero month
-        // inherits the running total instead of showing 0 (a position adjustment
-        // continues costing the salary/allowance difference in the months after
-        // it's made, not just the month typed).
+        // Carry-forward budget: every month's cost is the running headcount total
+        // (all entries so far this year) times rate, not just that month's own
+        // entry — a position adjustment continues costing the salary/allowance
+        // difference in every month after it's made, including the month it
+        // was made in.
         const computeMonthlyBudget = (monthCounts, rate) => {
             let cumulative = 0;
             return monthCounts.map((count) => {
-                if (count > 0) {
-                    cumulative += count;
-                    return { count, cost: count * rate };
-                }
-                return { count: 0, cost: cumulative * rate };
+                cumulative += count;
+                return { count, cost: cumulative * rate };
             });
         };
 

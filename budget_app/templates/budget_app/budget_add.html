@@ -128,18 +128,15 @@
 
         const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
 
-        // Carry-forward budget: a month with an entered headcount (>0) contributes
-        // its own count to cost and adds to the running total; a blank/zero month
-        // inherits the running total instead of showing 0 (headcount continues
-        // costing money in the months after it's hired, not just the month typed).
+        // Carry-forward budget: every month's cost is the running headcount total
+        // (all entries so far this year) times salary, not just that month's own
+        // entry — headcount continues costing money in every month after it's
+        // hired, including the month it was hired in.
         const computeMonthlyBudget = (monthCounts, salary) => {
             let cumulative = 0;
             return monthCounts.map((count) => {
-                if (count > 0) {
-                    cumulative += count;
-                    return { count, cost: count * salary };
-                }
-                return { count: 0, cost: cumulative * salary };
+                cumulative += count;
+                return { count, cost: cumulative * salary };
             });
         };
 
