@@ -1,0 +1,413 @@
+{% extends "budget_app/base.html" %}
+{% load static %}
+
+{% block title %}Add Budget - Position Adjustment (ปรับตำแหน่ง){% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://bossanova.uk/jspreadsheet/v4/jexcel.css" type="text/css" />
+<link rel="stylesheet" href="https://jsuites.net/v4/jsuites.css" type="text/css" />
+<style>
+    .jexcel_container {
+        width: 100%;
+        max-width: 100%;
+    }
+    .jexcel_content {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto;
+    }
+    .jexcel {
+        width: 100% !important;
+    }
+    .card-body {
+        overflow: hidden;
+    }
+    .jexcel tbody tr td {
+        vertical-align: middle;
+    }
+    .jexcel tbody tr td.readonly {
+        background-color: #f8f9fa;
+        color: #6c757d;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<header class="page-header page-header-dark bg-gradient-primary-to-secondary pb-10">
+    <div class="container-fluid px-4">
+        <div class="page-header-content pt-4">
+            <div class="row align-items-center justify-content-between">
+                <div class="col-auto mt-4">
+                    <h1 class="page-header-title">
+                        <div class="page-header-icon"><i data-feather="repeat"></i></div>
+                        Position Adjustment (ปรับตำแหน่ง)
+                    </h1>
+                </div>
+                <div class="col-auto mt-4">
+                    <a href="{% url 'budget_list' %}" class="btn btn-light text-dark me-2 shadow-sm fw-500" style="width: 120px;"><i data-feather="arrow-left" class="me-1"></i> กลับ</a>
+                    <button id="save-budget-btn" class="btn btn-success shadow-sm fw-500" style="width: 120px;"><i data-feather="save" class="me-1"></i> บันทึก</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</header>
+
+<div class="container-fluid px-4 mt-n10">
+    <!-- Table 1: Headcount -->
+    <div class="card mb-4 shadow-sm border-0 card-soft">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h6 class="m-0 font-weight-bold text-primary">ตารางที่ 1 (จำนวนคน)</h6>
+            <button id="add-row-btn" class="btn btn-sm btn-primary"><i data-feather="plus" class="me-1"></i> เพิ่มรายการ</button>
+        </div>
+        <div class="card-body p-0">
+            <div id="table1-spreadsheet"></div>
+        </div>
+    </div>
+
+    <!-- Table 2: Salary Diff -->
+    <div class="card mb-4 shadow-sm border-0 card-soft">
+        <div class="card-header bg-white py-3">
+            <h6 class="m-0 font-weight-bold text-success">ตารางที่ 2 (งบประมาณผลต่างเงินเดือน)</h6>
+        </div>
+        <div class="card-body p-0">
+            <div id="table2-spreadsheet"></div>
+        </div>
+    </div>
+
+    <!-- Table 3: Allowance Diff -->
+    <div class="card mb-4 shadow-sm border-0 card-soft">
+        <div class="card-header bg-white py-3">
+            <h6 class="m-0 font-weight-bold text-info">ตารางที่ 3 (งบประมาณผลต่างค่าวัดระดับ/ค่าตำแหน่ง)</h6>
+        </div>
+        <div class="card-body p-0">
+            <div id="table3-spreadsheet"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://bossanova.uk/jspreadsheet/v4/jexcel.js"></script>
+<script src="https://jsuites.net/v4/jsuites.js"></script>
+
+{{ items_json|json_script:"items-data" }}
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const items = JSON.parse(document.getElementById('items-data').textContent);
+        
+        // Helper functions
+        const getSalary = (name) => {
+            const match = items.find(i => i.name === name);
+            return match ? match.salary : 0;
+        };
+        const getAllowance = (name) => {
+            const match = items.find(i => i.name === name);
+            return match ? match.position_allowance : 0;
+        };
+        const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
+
+        // Table 1 Config
+        const cols1 = [
+            { type: 'dropdown', title: 'ตำแหน่งเดิม', width: 200, source: items, autocomplete: true },
+            { type: 'dropdown', title: 'ตำแหน่งใหม่', width: 200, source: items, autocomplete: true },
+            { type: 'numeric', title: 'เงินเดือนเดิม', width: 100, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'ค่าตำแหน่งเดิม', width: 120, mask: '#,##0' },
+            { type: 'numeric', title: 'รวมรายได้เดิม', width: 110, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'เงินเดือนใหม่', width: 100, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'ค่าตำแหน่งใหม่', width: 120, mask: '#,##0' },
+            { type: 'numeric', title: 'รวมรายได้ใหม่', width: 110, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'ผลต่างเงินเดือน', width: 110, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'ผลต่างค่าตำแหน่ง', width: 120, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Jan', width: 60 },
+            { type: 'numeric', title: 'Feb', width: 60 },
+            { type: 'numeric', title: 'Mar', width: 60 },
+            { type: 'numeric', title: 'Apr', width: 60 },
+            { type: 'numeric', title: 'May', width: 60 },
+            { type: 'numeric', title: 'Jun', width: 60 },
+            { type: 'numeric', title: 'Jul', width: 60 },
+            { type: 'numeric', title: 'Aug', width: 60 },
+            { type: 'numeric', title: 'Sep', width: 60 },
+            { type: 'numeric', title: 'Oct', width: 60 },
+            { type: 'numeric', title: 'Nov', width: 60 },
+            { type: 'numeric', title: 'Dec', width: 60 },
+            { type: 'numeric', title: 'รวม (คน)', width: 80, readOnly: true, mask: '#,##0' }
+        ];
+
+        // Table 2 Config
+        const cols2 = [
+            { type: 'text', title: 'ตำแหน่งเดิม', width: 200, readOnly: true },
+            { type: 'text', title: 'ตำแหน่งใหม่', width: 200, readOnly: true },
+            { type: 'numeric', title: 'ผลต่างเงินเดือน', width: 110, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Jan', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Feb', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Mar', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Apr', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'May', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Jun', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Jul', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Aug', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Sep', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Oct', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Nov', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Dec', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'รวม (เงิน)', width: 110, readOnly: true, mask: '#,##0' }
+        ];
+
+        // Table 3 Config
+        const cols3 = [
+            { type: 'text', title: 'ตำแหน่งเดิม', width: 200, readOnly: true },
+            { type: 'text', title: 'ตำแหน่งใหม่', width: 200, readOnly: true },
+            { type: 'numeric', title: 'ผลต่างค่าตำแหน่ง', width: 120, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Jan', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Feb', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Mar', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Apr', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'May', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Jun', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Jul', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Aug', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Sep', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Oct', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Nov', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Dec', width: 80, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'รวม (เงิน)', width: 110, readOnly: true, mask: '#,##0' }
+        ];
+
+        let table1, table2, table3;
+        let isUpdating = false;
+
+        const onchange = function(instance, cell, x, y, value) {
+            if (!table1 || !table2 || !table3 || isUpdating) return;
+            isUpdating = true;
+            
+            x = parseInt(x);
+            y = parseInt(y);
+            
+            let oldSal = getNum(table1.getValueFromCoords(2, y));
+            let oldAllow = getNum(table1.getValueFromCoords(3, y));
+            let newSal = getNum(table1.getValueFromCoords(5, y));
+            let newAllow = getNum(table1.getValueFromCoords(6, y));
+
+            // Old Position Changed
+            if (x === 0) {
+                oldSal = getSalary(value);
+                oldAllow = getAllowance(value);
+                table1.setValueFromCoords(2, y, oldSal, true); 
+                table1.setValueFromCoords(3, y, oldAllow, true); 
+            }
+            
+            // New Position Changed
+            if (x === 1) {
+                newSal = getSalary(value);
+                newAllow = getAllowance(value);
+                table1.setValueFromCoords(5, y, newSal, true); 
+                table1.setValueFromCoords(6, y, newAllow, true); 
+            }
+            
+            // Manual Allowance Changed
+            if (x === 3) oldAllow = getNum(value);
+            if (x === 6) newAllow = getNum(value);
+
+            // Calc Income Totals & Diffs
+            if (x === 0 || x === 1 || x === 3 || x === 6) {
+                let oldTotal = oldSal + oldAllow;
+                let newTotal = newSal + newAllow;
+                table1.setValueFromCoords(4, y, oldTotal, true);
+                table1.setValueFromCoords(7, y, newTotal, true);
+                
+                table1.setValueFromCoords(8, y, newSal - oldSal, true);
+                table1.setValueFromCoords(9, y, newAllow - oldAllow, true);
+            }
+
+            // Get updated values for sync
+            const rowData1 = table1.getRowData(y);
+            const oldPos = rowData1[0];
+            const newPos = rowData1[1];
+            const diffSal = getNum(rowData1[8]);
+            const diffAllow = getNum(rowData1[9]);
+
+            // Calc Headcount Total (Cols 10 to 21)
+            let sumHC = 0;
+            for(let i = 10; i <= 21; i++) {
+                sumHC += getNum(rowData1[i]);
+            }
+            table1.setValueFromCoords(22, y, sumHC, true);
+
+            // Sync with Table 2 (Salary Diff)
+            table2.setValueFromCoords(0, y, oldPos, true);
+            table2.setValueFromCoords(1, y, newPos, true);
+            table2.setValueFromCoords(2, y, diffSal, true);
+            
+            let sumSalCost = 0;
+            for(let i = 10; i <= 21; i++) {
+                const count = getNum(rowData1[i]);
+                const cost = count * diffSal;
+                table2.setValueFromCoords(i - 7, y, cost, true); // table2 jan is col 3 (10 - 7 = 3)
+                sumSalCost += cost;
+            }
+            table2.setValueFromCoords(15, y, sumSalCost, true);
+
+            // Sync with Table 3 (Allowance Diff)
+            table3.setValueFromCoords(0, y, oldPos, true);
+            table3.setValueFromCoords(1, y, newPos, true);
+            table3.setValueFromCoords(2, y, diffAllow, true);
+            
+            let sumAllowCost = 0;
+            for(let i = 10; i <= 21; i++) {
+                const count = getNum(rowData1[i]);
+                const cost = count * diffAllow;
+                table3.setValueFromCoords(i - 7, y, cost, true); // table3 jan is col 3
+                sumAllowCost += cost;
+            }
+            table3.setValueFromCoords(15, y, sumAllowCost, true);
+            
+            isUpdating = false;
+        };
+
+        const initData = () => {
+            const arr = [];
+            for (let i = 0; i < 23; i++) arr.push('');
+            return [arr];
+        };
+
+        table1 = jspreadsheet(document.getElementById('table1-spreadsheet'), {
+            data: initData(),
+            columns: cols1,
+            minDimensions: [23, 1],
+            onchange: onchange,
+            allowInsertColumn: false,
+            allowManualInsertColumn: false,
+            allowDeleteColumn: false,
+            tableOverflow: true,
+            freezeColumns: 2
+        });
+
+        table2 = jspreadsheet(document.getElementById('table2-spreadsheet'), {
+            data: initData().map(r => r.slice(0, 16)),
+            columns: cols2,
+            minDimensions: [16, 1],
+            allowInsertRow: true,
+            allowDeleteRow: true,
+            allowInsertColumn: false,
+            allowManualInsertColumn: false,
+            allowDeleteColumn: false,
+            tableOverflow: true,
+            contextMenu: function() { return false; }
+        });
+
+        table3 = jspreadsheet(document.getElementById('table3-spreadsheet'), {
+            data: initData().map(r => r.slice(0, 16)),
+            columns: cols3,
+            minDimensions: [16, 1],
+            allowInsertRow: true,
+            allowDeleteRow: true,
+            allowInsertColumn: false,
+            allowManualInsertColumn: false,
+            allowDeleteColumn: false,
+            tableOverflow: true,
+            contextMenu: function() { return false; }
+        });
+        
+        // Bind add row button
+        document.getElementById('add-row-btn').addEventListener('click', function() {
+            table1.insertRow();
+            if (table2) table2.insertRow();
+            if (table3) table3.insertRow();
+        });
+
+        // Save logic
+        document.getElementById('save-budget-btn').addEventListener('click', function() {
+            if (!table1) return;
+            
+            let rows = table1.getData();
+            let dataToSave = [];
+            
+            for (let i = 0; i < rows.length; i++) {
+                let row = rows[i];
+                let oldPos = row[0];
+                let newPos = row[1];
+                let oldSal = getNum(row[2]);
+                let oldAllow = getNum(row[3]);
+                let newSal = getNum(row[5]);
+                let newAllow = getNum(row[6]);
+                
+                if (oldPos && newPos) {
+                    let diffSal = newSal - oldSal;
+                    let diffAllow = newAllow - oldAllow;
+                    let monthlyData = {
+                        'jan': { 'headcount': getNum(row[10]), 'salary_diff_cost': getNum(row[10]) * diffSal, 'allowance_diff_cost': getNum(row[10]) * diffAllow },
+                        'feb': { 'headcount': getNum(row[11]), 'salary_diff_cost': getNum(row[11]) * diffSal, 'allowance_diff_cost': getNum(row[11]) * diffAllow },
+                        'mar': { 'headcount': getNum(row[12]), 'salary_diff_cost': getNum(row[12]) * diffSal, 'allowance_diff_cost': getNum(row[12]) * diffAllow },
+                        'apr': { 'headcount': getNum(row[13]), 'salary_diff_cost': getNum(row[13]) * diffSal, 'allowance_diff_cost': getNum(row[13]) * diffAllow },
+                        'may': { 'headcount': getNum(row[14]), 'salary_diff_cost': getNum(row[14]) * diffSal, 'allowance_diff_cost': getNum(row[14]) * diffAllow },
+                        'jun': { 'headcount': getNum(row[15]), 'salary_diff_cost': getNum(row[15]) * diffSal, 'allowance_diff_cost': getNum(row[15]) * diffAllow },
+                        'jul': { 'headcount': getNum(row[16]), 'salary_diff_cost': getNum(row[16]) * diffSal, 'allowance_diff_cost': getNum(row[16]) * diffAllow },
+                        'aug': { 'headcount': getNum(row[17]), 'salary_diff_cost': getNum(row[17]) * diffSal, 'allowance_diff_cost': getNum(row[17]) * diffAllow },
+                        'sep': { 'headcount': getNum(row[18]), 'salary_diff_cost': getNum(row[18]) * diffSal, 'allowance_diff_cost': getNum(row[18]) * diffAllow },
+                        'oct': { 'headcount': getNum(row[19]), 'salary_diff_cost': getNum(row[19]) * diffSal, 'allowance_diff_cost': getNum(row[19]) * diffAllow },
+                        'nov': { 'headcount': getNum(row[20]), 'salary_diff_cost': getNum(row[20]) * diffSal, 'allowance_diff_cost': getNum(row[20]) * diffAllow },
+                        'dec': { 'headcount': getNum(row[21]), 'salary_diff_cost': getNum(row[21]) * diffSal, 'allowance_diff_cost': getNum(row[21]) * diffAllow }
+                    };
+                    
+                    dataToSave.push({
+                        'old_position_name': oldPos,
+                        'new_position_name': newPos,
+                        'old_salary': oldSal,
+                        'old_allowance': oldAllow,
+                        'new_salary': newSal,
+                        'new_allowance': newAllow,
+                        'monthly_data': monthlyData
+                    });
+                }
+            }
+            
+            if (dataToSave.length === 0) {
+                Swal.fire('แจ้งเตือน', 'กรุณาเลือกตำแหน่งเดิมและตำแหน่งใหม่ก่อนบันทึก', 'warning');
+                return;
+            }
+            
+            Swal.fire({
+                title: 'ยืนยันการบันทึกข้อมูล?',
+                text: "ตรวจสอบข้อมูลการปรับตำแหน่งเรียบร้อยใช่หรือไม่?",
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonColor: '#0061f2',
+                cancelButtonColor: '#e81500',
+                confirmButtonText: 'ยืนยัน',
+                cancelButtonText: 'ยกเลิก'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    Swal.fire({
+                        title: 'กำลังบันทึก...',
+                        allowOutsideClick: false,
+                        didOpen: () => { Swal.showLoading(); }
+                    });
+                    
+                    fetch('{% url "budget_add_adjustment" %}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify(dataToSave)
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            Swal.fire('สำเร็จ!', 'บันทึกข้อมูลเรียบร้อยแล้ว', 'success').then(() => {
+                                window.location.href = '{% url "budget_list" %}';
+                            });
+                        } else {
+                            Swal.fire('ข้อผิดพลาด', 'ไม่สามารถบันทึกได้: ' + data.message, 'error');
+                        }
+                    })
+                    .catch(error => {
+                        console.error(error);
+                        Swal.fire('ข้อผิดพลาด', 'การเชื่อมต่อขัดข้อง', 'error');
+                    });
+                }
+            });
+        });
+    });
+</script>
+{% endblock %}

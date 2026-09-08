@@ -1,0 +1,291 @@
+{% extends "budget_app/base.html" %}
+{% load static %}
+
+{% block title %}Add Budget - Furniture{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://bossanova.uk/jspreadsheet/v4/jexcel.css" type="text/css" />
+<link rel="stylesheet" href="https://jsuites.net/v4/jsuites.css" type="text/css" />
+<style>
+    .jexcel_container {
+        width: 100%;
+        max-width: 100%;
+    }
+    .jexcel_content {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto;
+    }
+    .jexcel {
+        width: 100% !important;
+    }
+    .card-body {
+        overflow: hidden;
+    }
+    .jexcel tbody tr td {
+        vertical-align: middle;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<header class="page-header page-header-dark bg-gradient-primary-to-secondary pb-10">
+    <div class="container-fluid px-4">
+        <div class="page-header-content pt-4">
+            <div class="row align-items-center justify-content-between">
+                <div class="col-auto mt-4">
+                    <h1 class="page-header-title">
+                        <div class="page-header-icon"><i data-feather="box"></i></div>
+                        Furniture (เฟอร์นิเจอร์)
+                    </h1>
+                </div>
+                <div class="col-auto mt-4">
+                    <a href="{% url 'budget_list' %}" class="btn btn-light text-dark me-2 shadow-sm fw-500" style="width: 120px;"><i data-feather="arrow-left" class="me-1"></i> กลับ</a>
+                    <button id="save-budget-btn" class="btn btn-success shadow-sm fw-500" style="width: 120px;"><i data-feather="save" class="me-1"></i> บันทึก</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</header>
+
+<div class="container-fluid px-4 mt-n10">
+    <div class="card mb-4 shadow-sm border-0 card-soft">
+        <div class="card-header d-flex justify-content-between align-items-center bg-white py-3">
+            <h6 class="m-0 font-weight-bold text-primary">ตารางส่วนแรก (กรอกจำนวน)</h6>
+            <button id="add-row-btn" class="btn btn-sm btn-primary"><i data-feather="plus" class="me-1"></i> เพิ่มรายการ</button>
+        </div>
+        <div class="card-body p-0">
+            <div id="spreadsheet"></div>
+        </div>
+    </div>
+
+    <div class="card mb-4 shadow-sm border-0 card-soft">
+        <div class="card-header bg-white py-3">
+            <h6 class="m-0 font-weight-bold text-success">ตารางส่วนที่สอง (คำนวณงบประมาณ)</h6>
+        </div>
+        <div class="card-body p-0">
+            <div id="calc-spreadsheet"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://bossanova.uk/jspreadsheet/v4/jexcel.js"></script>
+<script src="https://jsuites.net/v4/jsuites.js"></script>
+
+{{ items_json|json_script:"items-data" }}
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const items = JSON.parse(document.getElementById('items-data').textContent);
+
+        const itemNames = items.map(i => i.name);
+
+        const getSalary = (name) => {
+            const match = items.find(i => i.name === name);
+            return match ? match.purchase_price : 0;
+        };
+
+        // Columns definition
+        const columns = [
+            { type: 'dropdown', title: 'เครื่องมือ', width: 250, source: itemNames, autocomplete: true },
+            { type: 'numeric', title: 'ราคาซื้อ', width: 100, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Jan', width: 85 },
+            { type: 'numeric', title: 'Feb', width: 85 },
+            { type: 'numeric', title: 'Mar', width: 85 },
+            { type: 'numeric', title: 'Apr', width: 85 },
+            { type: 'numeric', title: 'May', width: 85 },
+            { type: 'numeric', title: 'Jun', width: 85 },
+            { type: 'numeric', title: 'Jul', width: 85 },
+            { type: 'numeric', title: 'Aug', width: 85 },
+            { type: 'numeric', title: 'Sep', width: 85 },
+            { type: 'numeric', title: 'Oct', width: 85 },
+            { type: 'numeric', title: 'Nov', width: 85 },
+            { type: 'numeric', title: 'Dec', width: 85 },
+            { type: 'numeric', title: 'รวม', width: 100, readOnly: true, mask: '#,##0' }
+        ];
+
+        const calcColumns = [
+            { type: 'text', title: 'เครื่องมือ', width: 250, readOnly: true },
+            { type: 'numeric', title: 'ราคาซื้อ', width: 100, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Jan', width: 85, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Feb', width: 85, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Mar', width: 85, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Apr', width: 85, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'May', width: 85, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Jun', width: 85, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Jul', width: 85, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Aug', width: 85, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Sep', width: 85, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Oct', width: 85, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Nov', width: 85, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'Dec', width: 85, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'รวม', width: 100, readOnly: true, mask: '#,##0' }
+        ];
+
+        let table1, table2;
+        let isUpdating = false;
+
+        const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
+
+        const onchange = function(instance, cell, x, y, value) {
+            if (!table1 || !table2 || isUpdating) return;
+            isUpdating = true;
+
+            x = parseInt(x);
+            y = parseInt(y);
+
+            // If item changed, update purchase price
+            if (x === 0) {
+                const salary = getSalary(value);
+                table1.setValueFromCoords(1, y, salary, true);
+            }
+
+            // Calculate total for this row in table1
+            const rowData1 = table1.getRowData(y);
+            let sum1 = 0;
+            for(let i = 2; i <= 13; i++) {
+                sum1 += getNum(rowData1[i]);
+            }
+            table1.setValueFromCoords(14, y, sum1, true);
+
+            // Sync with table2
+            const pos = rowData1[0];
+            const sal = getNum(rowData1[1]);
+
+            // Set item and price in table 2
+            table2.setValueFromCoords(0, y, pos, true);
+            table2.setValueFromCoords(1, y, sal, true);
+
+            let sum2 = 0;
+            for(let i = 2; i <= 13; i++) {
+                const count = getNum(rowData1[i]);
+                const cost = count * sal;
+                table2.setValueFromCoords(i, y, cost, true);
+                sum2 += cost;
+            }
+            table2.setValueFromCoords(14, y, sum2, true);
+
+            isUpdating = false;
+        };
+
+        const createInitialData = () => [['', '', '', '', '', '', '', '', '', '', '', '', '', '', '']];
+
+        table1 = jspreadsheet(document.getElementById('spreadsheet'), {
+            data: createInitialData(),
+            columns: columns,
+            minDimensions: [15, 1],
+            onchange: onchange,
+            allowInsertColumn: false,
+            allowManualInsertColumn: false,
+            allowDeleteColumn: false,
+            tableOverflow: true,
+        });
+
+        table2 = jspreadsheet(document.getElementById('calc-spreadsheet'), {
+            data: createInitialData(),
+            columns: calcColumns,
+            minDimensions: [15, 1],
+            allowInsertRow: true,
+            allowDeleteRow: true,
+            allowInsertColumn: false,
+            allowManualInsertColumn: false,
+            allowDeleteColumn: false,
+            tableOverflow: true,
+            contextMenu: function() { return false; }
+        });
+
+        // Bind add row button
+        document.getElementById('add-row-btn').addEventListener('click', function() {
+            table1.insertRow();
+            if (table2) table2.insertRow();
+        });
+
+        // Save button logic
+        document.getElementById('save-budget-btn').addEventListener('click', function() {
+            if (!table1) return;
+
+            let rows = table1.getData();
+            let dataToSave = [];
+
+            for (let i = 0; i < rows.length; i++) {
+                let row = rows[i];
+                let position = row[0];
+                let salary = getNum(row[1]);
+
+                if (position && salary > 0) {
+                    let monthlyData = {
+                        'jan': { 'headcount': getNum(row[2]), 'cost': getNum(row[2]) * salary },
+                        'feb': { 'headcount': getNum(row[3]), 'cost': getNum(row[3]) * salary },
+                        'mar': { 'headcount': getNum(row[4]), 'cost': getNum(row[4]) * salary },
+                        'apr': { 'headcount': getNum(row[5]), 'cost': getNum(row[5]) * salary },
+                        'may': { 'headcount': getNum(row[6]), 'cost': getNum(row[6]) * salary },
+                        'jun': { 'headcount': getNum(row[7]), 'cost': getNum(row[7]) * salary },
+                        'jul': { 'headcount': getNum(row[8]), 'cost': getNum(row[8]) * salary },
+                        'aug': { 'headcount': getNum(row[9]), 'cost': getNum(row[9]) * salary },
+                        'sep': { 'headcount': getNum(row[10]), 'cost': getNum(row[10]) * salary },
+                        'oct': { 'headcount': getNum(row[11]), 'cost': getNum(row[11]) * salary },
+                        'nov': { 'headcount': getNum(row[12]), 'cost': getNum(row[12]) * salary },
+                        'dec': { 'headcount': getNum(row[13]), 'cost': getNum(row[13]) * salary }
+                    };
+
+                    dataToSave.push({
+                        'item_name': position,
+                        'purchase_price': salary,
+                        'monthly_data': monthlyData
+                    });
+                }
+            }
+
+            if (dataToSave.length === 0) {
+                Swal.fire('แจ้งเตือน', 'ไม่มีข้อมูลสำหรับบันทึก กรุณาเลือกเครื่องมือก่อนครับ', 'warning');
+                return;
+            }
+
+            Swal.fire({
+                title: 'ยืนยันการบันทึกข้อมูล?',
+                text: "คุณตรวจสอบข้อมูลครบถ้วนและต้องการบันทึกใช่หรือไม่?",
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonColor: '#0061f2',
+                cancelButtonColor: '#e81500',
+                confirmButtonText: 'ยืนยัน',
+                cancelButtonText: 'ยกเลิก'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    Swal.fire({
+                        title: 'กำลังบันทึกข้อมูล...',
+                        allowOutsideClick: false,
+                        didOpen: () => {
+                            Swal.showLoading();
+                        }
+                    });
+
+                    fetch('{% url "budget_add_furniture" %}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify(dataToSave)
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            Swal.fire('สำเร็จ!', 'บันทึกข้อมูลเรียบร้อยแล้ว', 'success').then(() => {
+                                window.location.href = '{% url "budget_list" %}';
+                            });
+                        } else {
+                            Swal.fire('ข้อผิดพลาด', 'ไม่สามารถบันทึกได้: ' + data.message, 'error');
+                        }
+                    })
+                    .catch(error => {
+                        console.error(error);
+                        Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย', 'error');
+                    });
+                }
+            });
+        });
+    });
+</script>
+{% endblock %}

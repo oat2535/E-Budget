@@ -1,0 +1,307 @@
+{% extends "budget_app/base.html" %}
+{% load static %}
+
+{% block extra_css %}
+<link href="https://cdn.jsdelivr.net/npm/simple-datatables@7.1.2/dist/style.min.css" rel="stylesheet" type="text/css">
+<link rel="stylesheet" href="https://bossanova.uk/jspreadsheet/v4/jexcel.css" type="text/css" />
+<link rel="stylesheet" href="https://jsuites.net/v4/jsuites.css" type="text/css" />
+<style>
+    .jexcel_container {
+        width: 100%;
+        max-width: 100%;
+    }
+    .jexcel_content {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto;
+    }
+    .jexcel {
+        width: 100% !important;
+    }
+    .jexcel tbody tr td {
+        vertical-align: middle;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<header class="page-header page-header-dark bg-gradient-primary-to-secondary pb-10">
+    <div class="container-fluid px-4">
+        <div class="page-header-content pt-4">
+            <div class="row align-items-center justify-content-between">
+                <div class="col-auto mt-4">
+                    <h1 class="page-header-title">
+                        <div class="page-header-icon"><i data-feather="file-text"></i></div>
+                        Budget List
+                    </h1>
+                    <div class="page-header-subtitle">E-Budget Application</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</header>
+
+<div class="container-fluid px-4 mt-n10">
+    <div class="row">
+        {% for category in categories %}
+        <div class="col-lg-4 mb-4">
+            {% cycle 'warning' 'success' 'danger' 'primary' 'info' 'secondary' as card_color silent %}
+            <a href="javascript:void(0);" onclick="fetchDocuments('{{ category.category_code }}')" class="text-decoration-none">
+                <div class="card h-100 border-start-lg border-start-{{ card_color }} card-lift shadow-sm">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="small fw-bold text-{{ card_color }} text-uppercase mb-1">{{ category.category_code }}</div>
+                                <div class="h4 mb-0 fw-bold text-dark">{{ category.category_name }}</div>
+                            </div>
+                            <div class="text-{{ card_color }} opacity-50">
+                                <i data-feather="folder" style="width: 2em; height: 2em;"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-footer d-flex align-items-center justify-content-between small shadow-none bg-transparent">
+                        <span class="text-{{ card_color }}">View Budgets</span>
+                        <div class="text-{{ card_color }}"><i data-feather="arrow-right"></i></div>
+                    </div>
+                </div>
+            </a>
+        </div>
+        {% empty %}
+        <div class="col-12">
+            <div class="alert alert-warning">No Categories Found.</div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Table placeholder for selected category -->
+    <div class="card mb-4 card-soft">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span id="tableTitle" class="fw-bold">Budget Entries</span>
+            <select id="docTypeFilter" class="form-select form-select-sm w-auto" style="display: none; cursor: pointer;" onchange="applyTypeFilter()">
+                <option value="ALL">ทั้งหมด (All Types)</option>
+                <option value="VET">VET Manpower</option>
+                <option value="NON VET">NON VET Manpower</option>
+                <option value="Position Adjustment">Position Adjustment</option>
+                <option value="Medical Equipment">Medical Equipment</option>
+                <option value="Computer Equipment">Computer Equipment</option>
+                <option value="Furniture">Furniture</option>
+                <option value="Tools & Equipment">Tools & Equipment</option>
+            </select>
+        </div>
+        <div class="card-body">
+            <p class="text-muted" id="placeholderText">Select a category card above to view entries here.</p>
+            
+            <div id="loadingSpinner" style="display: none;" class="text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <div class="mt-2 text-muted">กำลังโหลดข้อมูล...</div>
+            </div>
+
+            <div id="tableContainer" style="display: none;">
+                <table id="datatablesSimple">
+                    <thead>
+                        <tr>
+                            <th>Document No</th>
+                            <th>Type</th>
+                            <th>Date Created</th>
+                            <th>Created By</th>
+                            <th>Total Positions</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <!-- Document Detail Modal -->
+    <div class="modal fade" id="documentDetailModal" tabindex="-1" aria-labelledby="documentDetailModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="documentDetailModalLabel">รายละเอียดเอกสาร</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="modalLoadingSpinner" class="text-center py-5" style="display: none;">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <div class="mt-2 text-muted">กำลังโหลดข้อมูล...</div>
+                    </div>
+                    <div id="modalContent" style="display: none;">
+                        <h6 class="text-primary mb-3"><i data-feather="file-text" class="me-2"></i>ข้อมูลเอกสาร (Document Info)</h6>
+                        <div class="table-responsive mb-4">
+                            <table class="table table-bordered table-sm">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>เลขที่เอกสาร</th>
+                                        <th>ประเภท</th>
+                                        <th>รหัสสาขา</th>
+                                        <th>ผู้สร้าง</th>
+                                        <th>วันที่สร้าง</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td id="modalDocNo"></td>
+                                        <td id="modalDocType"></td>
+                                        <td id="modalDocBranch"></td>
+                                        <td id="modalDocCreator"></td>
+                                        <td id="modalDocDate"></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <h6 class="text-primary mb-3"><i data-feather="users" class="me-2"></i>รายละเอียดกำลังคน (Manpower Details)</h6>
+                        <div class="card mb-3 card-soft">
+                            <div class="card-header bg-light fw-bold text-dark d-flex justify-content-between align-items-center">
+                                <span>ตารางส่วนแรก (จำนวนคน)</span>
+                                <button type="button" class="btn btn-sm btn-primary" id="btnAddRow" style="display: none;" onclick="addSpreadsheetRow()">
+                                    <i data-feather="plus" class="me-1"></i> เพิ่มรายการ
+                                </button>
+                            </div>
+                            <div class="card-body p-0">
+                                <div id="modalSpreadsheet1"></div>
+                            </div>
+                        </div>
+                        <div class="card mb-3 card-soft">
+                            <div class="card-header bg-light fw-bold text-dark">ตารางส่วนที่สอง (คำนวณงบประมาณ)</div>
+                            <div class="card-body p-0">
+                                <div id="modalSpreadsheet2"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    {% if request.user.username in "nattchai_u,kanchana_a,pattida_y" %}
+                    <button type="button" class="btn btn-primary" id="btnEditMode" onclick="toggleEditMode()">
+                        <i data-feather="edit-2" class="me-1"></i> แก้ไขข้อมูล
+                    </button>
+                    {% endif %}
+                    <button type="button" class="btn btn-success" id="btnSaveDocument" style="display: none;" onclick="saveDocument()">
+                        <i data-feather="save" class="me-1"></i> บันทึกข้อมูล
+                    </button>
+                    <button type="button" class="btn btn-secondary" id="btnCloseModal" data-bs-dismiss="modal">ปิด</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Position Adjustment Detail Modal -->
+    <div class="modal fade" id="adjustmentDetailModal" tabindex="-1" aria-labelledby="adjustmentDetailModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="adjustmentDetailModalLabel">รายละเอียดเอกสาร (Position Adjustment)</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="adjModalLoadingSpinner" class="text-center py-5" style="display: none;">
+                        <div class="spinner-border text-info" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <div class="mt-2 text-muted">กำลังโหลดข้อมูล...</div>
+                    </div>
+                    <div id="adjModalContent" style="display: none;">
+                        <h6 class="text-primary mb-3"><i data-feather="file-text" class="me-2"></i>ข้อมูลเอกสาร (Document Info)</h6>
+                        <div class="table-responsive mb-4">
+                            <table class="table table-bordered table-sm">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>เลขที่เอกสาร</th>
+                                        <th>ประเภท</th>
+                                        <th>รหัสสาขา</th>
+                                        <th>ผู้สร้าง</th>
+                                        <th>วันที่สร้าง</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td id="adjModalDocNo"></td>
+                                        <td id="adjModalDocType"><span class="badge bg-info">Position Adjustment</span></td>
+                                        <td id="adjModalDocBranch"></td>
+                                        <td id="adjModalDocCreator"></td>
+                                        <td id="adjModalDocDate"></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <h6 class="text-primary mb-3"><i data-feather="users" class="me-2"></i>รายละเอียดกำลังคน (Manpower Details)</h6>
+                        <!-- Table 1: Headcount -->
+                        <div class="card mb-3 card-soft">
+                            <div class="card-header bg-light fw-bold text-dark d-flex justify-content-between align-items-center">
+                                <span>ตารางที่ 1 (จำนวนคน)</span>
+                                <button type="button" class="btn btn-sm btn-primary" id="btnAdjAddRow" style="display: none;" onclick="addAdjSpreadsheetRow()">
+                                    <i data-feather="plus" class="me-1"></i> เพิ่มรายการ
+                                </button>
+                            </div>
+                            <div class="card-body p-0">
+                                <div id="adjModalSpreadsheet1"></div>
+                            </div>
+                        </div>
+
+                        <!-- Table 2: Salary Diff -->
+                        <div class="card mb-3 card-soft">
+                            <div class="card-header bg-light fw-bold text-success">ตารางที่ 2 (งบประมาณผลต่างเงินเดือน)</div>
+                            <div class="card-body p-0">
+                                <div id="adjModalSpreadsheet2"></div>
+                            </div>
+                        </div>
+
+                        <!-- Table 3: Allowance Diff -->
+                        <div class="card mb-3 card-soft">
+                            <div class="card-header bg-light fw-bold text-primary">ตารางที่ 3 (งบประมาณผลต่างค่าวัดระดับ/ค่าตำแหน่ง)</div>
+                            <div class="card-body p-0">
+                                <div id="adjModalSpreadsheet3"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    {% if request.user.username in "nattchai_u,kanchana_a,pattida_y" %}
+                    <button type="button" class="btn btn-primary text-white" id="btnAdjEditMode" onclick="toggleAdjEditMode()">
+                        <i data-feather="edit-2" class="me-1"></i> แก้ไขข้อมูล
+                    </button>
+                    {% endif %}
+                    <button type="button" class="btn btn-success" id="btnAdjSaveDocument" style="display: none;" onclick="saveAdjDocument()">
+                        <i data-feather="save" class="me-1"></i> บันทึกข้อมูล
+                    </button>
+                    <button type="button" class="btn btn-secondary" id="btnAdjCloseModal" data-bs-dismiss="modal">ปิด</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/simple-datatables@7.1.2/dist/umd/simple-datatables.min.js" crossorigin="anonymous"></script>
+<script src="https://bossanova.uk/jspreadsheet/v4/jexcel.js"></script>
+<script src="https://jsuites.net/v4/jsuites.js"></script>
+
+{{ items_vet_json|json_script:"vet-items-data" }}
+{{ items_non_vet_json|json_script:"nonvet-items-data" }}
+{{ items_med_json|json_script:"med-items-data" }}
+{{ items_comp_json|json_script:"comp-items-data" }}
+{{ items_furniture_json|json_script:"furniture-items-data" }}
+{{ items_tools_json|json_script:"tools-items-data" }}
+
+<script>
+    window.APP_CONFIG = {
+        urls: {
+            apiGetDocuments: "{% url 'api_get_documents' 'DUMMY' %}",
+            apiDocumentDetail: "{% url 'api_document_detail' 'TYPE' 'DOCNO' %}",
+            apiDocumentUpdate: "{% url 'api_document_update' 'TYPE' 'DOCNO' %}",
+            apiAdjustmentDetail: "{% url 'api_document_detail' 'Position Adjustment' 'DOCNO' %}",
+            apiAdjustmentUpdate: "{% url 'api_document_update' 'Position Adjustment' 'DOCNO' %}"
+        },
+        csrfToken: '{{ csrf_token }}'
+    };
+</script>
+<script src="{% static 'budget_app/js/budget_list.js' %}"></script>
+{% endblock %}

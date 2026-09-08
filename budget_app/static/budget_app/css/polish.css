@@ -1,0 +1,173 @@
+/* E-Budget visual polish layer.
+   Loaded after styles.css and theme-override.css so it wins any
+   specificity ties without needing !important. Purely additive:
+   nothing here changes layout, only transitions/entrance motion. */
+
+/* --- Smooth theme switching (light/dark/flat) instead of an instant flash --- */
+body,
+.card,
+.top-navbar,
+.topnav,
+.sidenav-light,
+#layoutSidenav_nav,
+table,
+.datatable-table,
+.modal-content,
+.dropdown-menu,
+.jexcel,
+.jexcel > tbody > tr > td,
+.jexcel > thead > tr > td {
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.form-control,
+.form-select {
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+}
+
+/* --- Smoother "Add Budget" sidenav collapse --- */
+/* Three rounds of tuning .collapsing's height transition (duration, then
+   easing curve) never fully fixed the "stiff" feel, because `height` is a
+   layout property — the browser reflows it every frame, it's never handed
+   to the compositor the way transform/opacity are, so no easing curve can
+   make it truly smooth. Checked the vendored SB Admin Pro theme in full
+   (every dist/*.html page, styles.css, scripts.js, including dashboard-1's
+   multi-level sidenav accordion) — the theme never solves this either, it's
+   stock Bootstrap `.collapsing { height 0.15s ease }` everywhere. So instead
+   of animating height at all, base.html's #collapseAddBudget is now toggled
+   via plain JS (not data-bs-toggle="collapse") and this animates
+   grid-template-rows on a wrapper instead. */
+
+/* Chevron rotation still keys off .collapsed on the trigger link (unchanged
+   vendor CSS in styles.css ~line 18585) — just toggled by our own JS now
+   instead of Bootstrap's. Reuse the theme's own reveal curve
+   (cubic-bezier(0, 1, 0.4, 1), from .animated--fade-in-up/.animated--fade-in
+   in styles.css ~line 15107) so the arrow's motion still matches the
+   panel's and the rest of the theme's motion language. */
+.sidenav .sidenav-menu .nav .nav-link .sidenav-collapse-arrow {
+    transition: transform 0.3s cubic-bezier(0, 1, 0.4, 1);
+}
+
+/* Grid-based collapse: animates grid-template-rows (0fr -> 1fr) instead of
+   height. The inner wrapper needs overflow:hidden + min-height:0 so a 0fr
+   row can actually clip its content instead of the content forcing the row
+   to stay content-sized. */
+.eb-collapse {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.3s cubic-bezier(0, 1, 0.4, 1);
+}
+.eb-collapse.eb-collapse-open {
+    grid-template-rows: 1fr;
+}
+.eb-collapse > div {
+    overflow: hidden;
+    min-height: 0;
+    /* Frame-by-frame review of screen recordings showed the real remaining
+       issue: grid-template-rows growth is smooth, but each nav-link still
+       *appears* the instant the growing edge clips past it — a hard binary
+       reveal, staircasing in one item at a time with no transition of its
+       own. Fading this whole wrapper in sync with the same open/close
+       toggle means items revealed early in the animation start dim/
+       transparent and continue brightening, instead of snapping straight
+       to fully opaque — softening the per-item "pop." */
+    opacity: 0;
+    transition: opacity 0.3s cubic-bezier(0, 1, 0.4, 1);
+}
+.eb-collapse.eb-collapse-open > div {
+    opacity: 1;
+}
+
+/* --- Sub-menu indentation guide line --- */
+/* The vendor's own .sidenav-menu-nested already draws a border-left guide
+   line (styles.css ~line 18596: border-left-width: thin, color #d4dae3 on
+   .sidenav-light) — that IS the reference screenshot's light-gray line.
+   At 1px it read as barely-there, so this keeps the vendor's own color
+   token (#d4dae3, not an invented shade — matches the theme's existing
+   design language rather than adding a new arbitrary color) and only
+   thickens it slightly to 2px so it stays visible without darkening it. */
+.sidenav-menu-nested {
+    border-left-width: 2px !important;
+    border-left-color: #d4dae3 !important;
+}
+.sidenav-menu-nested .nav-link {
+    padding-top: 0.65rem;
+    padding-bottom: 0.65rem;
+}
+
+/* --- Card hover treatment --- */
+/* Clickable cards (category cards): lift + shadow + pointer, as already
+   used on the budget_list.html category cards. */
+.card-lift {
+    transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out, background-color 0.2s ease, border-color 0.2s ease;
+}
+.card-lift:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+    cursor: pointer;
+}
+
+/* Non-clickable content cards (table container, modal detail cards,
+   jspreadsheet wrapper cards): a subtle shadow-only cue, no lift/pointer,
+   since these aren't actionable the way category cards are. */
+.card-soft {
+    transition: box-shadow 0.2s ease-in-out, background-color 0.2s ease, border-color 0.2s ease;
+}
+.card-soft:hover {
+    box-shadow: 0 0.35rem 0.75rem rgba(0, 0, 0, 0.08) !important;
+}
+
+/* --- Entrance animations (reused across list/table/modal rendering) --- */
+@keyframes eb-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+@keyframes eb-row-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+@keyframes eb-flash {
+    0% { background-color: rgba(0, 97, 242, 0.12); }
+    100% { background-color: transparent; }
+}
+
+/* Table fade-in on category/filter change (budget_list.js renderDataTable) */
+.table-fade-in {
+    animation: eb-fade-in 0.35s ease both;
+}
+
+/* Staggered row entrance. Targets #tableContainer's table structurally
+   (NOT #tableBody by id) because simple-datatables rebuilds the tbody when
+   it initializes and drops the id (and any inline style) the row markup
+   originally had — a plain #tableBody selector or a JS-set inline
+   animation-delay would silently never apply. nth-child delays survive
+   that rebuild since row order is preserved. */
+#tableContainer table tbody tr {
+    animation: eb-row-in 0.3s ease both;
+}
+#tableContainer table tbody tr:nth-child(1) { animation-delay: 0ms; }
+#tableContainer table tbody tr:nth-child(2) { animation-delay: 25ms; }
+#tableContainer table tbody tr:nth-child(3) { animation-delay: 50ms; }
+#tableContainer table tbody tr:nth-child(4) { animation-delay: 75ms; }
+#tableContainer table tbody tr:nth-child(5) { animation-delay: 100ms; }
+#tableContainer table tbody tr:nth-child(6) { animation-delay: 125ms; }
+#tableContainer table tbody tr:nth-child(7) { animation-delay: 150ms; }
+#tableContainer table tbody tr:nth-child(8) { animation-delay: 175ms; }
+#tableContainer table tbody tr:nth-child(9) { animation-delay: 200ms; }
+#tableContainer table tbody tr:nth-child(n+10) { animation-delay: 225ms; }
+
+/* Modal body content fade-in once populated */
+.modal-content-fade-in {
+    animation: eb-fade-in 0.3s ease both;
+}
+
+/* Brief highlight flash when a spreadsheet enters/leaves edit mode */
+.eb-edit-flash {
+    animation: eb-flash 0.6s ease;
+}
+
+/* Lightweight skeleton block shown while jspreadsheet initializes */
+.eb-skeleton {
+    height: 160px;
+    border-radius: 0.35rem;
+}

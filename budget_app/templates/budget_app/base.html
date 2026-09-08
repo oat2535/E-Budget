@@ -1,0 +1,302 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+        <meta name="description" content="" />
+        <meta name="author" content="" />
+        <title>{% block title %}E-Budget{% endblock %}</title>
+        {% block extra_css %}{% endblock %}
+        <link href="{% static 'budget_app/css/styles.css' %}" rel="stylesheet" />
+        <link href="{% static 'budget_app/css/theme-override.css' %}" rel="stylesheet" />
+        <link href="{% static 'budget_app/css/polish.css' %}" rel="stylesheet" />
+        <link rel="icon" type="image/jpeg" href="{% static 'budget_app/assets/img/coins.jpg' %}" />
+        <script data-search-pseudo-elements defer src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.3.0/js/all.min.js" crossorigin="anonymous"></script>
+        <script defer src="https://cdnjs.cloudflare.com/ajax/libs/feather-icons/4.29.0/feather.min.js" crossorigin="anonymous"></script>
+        <!-- SweetAlert2 -->
+        <script defer src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    </head>
+    <body class="nav-fixed" data-authenticated="{{ user.is_authenticated|yesno:'true,false' }}" data-idle-timeout-seconds="{{ session_idle_timeout_seconds }}">
+        <script>
+            // Apply theme immediately to prevent flash
+            (function() {
+                const savedTheme = localStorage.getItem('app-theme') || 'auto';
+                let activeTheme = savedTheme;
+                if (savedTheme === 'auto') {
+                    activeTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                }
+                if (activeTheme === 'dark') {
+                    document.body.classList.add('theme-dark');
+                } else if (savedTheme === 'flat') {
+                    document.body.classList.add('theme-flat');
+                }
+            })();
+        </script>
+        <nav class="topnav navbar navbar-expand shadow justify-content-between justify-content-sm-start navbar-light bg-white" id="sidenavAccordion">
+            <!-- Sidenav Toggle Button-->
+            <button class="btn btn-icon btn-transparent-dark order-1 order-lg-0 me-2 ms-lg-2 me-lg-0" id="sidebarToggle"><i data-feather="menu"></i></button>
+            <!-- Navbar Brand-->
+            <!-- * * Tip * * You can use text or an image for your navbar brand.-->
+            <!-- * * * * * * When using an image, we recommend the SVG format.-->
+            <!-- * * * * * * Dimensions: Maximum height: 32px, maximum width: 240px-->
+            <a class="navbar-brand pe-3 ps-4 ps-lg-2" href="{% url 'budget_list' %}"><i class="fas fa-coins text-primary me-2"></i>E-Budget</a>
+            <!-- Navbar Search Input-->
+            <!-- * * Note: * * Visible only on and above the lg breakpoint-->
+            
+            <!-- Navbar Items-->
+            <ul class="navbar-nav align-items-center ms-auto">
+                <!-- Theme Toggle Dropdown -->
+                <li class="nav-item dropdown no-caret me-3">
+                    <a class="btn btn-icon btn-transparent-dark dropdown-toggle" id="navbarDropdownTheme" href="javascript:void(0);" role="button" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Toggle Theme">
+                        <i data-feather="sun" id="themeToggleIcon"></i>
+                    </a>
+                    <div class="dropdown-menu dropdown-menu-end border-0 shadow animated--fade-in-up" aria-labelledby="navbarDropdownTheme">
+                        <a class="dropdown-item" href="javascript:void(0);" onclick="setTheme('light')"><i data-feather="sun" class="me-2"></i> Light Mode</a>
+                        <a class="dropdown-item" href="javascript:void(0);" onclick="setTheme('dark')"><i data-feather="moon" class="me-2"></i> Dark Mode</a>
+                        <a class="dropdown-item" href="javascript:void(0);" onclick="setTheme('flat')"><i data-feather="droplet" class="me-2"></i> Flat Mode</a>
+                        <a class="dropdown-item" href="javascript:void(0);" onclick="setTheme('auto')"><i data-feather="monitor" class="me-2"></i> Auto (OS Default)</a>
+                    </div>
+                </li>
+                <!-- User Dropdown-->
+                <li class="nav-item dropdown no-caret dropdown-user me-3 me-lg-4">
+                    <a class="btn btn-icon btn-transparent-dark dropdown-toggle" id="navbarDropdownUserImage" href="javascript:void(0);" role="button" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false"><img class="img-fluid" src="{% static 'budget_app/assets/img/illustrations/profiles/profile-2.png' %}" /></a>
+                    <div class="dropdown-menu dropdown-menu-end border-0 shadow animated--fade-in-up" aria-labelledby="navbarDropdownUserImage">
+                        <h6 class="dropdown-header d-flex align-items-center">
+                            <img class="dropdown-user-img" src="{% static 'budget_app/assets/img/illustrations/profiles/profile-2.png' %}" />
+                            <div class="dropdown-user-details">
+                                <div class="dropdown-user-details-name">{{ user.first_name }} {{ user.last_name }}</div>
+                                <div class="dropdown-user-details-email">{{ user.username }}</div>
+                            </div>
+                        </h6>
+                        <div class="dropdown-divider"></div>
+                        <form id="logoutForm" method="post" action="{% url 'logout' %}">
+                            {% csrf_token %}
+                            <button type="button" onclick="confirmLogout()" class="dropdown-item" style="border: none; background: none; width: 100%; text-align: left;">
+                                <div class="dropdown-item-icon"><i data-feather="log-out"></i></div>
+                                Logout
+                            </button>
+                        </form>
+                    </div>
+                </li>
+            </ul>
+        </nav>
+        <div id="layoutSidenav">
+            <div id="layoutSidenav_nav">
+                <nav class="sidenav shadow-right sidenav-light">
+                    <div class="sidenav-menu d-flex flex-column justify-content-between">
+                        <div class="nav accordion flex-grow-1" id="accordionSidenav">
+        <!-- Sidenav Menu Heading (Core)-->
+        <div class="sidenav-menu-heading">E-Budget</div>
+        
+        <a class="nav-link {% if request.resolver_match.url_name == 'budget_list' %}active{% endif %}" href="{% url 'budget_list' %}">
+            <div class="nav-link-icon"><i data-feather="list"></i></div>
+            Budget List
+        </a>
+        
+        <a id="addBudgetToggle" class="nav-link {% if request.resolver_match.url_name != 'budget_add' and request.resolver_match.url_name != 'budget_add_non_vet' and request.resolver_match.url_name != 'budget_add_adjustment' and request.resolver_match.url_name != 'budget_add_medical_equipment' and request.resolver_match.url_name != 'budget_add_computer_equipment' and request.resolver_match.url_name != 'budget_add_furniture' and request.resolver_match.url_name != 'budget_add_tools_equipment' %}collapsed{% endif %}" href="javascript:void(0);" aria-expanded="{% if request.resolver_match.url_name == 'budget_add' or request.resolver_match.url_name == 'budget_add_non_vet' or request.resolver_match.url_name == 'budget_add_adjustment' or request.resolver_match.url_name == 'budget_add_medical_equipment' or request.resolver_match.url_name == 'budget_add_computer_equipment' or request.resolver_match.url_name == 'budget_add_furniture' or request.resolver_match.url_name == 'budget_add_tools_equipment' %}true{% else %}false{% endif %}" aria-controls="collapseAddBudget">
+            <div class="nav-link-icon"><i data-feather="plus-circle"></i></div>
+            Add Budget
+            <div class="sidenav-collapse-arrow"><i data-feather="chevron-down"></i></div>
+        </a>
+        <div class="eb-collapse {% if request.resolver_match.url_name == 'budget_add' or request.resolver_match.url_name == 'budget_add_non_vet' or request.resolver_match.url_name == 'budget_add_adjustment' or request.resolver_match.url_name == 'budget_add_medical_equipment' or request.resolver_match.url_name == 'budget_add_computer_equipment' or request.resolver_match.url_name == 'budget_add_furniture' or request.resolver_match.url_name == 'budget_add_tools_equipment' %}eb-collapse-open{% endif %}" id="collapseAddBudget">
+            <div>
+            <nav class="sidenav-menu-nested nav">
+                <div class="px-3 pt-2 pb-1 small fw-bold text-primary text-uppercase">Manpower</div>
+                <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add' %}active{% endif %}" href="{% url 'budget_add' %}">VET Manpower</a>
+                <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_non_vet' %}active{% endif %}" href="{% url 'budget_add_non_vet' %}">NON VET Manpower</a>
+                <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_adjustment' %}active{% endif %}" href="{% url 'budget_add_adjustment' %}">Position Adjustment</a>
+
+                <div class="px-3 pt-3 pb-1 small fw-bold text-primary text-uppercase">Other Expenses</div>
+                <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_medical_equipment' %}active{% endif %}" href="{% url 'budget_add_medical_equipment' %}">Medical Equipment</a>
+                <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_computer_equipment' %}active{% endif %}" href="{% url 'budget_add_computer_equipment' %}">Computer Equipment</a>
+                <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_furniture' %}active{% endif %}" href="{% url 'budget_add_furniture' %}">Furniture</a>
+                <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_tools_equipment' %}active{% endif %}" href="{% url 'budget_add_tools_equipment' %}">Tools & Equipment</a>
+            </nav>
+            </div>
+        </div>
+    </div>
+    <!-- Sidenav Footer-->
+                    <div class="sidenav-footer">
+                        <div class="sidenav-footer-content">
+                            <div class="sidenav-footer-subtitle">Logged in as:</div>
+                            <div class="sidenav-footer-title">{{ user.first_name }} {{ user.last_name }}</div>
+                        </div>
+                    </div>
+                </nav>
+            </div>
+            <div id="layoutSidenav_content">
+                <main>{% block content %}{% endblock %}</main>
+                <footer class="footer-admin mt-auto footer-light">
+                    <div class="container-fluid px-4">
+                        <div class="row">
+                            <div class="col-md-12 text-center small">Copyright &copy; E-Budget {% now "Y" %}</div>
+                        </div>
+                    </div>
+                </footer>
+            </div>
+        </div>
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+        <script src="{% static 'budget_app/js/scripts.js' %}"></script>
+        <script>
+            document.addEventListener("DOMContentLoaded", () => {
+                const themeIcon = document.getElementById('themeToggleIcon');
+                
+                const updateTheme = (theme) => {
+                    let activeTheme = theme;
+                    if (theme === 'auto') {
+                        activeTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                    }
+                    
+                    if (activeTheme === 'dark') {
+                        document.body.classList.add('theme-dark');
+                        document.body.classList.remove('theme-flat');
+                        if (themeIcon) themeIcon.setAttribute('data-feather', 'moon');
+                    } else if (theme === 'flat') {
+                        document.body.classList.remove('theme-dark');
+                        document.body.classList.add('theme-flat');
+                        if (themeIcon) themeIcon.setAttribute('data-feather', 'droplet');
+                    } else {
+                        document.body.classList.remove('theme-dark');
+                        document.body.classList.remove('theme-flat');
+                        if (themeIcon) themeIcon.setAttribute('data-feather', 'sun');
+                    }
+                    if (typeof feather !== 'undefined') {
+                        feather.replace();
+                    }
+                };
+
+                window.setTheme = (theme) => {
+                    localStorage.setItem('app-theme', theme);
+                    updateTheme(theme);
+                };
+                
+                const savedTheme = localStorage.getItem('app-theme') || 'auto';
+                updateTheme(savedTheme);
+
+                window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+                    if (localStorage.getItem('app-theme') === 'auto') updateTheme('auto');
+                });
+            });
+
+            // "Add Budget" sidenav collapse: deliberately NOT using Bootstrap's
+            // data-bs-toggle="collapse" here. That plugin animates the `height`
+            // property directly (reads scrollHeight, sets an inline px value),
+            // which is a layout property the browser reflows every frame rather
+            // than a compositable one like transform/opacity — no amount of
+            // easing/duration tuning on it reads as smooth. This toggles a class
+            // instead and lets CSS animate `grid-template-rows` (see .eb-collapse
+            // in polish.css), which is genuinely smoother.
+            (function() {
+                const toggle = document.getElementById('addBudgetToggle');
+                const panel = document.getElementById('collapseAddBudget');
+                if (!toggle || !panel) return;
+                toggle.addEventListener('click', () => {
+                    const isOpen = panel.classList.toggle('eb-collapse-open');
+                    toggle.classList.toggle('collapsed', !isOpen);
+                    toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+                });
+            })();
+
+            function confirmLogout() {
+                Swal.fire({
+                    title: 'ยืนยันการออกจากระบบ?',
+                    text: "คุณต้องการออกจากระบบใช่หรือไม่?",
+                    icon: 'question',
+                    showCancelButton: true,
+                    confirmButtonColor: '#0061f2',
+                    cancelButtonColor: '#e81500',
+                    confirmButtonText: 'ยืนยัน',
+                    cancelButtonText: 'ยกเลิก'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        document.getElementById('logoutForm').submit();
+                    }
+                });
+            }
+
+            // Idle-timeout: warn the user before SESSION_COOKIE_AGE elapses and
+            // proactively log them out, instead of waiting for a click to reveal
+            // that the session had already died server-side. Reads its config
+            // from data-* attributes on <body> (set server-side) rather than
+            // embedding Django template tags in this script, so this whole
+            // block is plain, lintable JavaScript.
+            (function() {
+                if (document.body.dataset.authenticated !== 'true') return;
+
+                const IDLE_TIMEOUT_MS = parseInt(document.body.dataset.idleTimeoutSeconds, 10) * 1000;
+                const WARNING_BEFORE_MS = Math.min(60000, IDLE_TIMEOUT_MS);
+                const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'];
+
+                let warningTimer = null;
+                let logoutTimer = null;
+                let countdownInterval = null;
+                let warningShown = false;
+                let activityThrottled = false;
+
+                function doAutoLogout() {
+                    const form = document.getElementById('logoutForm');
+                    if (form) form.submit();
+                }
+
+                function showWarning() {
+                    warningShown = true;
+                    let secondsLeft = Math.round(WARNING_BEFORE_MS / 1000);
+                    Swal.fire({
+                        icon: 'warning',
+                        title: 'เซสชันใกล้หมดอายุ',
+                        html: `คุณไม่ได้ใช้งานระบบเป็นเวลานาน ระบบจะนำคุณออกจากระบบอัตโนมัติใน <b>${secondsLeft}</b> วินาที`,
+                        confirmButtonText: 'อยู่ต่อ',
+                        allowOutsideClick: false,
+                        allowEscapeKey: false,
+                        didOpen: () => {
+                            countdownInterval = setInterval(() => {
+                                secondsLeft -= 1;
+                                const counter = Swal.getHtmlContainer() && Swal.getHtmlContainer().querySelector('b');
+                                if (counter) counter.textContent = secondsLeft;
+                                if (secondsLeft <= 0) clearInterval(countdownInterval);
+                            }, 1000);
+                        },
+                        willClose: () => {
+                            clearInterval(countdownInterval);
+                        }
+                    }).then((result) => {
+                        if (result.isConfirmed) {
+                            resetIdleTimer();
+                        }
+                    });
+
+                    logoutTimer = setTimeout(doAutoLogout, WARNING_BEFORE_MS);
+                }
+
+                function resetIdleTimer() {
+                    // Only ever touches its own timers — never Swal.close(),
+                    // since SweetAlert2 is a page-wide singleton and this
+                    // fires on ordinary mouse/keyboard activity, which would
+                    // otherwise slam shut any unrelated dialog the app has
+                    // open (the logout confirm, a save-in-progress spinner...).
+                    warningShown = false;
+                    clearTimeout(warningTimer);
+                    clearTimeout(logoutTimer);
+                    clearInterval(countdownInterval);
+                    warningTimer = setTimeout(showWarning, IDLE_TIMEOUT_MS - WARNING_BEFORE_MS);
+                }
+
+                function onActivity() {
+                    // Ignore ambient activity while the warning is up: only the
+                    // "อยู่ต่อ" button counts, so a stray mouse move over the page
+                    // can't silently dismiss a warning the user hasn't acknowledged.
+                    if (warningShown || activityThrottled) return;
+                    activityThrottled = true;
+                    setTimeout(() => { activityThrottled = false; }, 1000);
+                    resetIdleTimer();
+                }
+
+                ACTIVITY_EVENTS.forEach(evt => document.addEventListener(evt, onActivity, { passive: true }));
+                resetIdleTimer();
+            })();
+        </script>
+        {% block extra_js %}{% endblock %}
+    </body>
+</html>
