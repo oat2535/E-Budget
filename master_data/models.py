@@ -35,3 +35,10 @@ class ebudget_budget_item_master(models.Model):
 
     def __str__(self):
         return self.item_name
+
+class ebudget_cost_center_master(models.Model):
+    cost_center_name = models.CharField(max_length=255, unique=True, verbose_name="ชื่อ Cost Center")
+    description = models.CharField(max_length=255, null=True, blank=True, verbose_name="คำอธิบาย")
+
+    def __str__(self):
+        return self.cost_center_name

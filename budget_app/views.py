@@ -7,7 +7,7 @@ from django.contrib.auth import authenticate, login
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db.models import Count, Max
-from master_data.models import ebudget_budget_item_master, ebudget_budget_category_master
+from master_data.models import ebudget_budget_item_master, ebudget_budget_category_master, ebudget_cost_center_master
 from budget_app.models import ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment, ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment
 from budget_app.services import BudgetService
 
@@ -41,6 +41,13 @@ def get_branch_filter_kwargs(request):
     if 'base_site_branch_id' not in request.session:
         request.session['base_site_branch_id'] = BudgetService.get_branch_id_from_imedx(request.user.username)
     return {'base_branch_id': request.session['base_site_branch_id']}
+
+def get_cost_centers_json():
+    """Dropdown source for the cost-center selector on every add-budget page,
+    in the same {id, name} shape as the existing item-master dropdowns."""
+    return list(
+        ebudget_cost_center_master.objects.values('id', 'cost_center_name').order_by('cost_center_name')
+    )
 
 def login_view(request):
     if request.method == 'POST':
@@ -124,7 +131,8 @@ def budget_list_view(request):
         'items_med_json': med_items_list,
         'items_comp_json': comp_items_list,
         'items_furniture_json': furniture_items_list,
-        'items_tools_json': tools_items_list
+        'items_tools_json': tools_items_list,
+        'cost_centers_json': get_cost_centers_json()
     })
 
 @login_required
@@ -132,6 +140,8 @@ def budget_add_view(request):
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
+            if not data or not data[0].get('cost_center_name'):
+                return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             username = request.user.username
             branch_id = BudgetService.get_branch_id_from_imedx(username)
             doc_no = BudgetService.generate_document_no('VET')
@@ -144,6 +154,7 @@ def budget_add_view(request):
                         salary=item['salary'],
                         create_eid=username,
                         base_branch_id=branch_id,
+                        cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
                         general_ledger=gl_obj
@@ -166,16 +177,21 @@ def budget_add_view(request):
             'name': item['item_name'],
             'salary': float(item['salary'])
         })
-    
-    return render(request, 'budget_app/budget_add.html', {'items_json': items_list})
+
+    return render(request, 'budget_app/budget_add.html', {
+        'items_json': items_list,
+        'cost_centers_json': get_cost_centers_json()
+    })
 
 @login_required
 def budget_add_non_vet_view(request):
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
+            if not data or not data[0].get('cost_center_name'):
+                return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             username = request.user.username
-            
+
             branch_id = BudgetService.get_branch_id_from_imedx(username)
             doc_no = BudgetService.generate_document_no('NON VET')
 
@@ -188,6 +204,7 @@ def budget_add_non_vet_view(request):
                         position_allowance=item.get('position_allowance', 0),
                         create_eid=username,
                         base_branch_id=branch_id,
+                        cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
                         general_ledger=gl_obj
@@ -206,8 +223,11 @@ def budget_add_non_vet_view(request):
             'salary': float(item['salary']),
             'position_allowance': float(item.get('position_allowance') or 0)
         })
-    
-    return render(request, 'budget_app/budget_add_non_vet.html', {'items_json': items_list})
+
+    return render(request, 'budget_app/budget_add_non_vet.html', {
+        'items_json': items_list,
+        'cost_centers_json': get_cost_centers_json()
+    })
 
 @login_required_json
 def get_budget_documents_api(request, category_code):
@@ -373,7 +393,8 @@ def get_document_detail_api(request, doc_type, doc_no):
         'create_date': first_item.create_date.strftime('%d/%m/%Y %H:%M') if first_item.create_date else '-',
         'create_eid': first_item.create_eid,
         'type': doc_type,
-        'base_branch_id': first_item.base_branch_id or '-'
+        'base_branch_id': first_item.base_branch_id or '-',
+        'cost_center_name': first_item.cost_center_name or ''
     }
 
     manpower_list = []
@@ -420,8 +441,10 @@ def update_document_api(request, doc_type, doc_no):
         
     try:
         data = json.loads(request.body)
+        if not data or not data[0].get('cost_center_name'):
+            return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
         username = request.user.username
-        
+
         if doc_type == 'VET':
             model_class = ebudget_vet_manpower
         elif doc_type == 'NON VET':
@@ -462,6 +485,7 @@ def update_document_api(request, doc_type, doc_no):
                         new_salary=item['new_salary'],
                         new_allowance=item['new_allowance'],
                         base_branch_id=base_branch_id,
+                        cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         create_date=create_date,
                         create_eid=create_eid,
@@ -477,6 +501,7 @@ def update_document_api(request, doc_type, doc_no):
                         position_name=item['position_name'],
                         salary=item['salary'],
                         base_branch_id=base_branch_id,
+                        cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         create_date=create_date,
                         create_eid=create_eid,
@@ -492,6 +517,7 @@ def update_document_api(request, doc_type, doc_no):
                         item_name=item['item_name'],
                         purchase_price=item['purchase_price'],
                         base_branch_id=base_branch_id,
+                        cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         create_date=create_date,
                         create_eid=create_eid,
@@ -508,6 +534,7 @@ def update_document_api(request, doc_type, doc_no):
                         salary=item['salary'],
                         position_allowance=item.get('position_allowance', 0),
                         base_branch_id=base_branch_id,
+                        cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         create_date=create_date,
                         create_eid=create_eid,
@@ -526,8 +553,10 @@ def budget_add_adjustment_view(request):
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
+            if not data or not data[0].get('cost_center_name'):
+                return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             username = request.user.username
-            
+
             # Fetch branch_id automatically from imedx
             branch_id = None
             try:
@@ -558,6 +587,7 @@ def budget_add_adjustment_view(request):
                         new_allowance=item['new_allowance'],
                         create_eid=username,
                         base_branch_id=branch_id,
+                        cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
                         general_ledger=gl_obj
@@ -592,15 +622,20 @@ def budget_add_adjustment_view(request):
             'position_allowance': float(item.get('position_allowance') or 0)
         })
     
-    return render(request, 'budget_app/budget_add_adjustment.html', {'items_json': items_list})
+    return render(request, 'budget_app/budget_add_adjustment.html', {
+        'items_json': items_list,
+        'cost_centers_json': get_cost_centers_json()
+    })
 
 @login_required
 def budget_add_medical_equipment_view(request):
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
+            if not data or not data[0].get('cost_center_name'):
+                return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             username = request.user.username
-            
+
             branch_id = None
             try:
                 with connections['imedx'].cursor() as cursor:
@@ -626,6 +661,7 @@ def budget_add_medical_equipment_view(request):
                         purchase_price=item['purchase_price'],
                         create_eid=username,
                         base_branch_id=branch_id,
+                        cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
                         general_ledger=gl_obj
@@ -643,7 +679,10 @@ def budget_add_medical_equipment_view(request):
             'purchase_price': float(item.get('purchase_price') or 0)
         })
     
-    return render(request, 'budget_app/budget_add_medical_equipment.html', {'items_json': items_list})
+    return render(request, 'budget_app/budget_add_medical_equipment.html', {
+        'items_json': items_list,
+        'cost_centers_json': get_cost_centers_json()
+    })
 
 @login_required
 def budget_add_computer_equipment_view(request):
@@ -651,8 +690,10 @@ def budget_add_computer_equipment_view(request):
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
+            if not data or not data[0].get('cost_center_name'):
+                return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             username = request.user.username
-            
+
             branch_id = None
             try:
                 with connections['imedx'].cursor() as cursor:
@@ -678,6 +719,7 @@ def budget_add_computer_equipment_view(request):
                         purchase_price=item['purchase_price'],
                         create_eid=username,
                         base_branch_id=branch_id,
+                        cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
                         general_ledger=gl_obj
@@ -695,13 +737,18 @@ def budget_add_computer_equipment_view(request):
             'purchase_price': float(item.get('purchase_price') or 0)
         })
 
-    return render(request, 'budget_app/budget_add_computer_equipment.html', {'items_json': items_list})
+    return render(request, 'budget_app/budget_add_computer_equipment.html', {
+        'items_json': items_list,
+        'cost_centers_json': get_cost_centers_json()
+    })
 
 @login_required
 def budget_add_furniture_view(request):
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
+            if not data or not data[0].get('cost_center_name'):
+                return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             username = request.user.username
 
             branch_id = None
@@ -729,6 +776,7 @@ def budget_add_furniture_view(request):
                         purchase_price=item['purchase_price'],
                         create_eid=username,
                         base_branch_id=branch_id,
+                        cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
                         general_ledger=gl_obj
@@ -746,13 +794,18 @@ def budget_add_furniture_view(request):
             'purchase_price': float(item.get('purchase_price') or 0)
         })
 
-    return render(request, 'budget_app/budget_add_furniture.html', {'items_json': items_list})
+    return render(request, 'budget_app/budget_add_furniture.html', {
+        'items_json': items_list,
+        'cost_centers_json': get_cost_centers_json()
+    })
 
 @login_required
 def budget_add_tools_equipment_view(request):
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
+            if not data or not data[0].get('cost_center_name'):
+                return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             username = request.user.username
 
             branch_id = None
@@ -780,6 +833,7 @@ def budget_add_tools_equipment_view(request):
                         purchase_price=item['purchase_price'],
                         create_eid=username,
                         base_branch_id=branch_id,
+                        cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
                         general_ledger=gl_obj
@@ -797,4 +851,7 @@ def budget_add_tools_equipment_view(request):
             'purchase_price': float(item.get('purchase_price') or 0)
         })
 
-    return render(request, 'budget_app/budget_add_tools_equipment.html', {'items_json': items_list})
+    return render(request, 'budget_app/budget_add_tools_equipment.html', {
+        'items_json': items_list,
+        'cost_centers_json': get_cost_centers_json()
+    })

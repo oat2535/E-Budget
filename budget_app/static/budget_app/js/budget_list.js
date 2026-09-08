@@ -28,8 +28,28 @@ const BudgetApp = (function() {
     const compItems = document.getElementById('comp-items-data') ? JSON.parse(document.getElementById('comp-items-data').textContent) : [];
     const furnitureItems = document.getElementById('furniture-items-data') ? JSON.parse(document.getElementById('furniture-items-data').textContent) : [];
     const toolsItems = document.getElementById('tools-items-data') ? JSON.parse(document.getElementById('tools-items-data').textContent) : [];
+    const costCenters = document.getElementById('modal-cost-centers-data') ? JSON.parse(document.getElementById('modal-cost-centers-data').textContent) : [];
 
     const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
+
+    // Fills a cost-center <select> with every known cost center and
+    // preselects `currentValue` (kept as an option even if it's since been
+    // renamed/removed from the master table, so editing never silently
+    // drops the document's existing value).
+    function populateCostCenterSelect(selectEl, currentValue) {
+        selectEl.innerHTML = '';
+        const names = costCenters.map(cc => cc.cost_center_name);
+        if (currentValue && !names.includes(currentValue)) {
+            names.unshift(currentValue);
+        }
+        names.forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            selectEl.appendChild(opt);
+        });
+        selectEl.value = currentValue || '';
+    }
 
     // Shared response handler for every fetch() call in this module: an
     // expired session comes back as HTTP 401 JSON (see login_required_json
@@ -351,6 +371,10 @@ const BudgetApp = (function() {
                     document.getElementById('modalDocNo').innerText = result.doc_info.document_no;
                     document.getElementById('modalDocType').innerHTML = result.doc_info.type === 'VET' ? '<span class="badge bg-primary">VET</span>' : result.doc_info.type === 'Medical Equipment' ? '<span class="badge bg-success">Medical Equipment</span>' : result.doc_info.type === 'Computer Equipment' ? '<span class="badge bg-warning text-dark">Computer Equipment</span>' : result.doc_info.type === 'Furniture' ? '<span class="badge bg-secondary">Furniture</span>' : result.doc_info.type === 'Tools & Equipment' ? '<span class="badge bg-dark">Tools & Equipment</span>' : '<span class="badge" style="background-color: #6610f2;">NON VET</span>';
                     document.getElementById('modalDocBranch').innerText = result.doc_info.base_branch_id;
+                    document.getElementById('modalDocCostCenter').innerText = result.doc_info.cost_center_name || '-';
+                    populateCostCenterSelect(document.getElementById('modalDocCostCenterSelect'), result.doc_info.cost_center_name);
+                    document.getElementById('modalDocCostCenterSelect').style.display = 'none';
+                    document.getElementById('modalDocCostCenter').style.display = 'inline';
                     document.getElementById('modalDocCreator').innerText = result.doc_info.create_eid;
                     document.getElementById('modalDocDate').innerText = result.doc_info.create_date;
 
@@ -516,7 +540,10 @@ const BudgetApp = (function() {
             btnAddRow.style.display = 'block';
             btnSave.style.display = 'inline-block';
             if (btnClose) btnClose.style.display = 'none';
-            
+
+            document.getElementById('modalDocCostCenter').style.display = 'none';
+            document.getElementById('modalDocCostCenterSelect').style.display = 'inline-block';
+
             // Re-create Table 1 for Edit
             let columns = [
                 { type: 'dropdown', title: isEquipment ? 'เครื่องมือ' : 'ตำแหน่ง', width: 250, source: itemNames, autocomplete: true },
@@ -570,7 +597,13 @@ const BudgetApp = (function() {
 
     function saveDocument() {
         if (!modalTable1 || !isEditMode) return;
-        
+
+        const costCenterName = document.getElementById('modalDocCostCenterSelect').value;
+        if (!costCenterName) {
+            Swal.fire('แจ้งเตือน', 'กรุณาเลือก Cost Center', 'warning');
+            return;
+        }
+
         const isNonVet = currentDocType === 'NON VET';
         const isMed = currentDocType === 'Medical Equipment';
         const isComp = currentDocType === 'Computer Equipment';
@@ -609,12 +642,14 @@ const BudgetApp = (function() {
                     rowData = {
                         'item_name': position,
                         'purchase_price': salary,
+                        'cost_center_name': costCenterName,
                         'monthly_data': monthlyData
                     };
                 } else {
                     rowData = {
                         'position_name': position,
                         'salary': salary,
+                        'cost_center_name': costCenterName,
                         'monthly_data': monthlyData
                     };
                     if (isNonVet) {
@@ -715,6 +750,10 @@ const BudgetApp = (function() {
                 if (result.status === 'success') {
                     document.getElementById('adjModalDocNo').innerText = result.doc_info.document_no;
                     document.getElementById('adjModalDocBranch').innerText = result.doc_info.base_branch_id;
+                    document.getElementById('adjModalDocCostCenter').innerText = result.doc_info.cost_center_name || '-';
+                    populateCostCenterSelect(document.getElementById('adjModalDocCostCenterSelect'), result.doc_info.cost_center_name);
+                    document.getElementById('adjModalDocCostCenterSelect').style.display = 'none';
+                    document.getElementById('adjModalDocCostCenter').style.display = 'inline';
                     document.getElementById('adjModalDocCreator').innerText = result.doc_info.create_eid;
                     document.getElementById('adjModalDocDate').innerText = result.doc_info.create_date;
 
@@ -984,7 +1023,10 @@ const BudgetApp = (function() {
             btnAddRow.style.display = 'block';
             btnSave.style.display = 'inline-block';
             if (btnClose) btnClose.style.display = 'none';
-            
+
+            document.getElementById('adjModalDocCostCenter').style.display = 'none';
+            document.getElementById('adjModalDocCostCenterSelect').style.display = 'inline-block';
+
             const cols1 = [
                 { type: 'dropdown', title: 'ตำแหน่งเดิม', width: 200, source: allAdjItems, autocomplete: true },
                 { type: 'dropdown', title: 'ตำแหน่งใหม่', width: 200, source: allAdjItems, autocomplete: true },
@@ -1049,11 +1091,17 @@ const BudgetApp = (function() {
 
     function saveAdjDocument() {
         if (!adjTable1 || !isAdjEditMode) return;
-        
+
+        const costCenterName = document.getElementById('adjModalDocCostCenterSelect').value;
+        if (!costCenterName) {
+            Swal.fire('แจ้งเตือน', 'กรุณาเลือก Cost Center', 'warning');
+            return;
+        }
+
         const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
         let rows = adjTable1.getData();
         let dataToSave = [];
-        
+
         for (let i = 0; i < rows.length; i++) {
             let row = rows[i];
             let oldPos = row[0];
@@ -1062,25 +1110,28 @@ const BudgetApp = (function() {
             let oldAllow = getNum(row[3]);
             let newSal = getNum(row[5]);
             let newAllow = getNum(row[6]);
-            
+
             if (oldPos && newPos) {
                 let diffSal = newSal - oldSal;
                 let diffAllow = newAllow - oldAllow;
-                let monthlyData = {
-                    'jan': { 'headcount': getNum(row[10]), 'salary_diff_cost': getNum(row[10]) * diffSal, 'allowance_diff_cost': getNum(row[10]) * diffAllow },
-                    'feb': { 'headcount': getNum(row[11]), 'salary_diff_cost': getNum(row[11]) * diffSal, 'allowance_diff_cost': getNum(row[11]) * diffAllow },
-                    'mar': { 'headcount': getNum(row[12]), 'salary_diff_cost': getNum(row[12]) * diffSal, 'allowance_diff_cost': getNum(row[12]) * diffAllow },
-                    'apr': { 'headcount': getNum(row[13]), 'salary_diff_cost': getNum(row[13]) * diffSal, 'allowance_diff_cost': getNum(row[13]) * diffAllow },
-                    'may': { 'headcount': getNum(row[14]), 'salary_diff_cost': getNum(row[14]) * diffSal, 'allowance_diff_cost': getNum(row[14]) * diffAllow },
-                    'jun': { 'headcount': getNum(row[15]), 'salary_diff_cost': getNum(row[15]) * diffSal, 'allowance_diff_cost': getNum(row[15]) * diffAllow },
-                    'jul': { 'headcount': getNum(row[16]), 'salary_diff_cost': getNum(row[16]) * diffSal, 'allowance_diff_cost': getNum(row[16]) * diffAllow },
-                    'aug': { 'headcount': getNum(row[17]), 'salary_diff_cost': getNum(row[17]) * diffSal, 'allowance_diff_cost': getNum(row[17]) * diffAllow },
-                    'sep': { 'headcount': getNum(row[18]), 'salary_diff_cost': getNum(row[18]) * diffSal, 'allowance_diff_cost': getNum(row[18]) * diffAllow },
-                    'oct': { 'headcount': getNum(row[19]), 'salary_diff_cost': getNum(row[19]) * diffSal, 'allowance_diff_cost': getNum(row[19]) * diffAllow },
-                    'nov': { 'headcount': getNum(row[20]), 'salary_diff_cost': getNum(row[20]) * diffSal, 'allowance_diff_cost': getNum(row[20]) * diffAllow },
-                    'dec': { 'headcount': getNum(row[21]), 'salary_diff_cost': getNum(row[21]) * diffSal, 'allowance_diff_cost': getNum(row[21]) * diffAllow }
-                };
-                
+                const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+                let monthlyData = {};
+                monthKeys.forEach((key, idx) => {
+                    const headcount = getNum(row[10 + idx]);
+                    const salaryCost = headcount * diffSal;
+                    const allowanceCost = headcount * diffAllow;
+                    monthlyData[key] = {
+                        headcount: headcount,
+                        // BudgetMonthlyDetail only has one 'cost' column, so the
+                        // two per-month budgets shown on screen are combined
+                        // here into the single total that actually gets persisted
+                        // (see budget_add_adjustment.html for the same fix on create).
+                        cost: salaryCost + allowanceCost,
+                        salary_diff_cost: salaryCost,
+                        allowance_diff_cost: allowanceCost,
+                    };
+                });
+
                 dataToSave.push({
                     'old_position_name': oldPos,
                     'new_position_name': newPos,
@@ -1088,11 +1139,12 @@ const BudgetApp = (function() {
                     'old_allowance': oldAllow,
                     'new_salary': newSal,
                     'new_allowance': newAllow,
+                    'cost_center_name': costCenterName,
                     'monthly_data': monthlyData
                 });
             }
         }
-        
+
         if (dataToSave.length === 0) {
             Swal.fire('แจ้งเตือน', 'กรุณาระบุข้อมูลอย่างน้อย 1 แถว', 'warning');
             return;

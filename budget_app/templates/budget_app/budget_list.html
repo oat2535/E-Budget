@@ -140,6 +140,7 @@
                                         <th>เลขที่เอกสาร</th>
                                         <th>ประเภท</th>
                                         <th>รหัสสาขา</th>
+                                        <th>Cost Center</th>
                                         <th>ผู้สร้าง</th>
                                         <th>วันที่สร้าง</th>
                                     </tr>
@@ -149,6 +150,10 @@
                                         <td id="modalDocNo"></td>
                                         <td id="modalDocType"></td>
                                         <td id="modalDocBranch"></td>
+                                        <td>
+                                            <span id="modalDocCostCenter"></span>
+                                            <select id="modalDocCostCenterSelect" class="form-select form-select-sm" style="display: none;"></select>
+                                        </td>
                                         <td id="modalDocCreator"></td>
                                         <td id="modalDocDate"></td>
                                     </tr>
@@ -215,6 +220,7 @@
                                         <th>เลขที่เอกสาร</th>
                                         <th>ประเภท</th>
                                         <th>รหัสสาขา</th>
+                                        <th>Cost Center</th>
                                         <th>ผู้สร้าง</th>
                                         <th>วันที่สร้าง</th>
                                     </tr>
@@ -224,6 +230,10 @@
                                         <td id="adjModalDocNo"></td>
                                         <td id="adjModalDocType"><span class="badge bg-info">Position Adjustment</span></td>
                                         <td id="adjModalDocBranch"></td>
+                                        <td>
+                                            <span id="adjModalDocCostCenter"></span>
+                                            <select id="adjModalDocCostCenterSelect" class="form-select form-select-sm" style="display: none;"></select>
+                                        </td>
                                         <td id="adjModalDocCreator"></td>
                                         <td id="adjModalDocDate"></td>
                                     </tr>
@@ -290,6 +300,7 @@
 {{ items_comp_json|json_script:"comp-items-data" }}
 {{ items_furniture_json|json_script:"furniture-items-data" }}
 {{ items_tools_json|json_script:"tools-items-data" }}
+{{ cost_centers_json|json_script:"modal-cost-centers-data" }}
 
 <script>
     window.APP_CONFIG = {

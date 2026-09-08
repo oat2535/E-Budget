@@ -53,6 +53,15 @@
 </header>
 
 <div class="container-fluid px-4 mt-n10">
+    <div class="card mb-4 shadow-sm border-0 card-soft">
+        <div class="card-body">
+            <label for="cost-center-select" class="form-label fw-500">Cost Center <span class="text-danger">*</span></label>
+            <select id="cost-center-select" class="form-select" style="max-width: 320px;">
+                <option value="">-- เลือก Cost Center --</option>
+            </select>
+        </div>
+    </div>
+
     <!-- Table 1: Headcount -->
     <div class="card mb-4 shadow-sm border-0 card-soft">
         <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
@@ -91,10 +100,11 @@
 <script src="https://jsuites.net/v4/jsuites.js"></script>
 
 {{ items_json|json_script:"items-data" }}
+{{ cost_centers_json|json_script:"cost-centers-data" }}
 <script>
     document.addEventListener("DOMContentLoaded", function() {
         const items = JSON.parse(document.getElementById('items-data').textContent);
-        
+
         // Helper functions
         const getSalary = (name) => {
             const match = items.find(i => i.name === name);
@@ -105,6 +115,17 @@
             return match ? match.position_allowance : 0;
         };
         const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
+
+        // Cost center select: chosen once for the whole document, stamped
+        // onto every row on save (not a per-row jspreadsheet column).
+        const costCenters = JSON.parse(document.getElementById('cost-centers-data').textContent);
+        const costCenterSelect = document.getElementById('cost-center-select');
+        costCenters.forEach(cc => {
+            const opt = document.createElement('option');
+            opt.value = cc.cost_center_name;
+            opt.textContent = cc.cost_center_name;
+            costCenterSelect.appendChild(opt);
+        });
 
         // Carry-forward budget: every month's cost is the running headcount total
         // (all entries so far this year) times rate, not just that month's own
@@ -334,7 +355,13 @@
         // Save logic
         document.getElementById('save-budget-btn').addEventListener('click', function() {
             if (!table1) return;
-            
+
+            const costCenterName = costCenterSelect.value;
+            if (!costCenterName) {
+                Swal.fire('แจ้งเตือน', 'กรุณาเลือก Cost Center ก่อนบันทึก', 'warning');
+                return;
+            }
+
             let rows = table1.getData();
             let dataToSave = [];
             
@@ -377,6 +404,7 @@
                         'old_allowance': oldAllow,
                         'new_salary': newSal,
                         'new_allowance': newAllow,
+                        'cost_center_name': costCenterName,
                         'monthly_data': monthlyData
                     });
                 }

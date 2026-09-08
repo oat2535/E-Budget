@@ -50,6 +50,15 @@
 
 <div class="container-fluid px-4 mt-n10">
     <div class="card mb-4 shadow-sm border-0 card-soft">
+        <div class="card-body">
+            <label for="cost-center-select" class="form-label fw-500">Cost Center <span class="text-danger">*</span></label>
+            <select id="cost-center-select" class="form-select" style="max-width: 320px;">
+                <option value="">-- เลือก Cost Center --</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="card mb-4 shadow-sm border-0 card-soft">
         <div class="card-header d-flex justify-content-between align-items-center bg-white py-3">
             <h6 class="m-0 font-weight-bold text-primary">ตารางส่วนแรก (กรอกจำนวน)</h6>
             <button id="add-row-btn" class="btn btn-sm btn-primary"><i data-feather="plus" class="me-1"></i> เพิ่มรายการ</button>
@@ -75,16 +84,28 @@
 <script src="https://jsuites.net/v4/jsuites.js"></script>
 
 {{ items_json|json_script:"items-data" }}
+{{ cost_centers_json|json_script:"cost-centers-data" }}
 <script>
     document.addEventListener("DOMContentLoaded", function() {
         const items = JSON.parse(document.getElementById('items-data').textContent);
-        
+
         const itemNames = items.map(i => i.name);
 
         const getSalary = (name) => {
             const match = items.find(i => i.name === name);
             return match ? match.purchase_price : 0;
         };
+
+        // Cost center select: chosen once for the whole document, stamped
+        // onto every row on save (not a per-row jspreadsheet column).
+        const costCenters = JSON.parse(document.getElementById('cost-centers-data').textContent);
+        const costCenterSelect = document.getElementById('cost-center-select');
+        costCenters.forEach(cc => {
+            const opt = document.createElement('option');
+            opt.value = cc.cost_center_name;
+            opt.textContent = cc.cost_center_name;
+            costCenterSelect.appendChild(opt);
+        });
 
         // Columns definition
         const columns = [
@@ -204,15 +225,21 @@
         // Save button logic
         document.getElementById('save-budget-btn').addEventListener('click', function() {
             if (!table1) return;
-            
+
+            const costCenterName = costCenterSelect.value;
+            if (!costCenterName) {
+                Swal.fire('แจ้งเตือน', 'กรุณาเลือก Cost Center ก่อนบันทึก', 'warning');
+                return;
+            }
+
             let rows = table1.getData();
             let dataToSave = [];
-            
+
             for (let i = 0; i < rows.length; i++) {
                 let row = rows[i];
                 let position = row[0];
                 let salary = getNum(row[1]);
-                
+
                 if (position && salary > 0) {
                     let monthlyData = {
                         'jan': { 'headcount': getNum(row[2]), 'cost': getNum(row[2]) * salary },
@@ -228,10 +255,11 @@
                         'nov': { 'headcount': getNum(row[12]), 'cost': getNum(row[12]) * salary },
                         'dec': { 'headcount': getNum(row[13]), 'cost': getNum(row[13]) * salary }
                     };
-                    
+
                     dataToSave.push({
                         'item_name': position,
                         'purchase_price': salary,
+                        'cost_center_name': costCenterName,
                         'monthly_data': monthlyData
                     });
                 }
