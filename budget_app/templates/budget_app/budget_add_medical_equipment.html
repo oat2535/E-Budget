@@ -128,6 +128,22 @@
 
         const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
 
+        // Carry-forward budget: a month with an entered quantity (>0) contributes
+        // its own count to cost and adds to the running total; a blank/zero month
+        // inherits the running total instead of showing 0 (equipment purchased
+        // continues costing/depreciating in the months after it's bought, not
+        // just the month typed).
+        const computeMonthlyBudget = (monthCounts, price) => {
+            let cumulative = 0;
+            return monthCounts.map((count) => {
+                if (count > 0) {
+                    cumulative += count;
+                    return { count, cost: count * price };
+                }
+                return { count: 0, cost: cumulative * price };
+            });
+        };
+
         const onchange = function(instance, cell, x, y, value) {
             if (!table1 || !table2 || isUpdating) return;
             isUpdating = true;
@@ -157,13 +173,17 @@
             table2.setValueFromCoords(0, y, pos, true);
             table2.setValueFromCoords(1, y, sal, true);
             
-            let sum2 = 0;
-            for(let i = 2; i <= 13; i++) {
-                const count = getNum(rowData1[i]);
-                const cost = count * sal;
-                table2.setValueFromCoords(i, y, cost, true);
-                sum2 += cost;
+            const monthCounts = [];
+            for (let i = 2; i <= 13; i++) {
+                monthCounts.push(getNum(rowData1[i]));
             }
+            const monthlyBudget = computeMonthlyBudget(monthCounts, sal);
+
+            let sum2 = 0;
+            monthlyBudget.forEach((m, idx) => {
+                table2.setValueFromCoords(idx + 2, y, m.cost, true);
+                sum2 += m.cost;
+            });
             table2.setValueFromCoords(14, y, sum2, true);
             
             isUpdating = false;
@@ -214,21 +234,16 @@
                 let salary = getNum(row[1]);
                 
                 if (position && salary > 0) {
-                    let monthlyData = {
-                        'jan': { 'headcount': getNum(row[2]), 'cost': getNum(row[2]) * salary },
-                        'feb': { 'headcount': getNum(row[3]), 'cost': getNum(row[3]) * salary },
-                        'mar': { 'headcount': getNum(row[4]), 'cost': getNum(row[4]) * salary },
-                        'apr': { 'headcount': getNum(row[5]), 'cost': getNum(row[5]) * salary },
-                        'may': { 'headcount': getNum(row[6]), 'cost': getNum(row[6]) * salary },
-                        'jun': { 'headcount': getNum(row[7]), 'cost': getNum(row[7]) * salary },
-                        'jul': { 'headcount': getNum(row[8]), 'cost': getNum(row[8]) * salary },
-                        'aug': { 'headcount': getNum(row[9]), 'cost': getNum(row[9]) * salary },
-                        'sep': { 'headcount': getNum(row[10]), 'cost': getNum(row[10]) * salary },
-                        'oct': { 'headcount': getNum(row[11]), 'cost': getNum(row[11]) * salary },
-                        'nov': { 'headcount': getNum(row[12]), 'cost': getNum(row[12]) * salary },
-                        'dec': { 'headcount': getNum(row[13]), 'cost': getNum(row[13]) * salary }
-                    };
-                    
+                    const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+                    const monthCounts = [];
+                    for (let i = 2; i <= 13; i++) monthCounts.push(getNum(row[i]));
+                    const monthlyBudget = computeMonthlyBudget(monthCounts, salary);
+
+                    let monthlyData = {};
+                    monthKeys.forEach((key, idx) => {
+                        monthlyData[key] = { headcount: monthCounts[idx], cost: monthlyBudget[idx].cost };
+                    });
+
                     dataToSave.push({
                         'item_name': position,
                         'purchase_price': salary,
