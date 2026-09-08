@@ -25,6 +25,23 @@ def login_required_json(view_func):
         return view_func(request, *args, **kwargs)
     return wrapper
 
+# Usernames allowed to view/edit budget documents across every branch,
+# instead of being scoped to their own base_site_branch_id.
+ALL_BRANCH_USERNAMES = {'nattchai_u', 'kanchana_a', 'pattida_y'}
+
+def get_branch_filter_kwargs(request):
+    """Filter kwargs scoping budget-document queries to the current user's
+    own branch. Empty dict for ALL_BRANCH_USERNAMES (no scoping). The
+    branch id is looked up from imedx once per session (cached in
+    request.session) rather than on every request. Fails closed: an
+    unknown branch (None) filters to base_branch_id=None, matching no
+    real records, instead of showing everything."""
+    if request.user.username in ALL_BRANCH_USERNAMES:
+        return {}
+    if 'base_site_branch_id' not in request.session:
+        request.session['base_site_branch_id'] = BudgetService.get_branch_id_from_imedx(request.user.username)
+    return {'base_branch_id': request.session['base_site_branch_id']}
+
 def login_view(request):
     if request.method == 'POST':
         employee_id = request.POST.get('employee_id')
@@ -194,23 +211,24 @@ def budget_add_non_vet_view(request):
 
 @login_required_json
 def get_budget_documents_api(request, category_code):
+    branch_filter = get_branch_filter_kwargs(request)
     if category_code == 'C01':
         # Fetch VET — Group by document_no only to avoid row-per-row timestamps splitting documents
-        vet_docs = ebudget_vet_manpower.objects.values('document_no').annotate(
+        vet_docs = ebudget_vet_manpower.objects.filter(**branch_filter).values('document_no').annotate(
             total_positions=Count('id'),
             create_date=Max('create_date'),
             create_eid=Max('create_eid')
         )
-        
+
         # Fetch NON VET
-        non_vet_docs = ebudget_non_vet_manpower.objects.values('document_no').annotate(
+        non_vet_docs = ebudget_non_vet_manpower.objects.filter(**branch_filter).values('document_no').annotate(
             total_positions=Count('id'),
             create_date=Max('create_date'),
             create_eid=Max('create_eid')
         )
-        
+
         # Fetch Position Adjustment
-        adj_docs = ebudget_position_adjustment.objects.values('document_no').annotate(
+        adj_docs = ebudget_position_adjustment.objects.filter(**branch_filter).values('document_no').annotate(
             total_positions=Count('id'),
             create_date=Max('create_date'),
             create_eid=Max('create_eid')
@@ -252,25 +270,25 @@ def get_budget_documents_api(request, category_code):
     
     elif category_code == 'C02':
         # Fetch Medical Equipment — Group by document_no only
-        med_docs = ebudget_medical_equipment.objects.values('document_no').annotate(
-            total_positions=Count('id'),
-            create_date=Max('create_date'),
-            create_eid=Max('create_eid')
-        )
-        
-        comp_docs = ebudget_computer_equipment.objects.values('document_no').annotate(
+        med_docs = ebudget_medical_equipment.objects.filter(**branch_filter).values('document_no').annotate(
             total_positions=Count('id'),
             create_date=Max('create_date'),
             create_eid=Max('create_eid')
         )
 
-        furniture_docs = ebudget_furniture.objects.values('document_no').annotate(
+        comp_docs = ebudget_computer_equipment.objects.filter(**branch_filter).values('document_no').annotate(
             total_positions=Count('id'),
             create_date=Max('create_date'),
             create_eid=Max('create_eid')
         )
 
-        tools_docs = ebudget_tools_equipment.objects.values('document_no').annotate(
+        furniture_docs = ebudget_furniture.objects.filter(**branch_filter).values('document_no').annotate(
+            total_positions=Count('id'),
+            create_date=Max('create_date'),
+            create_eid=Max('create_eid')
+        )
+
+        tools_docs = ebudget_tools_equipment.objects.filter(**branch_filter).values('document_no').annotate(
             total_positions=Count('id'),
             create_date=Max('create_date'),
             create_eid=Max('create_eid')
@@ -328,20 +346,21 @@ def get_budget_documents_api(request, category_code):
 
 @login_required_json
 def get_document_detail_api(request, doc_type, doc_no):
+    branch_filter = get_branch_filter_kwargs(request)
     if doc_type == 'VET':
-        items = ebudget_vet_manpower.objects.filter(document_no=doc_no)
+        items = ebudget_vet_manpower.objects.filter(document_no=doc_no, **branch_filter)
     elif doc_type == 'NON VET':
-        items = ebudget_non_vet_manpower.objects.filter(document_no=doc_no)
+        items = ebudget_non_vet_manpower.objects.filter(document_no=doc_no, **branch_filter)
     elif doc_type == 'Position Adjustment':
-        items = ebudget_position_adjustment.objects.filter(document_no=doc_no)
+        items = ebudget_position_adjustment.objects.filter(document_no=doc_no, **branch_filter)
     elif doc_type == 'Medical Equipment':
-        items = ebudget_medical_equipment.objects.filter(document_no=doc_no)
+        items = ebudget_medical_equipment.objects.filter(document_no=doc_no, **branch_filter)
     elif doc_type == 'Computer Equipment':
-        items = ebudget_computer_equipment.objects.filter(document_no=doc_no)
+        items = ebudget_computer_equipment.objects.filter(document_no=doc_no, **branch_filter)
     elif doc_type == 'Furniture':
-        items = ebudget_furniture.objects.filter(document_no=doc_no)
+        items = ebudget_furniture.objects.filter(document_no=doc_no, **branch_filter)
     elif doc_type == 'Tools & Equipment':
-        items = ebudget_tools_equipment.objects.filter(document_no=doc_no)
+        items = ebudget_tools_equipment.objects.filter(document_no=doc_no, **branch_filter)
     else:
         return JsonResponse({'status': 'error', 'message': 'ประเภทเอกสารไม่ถูกต้อง'})
 
@@ -396,7 +415,7 @@ def update_document_api(request, doc_type, doc_no):
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
         
-    if request.user.username not in ['nattchai_u', 'kanchana_a', 'pattida_y']:
+    if request.user.username not in ALL_BRANCH_USERNAMES:
         return JsonResponse({'status': 'error', 'message': 'ไม่มีสิทธิ์ในการแก้ไขข้อมูล'})
         
     try:
