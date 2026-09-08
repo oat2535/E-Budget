@@ -134,6 +134,21 @@
 
         const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
 
+        // Carry-forward budget: a month with an entered headcount (>0) contributes
+        // its own count to cost and adds to the running total; a blank/zero month
+        // inherits the running total instead of showing 0 (headcount continues
+        // costing money in the months after it's hired, not just the month typed).
+        const computeMonthlyBudget = (monthCounts, rate) => {
+            let cumulative = 0;
+            return monthCounts.map((count) => {
+                if (count > 0) {
+                    cumulative += count;
+                    return { count, cost: count * rate };
+                }
+                return { count: 0, cost: cumulative * rate };
+            });
+        };
+
         const onchange = function(instance, cell, x, y, value) {
             if (!table1 || !table2 || isUpdating) return;
             isUpdating = true;
@@ -168,13 +183,17 @@
             table2.setValueFromCoords(1, y, sal, true);
             table2.setValueFromCoords(2, y, allow, true);
             
-            let sum2 = 0;
-            for(let i = 3; i <= 14; i++) {
-                const count = getNum(rowData1[i]);
-                const cost = count * total_sal;
-                table2.setValueFromCoords(i, y, cost, true);
-                sum2 += cost;
+            const monthCounts = [];
+            for (let i = 3; i <= 14; i++) {
+                monthCounts.push(getNum(rowData1[i]));
             }
+            const monthlyBudget = computeMonthlyBudget(monthCounts, total_sal);
+
+            let sum2 = 0;
+            monthlyBudget.forEach((m, idx) => {
+                table2.setValueFromCoords(idx + 3, y, m.cost, true);
+                sum2 += m.cost;
+            });
             table2.setValueFromCoords(15, y, sum2, true);
             
             isUpdating = false;
@@ -226,21 +245,16 @@
                 let allowance = getNum(row[2]);
                 
                 if (position && (salary > 0 || allowance > 0)) {
-                    let monthlyData = {
-                        'jan': { 'headcount': getNum(row[3]), 'cost': getNum(row[3]) * (salary + allowance) },
-                        'feb': { 'headcount': getNum(row[4]), 'cost': getNum(row[4]) * (salary + allowance) },
-                        'mar': { 'headcount': getNum(row[5]), 'cost': getNum(row[5]) * (salary + allowance) },
-                        'apr': { 'headcount': getNum(row[6]), 'cost': getNum(row[6]) * (salary + allowance) },
-                        'may': { 'headcount': getNum(row[7]), 'cost': getNum(row[7]) * (salary + allowance) },
-                        'jun': { 'headcount': getNum(row[8]), 'cost': getNum(row[8]) * (salary + allowance) },
-                        'jul': { 'headcount': getNum(row[9]), 'cost': getNum(row[9]) * (salary + allowance) },
-                        'aug': { 'headcount': getNum(row[10]), 'cost': getNum(row[10]) * (salary + allowance) },
-                        'sep': { 'headcount': getNum(row[11]), 'cost': getNum(row[11]) * (salary + allowance) },
-                        'oct': { 'headcount': getNum(row[12]), 'cost': getNum(row[12]) * (salary + allowance) },
-                        'nov': { 'headcount': getNum(row[13]), 'cost': getNum(row[13]) * (salary + allowance) },
-                        'dec': { 'headcount': getNum(row[14]), 'cost': getNum(row[14]) * (salary + allowance) }
-                    };
-                    
+                    const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+                    const monthCounts = [];
+                    for (let i = 3; i <= 14; i++) monthCounts.push(getNum(row[i]));
+                    const monthlyBudget = computeMonthlyBudget(monthCounts, salary + allowance);
+
+                    let monthlyData = {};
+                    monthKeys.forEach((key, idx) => {
+                        monthlyData[key] = { headcount: monthCounts[idx], cost: monthlyBudget[idx].cost };
+                    });
+
                     dataToSave.push({
                         'position_name': position,
                         'salary': salary,
