@@ -151,6 +151,21 @@ USE_TZ = False
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
+# Content-hashed static filenames (e.g. budget_list.3f2a91.js) so every
+# deploy that changes a JS/CSS file gets a new URL automatically — browsers
+# that already cached the old file never see stale JS silently keep running.
+# Requires `collectstatic` to be run after every deploy (the hash manifest
+# staticfiles.json lives in STATIC_ROOT, which is gitignored / rebuilt each
+# deploy, not committed).
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.ManifestStaticFilesStorage",
+    },
+}
+
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
