@@ -3,7 +3,8 @@ import logging
 from datetime import datetime
 from budget_app.models import (
     ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment,
-    ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, BudgetMonthlyDetail
+    ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, BudgetMonthlyDetail,
+    ebudget_gl_entry, ebudget_gl_entry_monthly_detail
 )
 from master_data.models import ebudget_budget_item_master
 
@@ -52,7 +53,8 @@ class BudgetService:
             'Medical Equipment': 'MED',
             'Computer Equipment': 'COM',
             'Furniture': 'FUR',
-            'Tools & Equipment': 'TEQ'
+            'Tools & Equipment': 'TEQ',
+            'GL Entry': 'GLE'
         }
         model_map = {
             'VET': ebudget_vet_manpower,
@@ -61,7 +63,8 @@ class BudgetService:
             'Medical Equipment': ebudget_medical_equipment,
             'Computer Equipment': ebudget_computer_equipment,
             'Furniture': ebudget_furniture,
-            'Tools & Equipment': ebudget_tools_equipment
+            'Tools & Equipment': ebudget_tools_equipment,
+            'GL Entry': ebudget_gl_entry
         }
         
         prefix_code = prefix_map.get(doc_type, 'DOC')
@@ -115,4 +118,26 @@ class BudgetService:
                 headcount=headcount,
                 cost=cost,
                 **{fk_field: parent_obj}
+            )
+
+    @staticmethod
+    @transaction.atomic
+    def save_gl_entry_monthly_data(parent_obj, monthly_data_dict):
+        """Same delete-and-recreate pattern as save_monthly_data, but for
+        ebudget_gl_entry_monthly_detail's shape (detail_note/amount/
+        cumulative_amount) — GL entries have no headcount concept, so they
+        don't fit BudgetMonthlyDetail's {headcount, cost} columns."""
+        ebudget_gl_entry_monthly_detail.objects.filter(gl_entry=parent_obj).delete()
+
+        for month_str, data in monthly_data_dict.items():
+            month_int = MONTH_MAP.get(month_str.lower())
+            if not month_int:
+                continue
+
+            ebudget_gl_entry_monthly_detail.objects.create(
+                month=month_int,
+                detail_note=data.get('detail_note') or None,
+                amount=data.get('amount') or 0,
+                cumulative_amount=data.get('cumulative_amount') or 0,
+                gl_entry=parent_obj
             )

@@ -12,7 +12,7 @@ class ebudget_vet_manpower(models.Model):
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
-    general_ledger = models.ForeignKey('master_data.ebudget_general_ledger_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง General Ledger")
+    general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
     
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
@@ -61,7 +61,7 @@ class ebudget_non_vet_manpower(models.Model):
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
-    general_ledger = models.ForeignKey('master_data.ebudget_general_ledger_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง General Ledger")
+    general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
     
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
@@ -112,7 +112,7 @@ class ebudget_position_adjustment(models.Model):
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
-    general_ledger = models.ForeignKey('master_data.ebudget_general_ledger_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง General Ledger")
+    general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
     
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
@@ -159,7 +159,7 @@ class ebudget_medical_equipment(models.Model):
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
-    general_ledger = models.ForeignKey('master_data.ebudget_general_ledger_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง General Ledger")
+    general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
     
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
@@ -206,7 +206,7 @@ class ebudget_computer_equipment(models.Model):
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
-    general_ledger = models.ForeignKey('master_data.ebudget_general_ledger_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง General Ledger")
+    general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
     
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
@@ -253,7 +253,7 @@ class ebudget_furniture(models.Model):
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
-    general_ledger = models.ForeignKey('master_data.ebudget_general_ledger_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง General Ledger")
+    general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
 
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
@@ -300,7 +300,7 @@ class ebudget_tools_equipment(models.Model):
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
-    general_ledger = models.ForeignKey('master_data.ebudget_general_ledger_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง General Ledger")
+    general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
 
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
@@ -362,3 +362,67 @@ class BudgetMonthlyDetail(models.Model):
 
     def __str__(self):
         return f"Month {self.month} - Headcount: {self.headcount}, Cost: {self.cost}"
+
+class ebudget_gl_entry(models.Model):
+    general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
+    useful_life_percent = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, verbose_name="อายุการใช้งาน (%)")
+    base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
+    cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
+    document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
+
+    create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
+    create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
+    modify_date = Timestamp0Field(verbose_name="วันที่แก้ไขล่าสุด", null=True, blank=True)
+    modify_eid = models.CharField(max_length=50, verbose_name="ผู้แก้ไข (Employee ID)", null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        from datetime import datetime
+        now = datetime.now().replace(microsecond=0)
+        if not self.id and not self.create_date:
+            self.create_date = now
+        self.modify_date = now
+        super().save(*args, **kwargs)
+
+    @property
+    def monthly_data_dict(self):
+        month_map_rev = {
+            1: 'jan', 2: 'feb', 3: 'mar', 4: 'apr',
+            5: 'may', 6: 'jun', 7: 'jul', 8: 'aug',
+            9: 'sep', 10: 'oct', 11: 'nov', 12: 'dec'
+        }
+        res = {}
+        for detail in self.monthly_details.all():
+            m_str = month_map_rev.get(detail.month)
+            if m_str:
+                res[m_str] = {
+                    'detail_note': detail.detail_note or '',
+                    'amount': float(detail.amount),
+                    'cumulative_amount': float(detail.cumulative_amount)
+                }
+        return res
+
+    class Meta:
+        db_table = 'ebudget_gl_entry'
+        verbose_name = "GL Monthly Entry"
+        verbose_name_plural = "GL Monthly Entries"
+
+    def __str__(self):
+        return f"{self.document_no} - {self.general_ledger_code}"
+
+class ebudget_gl_entry_monthly_detail(models.Model):
+    MONTH_CHOICES = [(i, str(i)) for i in range(1, 13)]
+
+    month = models.PositiveSmallIntegerField(choices=MONTH_CHOICES, verbose_name="เดือน (1-12)")
+    detail_note = models.CharField(max_length=255, null=True, blank=True, verbose_name="รายละเอียด")
+    amount = models.DecimalField(max_digits=14, decimal_places=2, default=0, verbose_name="งบประมาณที่ใช้ (เดือนนี้)")
+    cumulative_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0, verbose_name="ลงระหว่างเดือน (สะสม)")
+
+    gl_entry = models.ForeignKey(ebudget_gl_entry, on_delete=models.CASCADE, related_name='monthly_details')
+
+    class Meta:
+        db_table = 'ebudget_gl_entry_monthly_detail'
+        verbose_name = "GL Entry Monthly Detail"
+        verbose_name_plural = "GL Entry Monthly Details"
+
+    def __str__(self):
+        return f"Month {self.month} - Amount: {self.amount}, Cumulative: {self.cumulative_amount}"

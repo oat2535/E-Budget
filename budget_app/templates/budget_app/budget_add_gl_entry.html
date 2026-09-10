@@ -1,0 +1,313 @@
+{% extends "budget_app/base.html" %}
+{% load static %}
+
+{% block title %}Add Budget - GL Entry (การลงระหว่างเดือน){% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://bossanova.uk/jspreadsheet/v4/jexcel.css" type="text/css" />
+<link rel="stylesheet" href="https://jsuites.net/v4/jsuites.css" type="text/css" />
+<style>
+    .jexcel_container {
+        width: 100%;
+        max-width: 100%;
+    }
+    .jexcel_content {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto;
+    }
+    .jexcel {
+        width: 100% !important;
+    }
+    .card-body {
+        overflow: hidden;
+    }
+    .jexcel tbody tr td {
+        vertical-align: middle;
+    }
+    /* "อายุการใช้งาน" is a % value. jspreadsheet's own '%' mask multiplies the
+       stored number by 100 on display but not on user edits (a library
+       inconsistency confirmed by testing), so the % sign is rendered here in
+       CSS instead — purely cosmetic, doesn't touch the underlying cell value. */
+    #spreadsheet tbody td[data-x="1"]:not(:empty)::after {
+        content: '%';
+        margin-left: 2px;
+    }
+    /* Freeze both header rows (the merged month-name row and the column-title
+       row beneath it) so they stay visible while scrolling through many rows
+       inside jspreadsheet's own scrollable container (.jexcel_content, which
+       already ships with overflow-y:auto + a fixed max-height). --gl-header-row1-height
+       is measured and set from JS after the table renders, since row height
+       depends on the library's own layout, not a value safe to hardcode. */
+    #spreadsheet .jexcel_content {
+        position: relative;
+    }
+    #spreadsheet thead tr.jexcel_nested td {
+        position: sticky;
+        top: 0;
+        z-index: 3;
+        background-color: #f5f5f5;
+    }
+    #spreadsheet thead tr:not(.jexcel_nested) td {
+        position: sticky;
+        top: var(--gl-header-row1-height, 29px);
+        z-index: 2;
+        background-color: #f5f5f5;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<header class="page-header page-header-dark bg-gradient-primary-to-secondary pb-10">
+    <div class="container-fluid px-4">
+        <div class="page-header-content pt-4">
+            <div class="row align-items-center justify-content-between">
+                <div class="col-auto mt-4">
+                    <h1 class="page-header-title">
+                        <div class="page-header-icon"><i data-feather="plus-circle"></i></div>
+                        GL Entry (การลงระหว่างเดือน)
+                    </h1>
+                </div>
+                <div class="col-auto mt-4">
+                    <a href="{% url 'budget_list' %}" class="btn btn-light text-dark me-2 shadow-sm fw-500" style="width: 120px;"><i data-feather="arrow-left" class="me-1"></i> กลับ</a>
+                    <button id="save-budget-btn" class="btn btn-success shadow-sm fw-500" style="width: 120px;"><i data-feather="save" class="me-1"></i> บันทึก</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</header>
+
+<div class="container-fluid px-4 mt-n10">
+    <div class="card mb-4 shadow-sm border-0 card-soft">
+        <div class="card-body">
+            <label for="cost-center-select" class="form-label fw-500">Cost Center <span class="text-danger">*</span></label>
+            <select id="cost-center-select" class="form-select" style="max-width: 320px;">
+                <option value="">-- เลือก Cost Center --</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="card mb-4 shadow-sm border-0 card-soft">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h6 class="m-0 font-weight-bold text-primary">การลงระหว่างเดือน</h6>
+            <button id="add-row-btn" class="btn btn-sm btn-primary"><i data-feather="plus" class="me-1"></i> เพิ่มรายการ</button>
+        </div>
+        <div class="card-body">
+            <div id="spreadsheet"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://bossanova.uk/jspreadsheet/v4/jexcel.js"></script>
+<script src="https://jsuites.net/v4/jsuites.js"></script>
+
+{{ general_ledgers_json|json_script:"gl-data" }}
+{{ cost_centers_json|json_script:"cost-centers-data" }}
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        // GL dropdown: shows gl_name, but the value actually stamped onto
+        // each row is gl_code (same reasoning as cost_center_name: a loose
+        // string, not a FK — matched back through this lookup array rather
+        // than an id). Empty until someone populates
+        // ebudget_general_ledger_master via admin — the page and its logic
+        // work regardless.
+        const generalLedgers = JSON.parse(document.getElementById('gl-data').textContent);
+        const glNames = generalLedgers.map(g => g.gl_name);
+        const getGlCode = (name) => {
+            const match = generalLedgers.find(g => g.gl_name === name);
+            return match ? match.gl_code : null;
+        };
+
+        // Cost center select: chosen once for the whole document, stamped
+        // onto every row on save (not a per-row jspreadsheet column).
+        const costCenters = JSON.parse(document.getElementById('cost-centers-data').textContent);
+        const costCenterSelect = document.getElementById('cost-center-select');
+        costCenters.forEach(cc => {
+            const opt = document.createElement('option');
+            opt.value = cc.cost_center_name;
+            opt.textContent = cc.cost_center_name;
+            costCenterSelect.appendChild(opt);
+        });
+
+        const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+        const monthTitles = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+        // One table, matching the source spreadsheet's own layout exactly:
+        // col 0 = GL, col 1 = อายุการใช้งาน (%), then per month a merged
+        // header spanning 3 sub-columns [รายละเอียด, งบประมาณที่ใช้ (editable),
+        // ลงระหว่างเดือน (read-only, mirrors งบประมาณที่ใช้ — see the onchange
+        // handler)], then รวม.
+        const detailCol = (m) => 2 + 3 * m;
+        const amountCol = (m) => 3 + 3 * m;
+        const cumulativeCol = (m) => 4 + 3 * m;
+        const totalCol = 2 + 3 * 12; // 38
+
+        const columns = [
+            { type: 'dropdown', title: 'GL', width: 220, source: glNames, autocomplete: true },
+            { type: 'numeric', title: 'อายุการใช้งาน', width: 130, mask: '#,##0.00' }
+        ];
+        monthTitles.forEach(() => {
+            columns.push({ type: 'text', title: 'รายละเอียด', width: 120 });
+            columns.push({ type: 'numeric', title: 'งบประมาณที่ใช้', width: 110, mask: '#,##0' });
+            columns.push({ type: 'numeric', title: 'ลงระหว่างเดือน', width: 110, readOnly: true, mask: '#,##0' });
+        });
+        columns.push({ type: 'numeric', title: 'รวม', width: 110, readOnly: true, mask: '#,##0' });
+
+        // Merged month header row above the column titles above — jspreadsheet's
+        // nestedHeaders groups N columns under one wide label per entry.
+        const nestedHeaders = [[
+            { title: '', colspan: '1' },
+            { title: '', colspan: '1' },
+            ...monthTitles.map(m => ({ title: m, colspan: '3' })),
+            { title: '', colspan: '1' }
+        ]];
+
+        let table1;
+        let isUpdating = false;
+
+        const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
+
+        // "ลงระหว่างเดือน" mirrors "งบประมาณที่ใช้" directly, column for
+        // column, in the same row — not a running total (explicitly not a
+        // carry-forward like the headcount-based add-budget pages).
+        const onchange = function(instance, cell, x, y, value) {
+            if (!table1 || isUpdating) return;
+            isUpdating = true;
+
+            const rowData = table1.getRowData(y);
+            let total = 0;
+            for (let m = 0; m < 12; m++) {
+                const amt = getNum(rowData[amountCol(m)]);
+                table1.setValueFromCoords(cumulativeCol(m), y, amt, true);
+                total += amt;
+            }
+            table1.setValueFromCoords(totalCol, y, total, true);
+
+            isUpdating = false;
+        };
+
+        const createInitialData = () => [Array(columns.length).fill('')];
+
+        table1 = jspreadsheet(document.getElementById('spreadsheet'), {
+            data: createInitialData(),
+            columns: columns,
+            nestedHeaders: nestedHeaders,
+            minDimensions: [columns.length, 1],
+            onchange: onchange,
+            allowInsertColumn: false,
+            allowManualInsertColumn: false,
+            allowDeleteColumn: false,
+            allowInsertRow: true,
+            allowDeleteRow: true,
+            tableOverflow: true,
+            freezeColumns: 2,
+        });
+
+        // Pin the second header row directly beneath the first — measured
+        // rather than hardcoded, since the exact row height comes from the
+        // library's own CSS.
+        const nestedRow = document.querySelector('#spreadsheet thead tr.jexcel_nested');
+        if (nestedRow) {
+            document.getElementById('spreadsheet').style.setProperty('--gl-header-row1-height', nestedRow.offsetHeight + 'px');
+        }
+
+        // Bind add row button
+        document.getElementById('add-row-btn').addEventListener('click', function() {
+            table1.insertRow();
+        });
+
+        // Save button logic
+        document.getElementById('save-budget-btn').addEventListener('click', function() {
+            if (!table1) return;
+
+            const costCenterName = costCenterSelect.value;
+            if (!costCenterName) {
+                Swal.fire('แจ้งเตือน', 'กรุณาเลือก Cost Center ก่อนบันทึก', 'warning');
+                return;
+            }
+
+            let rows = table1.getData();
+            let dataToSave = [];
+
+            for (let i = 0; i < rows.length; i++) {
+                let row = rows[i];
+                let glName = row[0];
+
+                if (glName) {
+                    let monthlyData = {};
+                    monthKeys.forEach((key, m) => {
+                        const amount = getNum(row[amountCol(m)]);
+                        monthlyData[key] = {
+                            detail_note: row[detailCol(m)] || '',
+                            amount: amount,
+                            // ลงระหว่างเดือน mirrors งบประมาณที่ใช้ (see onchange
+                            // above) — recomputed here too rather than trusting
+                            // the displayed cell, same as every other add-budget
+                            // page's save handler.
+                            cumulative_amount: amount
+                        };
+                    });
+
+                    dataToSave.push({
+                        'general_ledger_code': getGlCode(glName),
+                        'useful_life_percent': getNum(row[1]) || null,
+                        'cost_center_name': costCenterName,
+                        'monthly_data': monthlyData
+                    });
+                }
+            }
+
+            if (dataToSave.length === 0) {
+                Swal.fire('แจ้งเตือน', 'ไม่มีข้อมูลสำหรับบันทึก กรุณาเลือก GL ก่อนครับ', 'warning');
+                return;
+            }
+
+            Swal.fire({
+                title: 'ยืนยันการบันทึกข้อมูล?',
+                text: "คุณตรวจสอบข้อมูลครบถ้วนและต้องการบันทึกใช่หรือไม่?",
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonColor: '#0061f2',
+                cancelButtonColor: '#e81500',
+                confirmButtonText: 'ยืนยัน',
+                cancelButtonText: 'ยกเลิก'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    Swal.fire({
+                        title: 'กำลังบันทึกข้อมูล...',
+                        allowOutsideClick: false,
+                        didOpen: () => {
+                            Swal.showLoading();
+                        }
+                    });
+
+                    fetch('{% url "budget_add_gl_entry" %}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify(dataToSave)
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            Swal.fire('สำเร็จ!', 'บันทึกข้อมูลเรียบร้อยแล้ว', 'success').then(() => {
+                                window.location.href = '{% url "budget_list" %}';
+                            });
+                        } else {
+                            Swal.fire('ข้อผิดพลาด', 'ไม่สามารถบันทึกได้: ' + data.message, 'error');
+                        }
+                    })
+                    .catch(error => {
+                        console.error(error);
+                        Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย', 'error');
+                    });
+                }
+            });
+        });
+    });
+</script>
+{% endblock %}

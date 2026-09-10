@@ -7,8 +7,8 @@ from django.contrib.auth import authenticate, login
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db.models import Count, Max
-from master_data.models import ebudget_budget_item_master, ebudget_budget_category_master, ebudget_cost_center_master
-from budget_app.models import ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment, ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment
+from master_data.models import ebudget_budget_item_master, ebudget_budget_category_master, ebudget_cost_center_master, ebudget_general_ledger_master
+from budget_app.models import ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment, ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_gl_entry
 from budget_app.services import BudgetService
 
 def login_required_json(view_func):
@@ -47,6 +47,14 @@ def get_cost_centers_json():
     in the same {id, name} shape as the existing item-master dropdowns."""
     return list(
         ebudget_cost_center_master.objects.values('id', 'cost_center_name').order_by('cost_center_name')
+    )
+
+def get_general_ledgers_json():
+    """Dropdown source for the GL selector on the GL Entry add page. Empty
+    until someone populates ebudget_general_ledger_master via admin — the
+    page/logic works regardless, same as cost centers did before seeding."""
+    return list(
+        ebudget_general_ledger_master.objects.values('id', 'gl_code', 'gl_name').order_by('gl_code')
     )
 
 def login_view(request):
@@ -157,7 +165,7 @@ def budget_add_view(request):
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger=gl_obj
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None
                     )
                     BudgetService.save_monthly_data(obj, 'VET', item['monthly_data'])
             return JsonResponse({'status': 'success'})
@@ -207,7 +215,7 @@ def budget_add_non_vet_view(request):
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger=gl_obj
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None
                     )
                     BudgetService.save_monthly_data(obj, 'NON VET', item['monthly_data'])
             return JsonResponse({'status': 'success'})
@@ -491,7 +499,7 @@ def update_document_api(request, doc_type, doc_no):
                         create_eid=create_eid,
                         modify_eid=username,
                         item_master=master_obj,
-                        general_ledger=gl_obj
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None
                     )
 
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
@@ -507,7 +515,7 @@ def update_document_api(request, doc_type, doc_no):
                         create_eid=create_eid,
                         modify_eid=username,
                         item_master=master_obj,
-                        general_ledger=gl_obj
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None
                     )
 
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
@@ -523,7 +531,7 @@ def update_document_api(request, doc_type, doc_no):
                         create_eid=create_eid,
                         modify_eid=username,
                         item_master=master_obj,
-                        general_ledger=gl_obj
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None
                     )
 
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
@@ -540,7 +548,7 @@ def update_document_api(request, doc_type, doc_no):
                         create_eid=create_eid,
                         modify_eid=username,
                         item_master=master_obj,
-                        general_ledger=gl_obj
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None
                     )
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
                 
@@ -590,7 +598,7 @@ def budget_add_adjustment_view(request):
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger=gl_obj
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None
                     )
                     BudgetService.save_monthly_data(obj, 'Position Adjustment', item['monthly_data'])
             return JsonResponse({'status': 'success'})
@@ -664,7 +672,7 @@ def budget_add_medical_equipment_view(request):
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger=gl_obj
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None
                     )
                     BudgetService.save_monthly_data(obj, 'Medical Equipment', item['monthly_data'])
             return JsonResponse({'status': 'success'})
@@ -722,7 +730,7 @@ def budget_add_computer_equipment_view(request):
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger=gl_obj
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None
                     )
                     BudgetService.save_monthly_data(obj, 'Computer Equipment', item['monthly_data'])
             return JsonResponse({'status': 'success'})
@@ -779,7 +787,7 @@ def budget_add_furniture_view(request):
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger=gl_obj
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None
                     )
                     BudgetService.save_monthly_data(obj, 'Furniture', item['monthly_data'])
             return JsonResponse({'status': 'success'})
@@ -836,7 +844,7 @@ def budget_add_tools_equipment_view(request):
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger=gl_obj
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None
                     )
                     BudgetService.save_monthly_data(obj, 'Tools & Equipment', item['monthly_data'])
             return JsonResponse({'status': 'success'})
@@ -853,5 +861,36 @@ def budget_add_tools_equipment_view(request):
 
     return render(request, 'budget_app/budget_add_tools_equipment.html', {
         'items_json': items_list,
+        'cost_centers_json': get_cost_centers_json()
+    })
+
+@login_required
+def budget_add_gl_entry_view(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            if not data or not data[0].get('cost_center_name'):
+                return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
+            username = request.user.username
+            branch_id = BudgetService.get_branch_id_from_imedx(username)
+            doc_no = BudgetService.generate_document_no('GL Entry')
+
+            with transaction.atomic():
+                for item in data:
+                    obj = ebudget_gl_entry.objects.create(
+                        general_ledger_code=item.get('general_ledger_code'),
+                        useful_life_percent=item.get('useful_life_percent'),
+                        create_eid=username,
+                        base_branch_id=branch_id,
+                        cost_center_name=item.get('cost_center_name'),
+                        document_no=doc_no
+                    )
+                    BudgetService.save_gl_entry_monthly_data(obj, item['monthly_data'])
+            return JsonResponse({'status': 'success'})
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'message': str(e)})
+
+    return render(request, 'budget_app/budget_add_gl_entry.html', {
+        'general_ledgers_json': get_general_ledgers_json(),
         'cost_centers_json': get_cost_centers_json()
     })

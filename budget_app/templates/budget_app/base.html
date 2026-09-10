@@ -95,12 +95,12 @@
             Budget List
         </a>
         
-        <a id="addBudgetToggle" class="nav-link {% if request.resolver_match.url_name != 'budget_add' and request.resolver_match.url_name != 'budget_add_non_vet' and request.resolver_match.url_name != 'budget_add_adjustment' and request.resolver_match.url_name != 'budget_add_medical_equipment' and request.resolver_match.url_name != 'budget_add_computer_equipment' and request.resolver_match.url_name != 'budget_add_furniture' and request.resolver_match.url_name != 'budget_add_tools_equipment' %}collapsed{% endif %}" href="javascript:void(0);" aria-expanded="{% if request.resolver_match.url_name == 'budget_add' or request.resolver_match.url_name == 'budget_add_non_vet' or request.resolver_match.url_name == 'budget_add_adjustment' or request.resolver_match.url_name == 'budget_add_medical_equipment' or request.resolver_match.url_name == 'budget_add_computer_equipment' or request.resolver_match.url_name == 'budget_add_furniture' or request.resolver_match.url_name == 'budget_add_tools_equipment' %}true{% else %}false{% endif %}" aria-controls="collapseAddBudget">
+        <a id="addBudgetToggle" class="nav-link {% if request.resolver_match.url_name != 'budget_add' and request.resolver_match.url_name != 'budget_add_non_vet' and request.resolver_match.url_name != 'budget_add_adjustment' and request.resolver_match.url_name != 'budget_add_medical_equipment' and request.resolver_match.url_name != 'budget_add_computer_equipment' and request.resolver_match.url_name != 'budget_add_furniture' and request.resolver_match.url_name != 'budget_add_tools_equipment' and request.resolver_match.url_name != 'budget_add_gl_entry' %}collapsed{% endif %}" href="javascript:void(0);" aria-expanded="{% if request.resolver_match.url_name == 'budget_add' or request.resolver_match.url_name == 'budget_add_non_vet' or request.resolver_match.url_name == 'budget_add_adjustment' or request.resolver_match.url_name == 'budget_add_medical_equipment' or request.resolver_match.url_name == 'budget_add_computer_equipment' or request.resolver_match.url_name == 'budget_add_furniture' or request.resolver_match.url_name == 'budget_add_tools_equipment' or request.resolver_match.url_name == 'budget_add_gl_entry' %}true{% else %}false{% endif %}" aria-controls="collapseAddBudget">
             <div class="nav-link-icon"><i data-feather="plus-circle"></i></div>
             Add Budget
             <div class="sidenav-collapse-arrow"><i data-feather="chevron-down"></i></div>
         </a>
-        <div class="eb-collapse {% if request.resolver_match.url_name == 'budget_add' or request.resolver_match.url_name == 'budget_add_non_vet' or request.resolver_match.url_name == 'budget_add_adjustment' or request.resolver_match.url_name == 'budget_add_medical_equipment' or request.resolver_match.url_name == 'budget_add_computer_equipment' or request.resolver_match.url_name == 'budget_add_furniture' or request.resolver_match.url_name == 'budget_add_tools_equipment' %}eb-collapse-open{% endif %}" id="collapseAddBudget">
+        <div class="eb-collapse {% if request.resolver_match.url_name == 'budget_add' or request.resolver_match.url_name == 'budget_add_non_vet' or request.resolver_match.url_name == 'budget_add_adjustment' or request.resolver_match.url_name == 'budget_add_medical_equipment' or request.resolver_match.url_name == 'budget_add_computer_equipment' or request.resolver_match.url_name == 'budget_add_furniture' or request.resolver_match.url_name == 'budget_add_tools_equipment' or request.resolver_match.url_name == 'budget_add_gl_entry' %}eb-collapse-open{% endif %}" id="collapseAddBudget">
             <div>
             <nav class="sidenav-menu-nested nav">
                 <div class="px-3 pt-2 pb-1 small fw-bold text-primary text-uppercase">Manpower</div>
@@ -113,6 +113,9 @@
                 <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_computer_equipment' %}active{% endif %}" href="{% url 'budget_add_computer_equipment' %}">Computer Equipment</a>
                 <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_furniture' %}active{% endif %}" href="{% url 'budget_add_furniture' %}">Furniture</a>
                 <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_tools_equipment' %}active{% endif %}" href="{% url 'budget_add_tools_equipment' %}">Tools & Equipment</a>
+
+                <div class="px-3 pt-3 pb-1 small fw-bold text-primary text-uppercase">General Ledger</div>
+                <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_gl_entry' %}active{% endif %}" href="{% url 'budget_add_gl_entry' %}">GL Entry (การลงระหว่างเดือน)</a>
             </nav>
             </div>
         </div>

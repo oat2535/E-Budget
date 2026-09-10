@@ -19,3 +19,7 @@ env/
 # Editor
 .vscode/
 .idea/
+
+# Local reference spreadsheets (real budget data, not source code)
+*.xlsx
+~$*.xlsx
