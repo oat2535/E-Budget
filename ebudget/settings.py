@@ -31,6 +31,9 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-default')
 DEBUG = os.environ.get('DEBUG', 'False').lower() in ['true', '1', 't']
 
 ALLOWED_HOSTS = ['192.168.1.36', '127.0.0.1']
+extra_allowed_hosts = os.environ.get('ALLOWED_HOSTS', '')
+if extra_allowed_hosts:
+    ALLOWED_HOSTS += [h.strip() for h in extra_allowed_hosts.split(',') if h.strip()]
 
 
 # Application definition
@@ -53,6 +56,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -162,7 +166,7 @@ STORAGES = {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
-        "BACKEND": "django.contrib.staticfiles.storage.ManifestStaticFilesStorage",
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
 }
 
