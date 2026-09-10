@@ -547,10 +547,10 @@ const BudgetApp = (function() {
             // Re-create Table 1 for Edit
             let columns = [
                 { type: 'dropdown', title: isEquipment ? 'เครื่องมือ' : 'ตำแหน่ง', width: 250, source: itemNames, autocomplete: true },
-                { type: 'numeric', title: isEquipment ? 'ราคาซื้อ' : 'เงินเดือน', width: 100, readOnly: true, mask: '#,##0' }
+                { type: 'numeric', title: isEquipment ? 'ราคาซื้อ' : 'เงินเดือน', width: 100, mask: '#,##0' }
             ];
             if (isNonVet) {
-                columns.push({ type: 'numeric', title: 'ค่าวัดระดับ/ตำแหน่ง', width: 150, readOnly: true, mask: '#,##0' });
+                columns.push({ type: 'numeric', title: 'ค่าวัดระดับ/ตำแหน่ง', width: 150, mask: '#,##0' });
             }
             const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
             months.forEach(m => {
@@ -948,10 +948,12 @@ const BudgetApp = (function() {
             adjTable1.setValueFromCoords(5, y, newSal, true); 
             adjTable1.setValueFromCoords(6, y, newAllow, true); 
         }
+        if (x === 2) oldSal = getNum(value);
         if (x === 3) oldAllow = getNum(value);
+        if (x === 5) newSal = getNum(value);
         if (x === 6) newAllow = getNum(value);
 
-        if (x === 0 || x === 1 || x === 3 || x === 6) {
+        if (x === 0 || x === 1 || x === 2 || x === 3 || x === 5 || x === 6) {
             let oldTotal = oldSal + oldAllow;
             let newTotal = newSal + newAllow;
             adjTable1.setValueFromCoords(4, y, oldTotal, true);
@@ -1030,10 +1032,10 @@ const BudgetApp = (function() {
             const cols1 = [
                 { type: 'dropdown', title: 'ตำแหน่งเดิม', width: 200, source: allAdjItems, autocomplete: true },
                 { type: 'dropdown', title: 'ตำแหน่งใหม่', width: 200, source: allAdjItems, autocomplete: true },
-                { type: 'numeric', title: 'เงินเดือนเดิม', width: 100, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'เงินเดือนเดิม', width: 100, mask: '#,##0' },
                 { type: 'numeric', title: 'ค่าตำแหน่งเดิม', width: 120, mask: '#,##0' },
                 { type: 'numeric', title: 'รวมรายได้เดิม', width: 110, readOnly: true, mask: '#,##0' },
-                { type: 'numeric', title: 'เงินเดือนใหม่', width: 100, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'เงินเดือนใหม่', width: 100, mask: '#,##0' },
                 { type: 'numeric', title: 'ค่าตำแหน่งใหม่', width: 120, mask: '#,##0' },
                 { type: 'numeric', title: 'รวมรายได้ใหม่', width: 110, readOnly: true, mask: '#,##0' },
                 { type: 'numeric', title: 'ผลต่างเงินเดือน', width: 110, readOnly: true, mask: '#,##0' },

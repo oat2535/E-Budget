@@ -144,10 +144,10 @@
         const cols1 = [
             { type: 'dropdown', title: 'ตำแหน่งเดิม', width: 200, source: items, autocomplete: true },
             { type: 'dropdown', title: 'ตำแหน่งใหม่', width: 200, source: items, autocomplete: true },
-            { type: 'numeric', title: 'เงินเดือนเดิม', width: 100, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'เงินเดือนเดิม', width: 100, mask: '#,##0' },
             { type: 'numeric', title: 'ค่าตำแหน่งเดิม', width: 120, mask: '#,##0' },
             { type: 'numeric', title: 'รวมรายได้เดิม', width: 110, readOnly: true, mask: '#,##0' },
-            { type: 'numeric', title: 'เงินเดือนใหม่', width: 100, readOnly: true, mask: '#,##0' },
+            { type: 'numeric', title: 'เงินเดือนใหม่', width: 100, mask: '#,##0' },
             { type: 'numeric', title: 'ค่าตำแหน่งใหม่', width: 120, mask: '#,##0' },
             { type: 'numeric', title: 'รวมรายได้ใหม่', width: 110, readOnly: true, mask: '#,##0' },
             { type: 'numeric', title: 'ผลต่างเงินเดือน', width: 110, readOnly: true, mask: '#,##0' },
@@ -238,12 +238,14 @@
                 table1.setValueFromCoords(6, y, newAllow, true); 
             }
             
-            // Manual Allowance Changed
+            // Manual Salary/Allowance Changed
+            if (x === 2) oldSal = getNum(value);
             if (x === 3) oldAllow = getNum(value);
+            if (x === 5) newSal = getNum(value);
             if (x === 6) newAllow = getNum(value);
 
             // Calc Income Totals & Diffs
-            if (x === 0 || x === 1 || x === 3 || x === 6) {
+            if (x === 0 || x === 1 || x === 2 || x === 3 || x === 5 || x === 6) {
                 let oldTotal = oldSal + oldAllow;
                 let newTotal = newSal + newAllow;
                 table1.setValueFromCoords(4, y, oldTotal, true);
