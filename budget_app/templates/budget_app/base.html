@@ -118,7 +118,10 @@
                     <div class="modal-body p-5">
                         <i data-feather="lock" style="width: 48px; height: 48px;" class="text-danger mb-3"></i>
                         <h5 class="mb-3">ระบบถูกปิดใช้งานชั่วคราว</h5>
-                        <p class="text-muted mb-0">{{ frozen_message }}</p>
+                        <p class="text-muted mb-4">{{ frozen_message }}</p>
+                        <button type="button" class="btn btn-outline-secondary" onclick="confirmLogout()">
+                            <i data-feather="log-out" class="me-1"></i> ออกจากระบบ
+                        </button>
                     </div>
                 </div>
             </div>
