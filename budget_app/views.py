@@ -1,4 +1,5 @@
 from functools import wraps
+from datetime import datetime
 from django.shortcuts import render, redirect
 from django.http import JsonResponse
 import json
@@ -950,17 +951,33 @@ def toggle_freeze_view(request):
 
     try:
         data = json.loads(request.body or '{}')
-        settings_obj = SystemSettings.load()
-        settings_obj.is_frozen = not settings_obj.is_frozen
-        if settings_obj.is_frozen:
+        current = SystemSettings.load()
+        now = datetime.now().replace(microsecond=0)
+
+        if current.is_frozen:
+            # Closing out the currently-open freeze episode: update the same
+            # row in place so frozen_eid/frozen_date stay intact alongside
+            # the new unfrozen_eid/unfrozen_date.
+            current.is_frozen = 0
+            current.unfrozen_eid = request.user.username
+            current.unfrozen_date = now
+            current.save()
+            settings_obj = current
+        else:
+            # Starting a new freeze episode: a fresh row, carrying forward
+            # the active_budget_year that wasn't touched by this action.
             custom_message = (data.get('message') or '').strip()
-            if custom_message:
-                settings_obj.frozen_message = custom_message
-        settings_obj.modify_eid = request.user.username
-        settings_obj.save()
+            settings_obj = SystemSettings.objects.create(
+                is_frozen=1,
+                frozen_message=custom_message or current.frozen_message,
+                active_budget_year=current.active_budget_year,
+                frozen_eid=request.user.username,
+                frozen_date=now,
+            )
+
         return JsonResponse({
             'status': 'success',
-            'is_frozen': settings_obj.is_frozen,
+            'is_frozen': bool(settings_obj.is_frozen),
             'frozen_message': settings_obj.frozen_message,
         })
     except Exception as e:
@@ -976,11 +993,14 @@ def set_active_year_view(request):
     try:
         data = json.loads(request.body or '{}')
         year = int(data.get('year'))
-        settings_obj = SystemSettings.load()
-        settings_obj.active_budget_year = year
-        settings_obj.modify_eid = request.user.username
-        settings_obj.save()
-        return JsonResponse({'status': 'success', 'active_budget_year': settings_obj.active_budget_year})
+        # A year change isn't a freeze event — always update the latest row
+        # in place rather than inserting, regardless of frozen state (doing
+        # otherwise while frozen would create a second is_frozen=1 row that
+        # never gets closed by the eventual unfreeze).
+        current = SystemSettings.load()
+        current.active_budget_year = year
+        current.save()
+        return JsonResponse({'status': 'success', 'active_budget_year': current.active_budget_year})
     except (TypeError, ValueError):
         return JsonResponse({'status': 'error', 'message': 'ปีไม่ถูกต้อง'})
     except Exception as e:

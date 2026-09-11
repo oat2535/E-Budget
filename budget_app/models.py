@@ -7,24 +7,29 @@ class Timestamp0Field(models.DateTimeField):
         return 'timestamp(0)'
 
 class SystemSettings(models.Model):
-    """Site-wide config, singleton (always pk=1). Holds the two pieces of
-    shared state a privileged user toggles from the navbar: whether normal
-    users are locked out (budget closing) and which budget year new rows
-    should be stamped with."""
-    is_frozen = models.BooleanField(default=False)
+    """One row per freeze episode, not a singleton and not append-only-per-
+    action: freezing (see toggle_freeze_view in views.py) inserts a new row;
+    unfreezing updates that same row in place (closing it out); freezing
+    again starts a new row. frozen_eid/frozen_date and unfrozen_eid/
+    unfrozen_date are tracked separately so a closed row still shows who
+    opened and who closed it. active_budget_year changes (set_active_year_view)
+    always update the latest row in place — never insert — since a year
+    change isn't a freeze event. `load()` returns the newest row, i.e. the
+    current state."""
+    is_frozen = models.PositiveSmallIntegerField(default=0, choices=[(0, 'Not Frozen'), (1, 'Frozen')])
     frozen_message = models.CharField(max_length=500, blank=True, default=DEFAULT_FROZEN_MESSAGE)
     active_budget_year = models.PositiveIntegerField(default=datetime.now().year)
-    modify_eid = models.CharField(max_length=50, null=True, blank=True)
-    modify_date = Timestamp0Field(null=True, blank=True)
+    frozen_eid = models.CharField(max_length=50, null=True, blank=True)
+    frozen_date = Timestamp0Field(null=True, blank=True)
+    unfrozen_eid = models.CharField(max_length=50, null=True, blank=True)
+    unfrozen_date = Timestamp0Field(null=True, blank=True)
 
     @classmethod
     def load(cls):
-        obj, _ = cls.objects.get_or_create(pk=1)
+        obj = cls.objects.order_by('-id').first()
+        if obj is None:
+            obj = cls.objects.create()
         return obj
-
-    def save(self, *args, **kwargs):
-        self.modify_date = datetime.now().replace(microsecond=0)
-        super().save(*args, **kwargs)
 
     class Meta:
         db_table = 'ebudget_system_settings'
