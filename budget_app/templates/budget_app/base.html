@@ -18,7 +18,7 @@
         <!-- SweetAlert2 -->
         <script defer src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     </head>
-    <body class="nav-fixed" data-authenticated="{{ user.is_authenticated|yesno:'true,false' }}" data-idle-timeout-seconds="{{ session_idle_timeout_seconds }}">
+    <body class="nav-fixed" data-authenticated="{{ user.is_authenticated|yesno:'true,false' }}" data-idle-timeout-seconds="{{ session_idle_timeout_seconds }}" data-system-frozen="{{ system_frozen|yesno:'true,false' }}" data-is-privileged="{{ is_privileged_user|yesno:'true,false' }}" data-active-budget-year="{{ active_budget_year }}" data-frozen-message="{{ frozen_message }}" data-toggle-freeze-url="{% url 'toggle_freeze' %}" data-set-year-url="{% url 'set_active_year' %}" data-csrf-token="{{ csrf_token }}">
         <script>
             // Apply theme immediately to prevent flash
             (function() {
@@ -47,6 +47,33 @@
             
             <!-- Navbar Items-->
             <ul class="navbar-nav align-items-center ms-auto">
+                <!-- Budget Year -->
+                <li class="nav-item dropdown no-caret me-3">
+                    {% if is_privileged_user %}
+                    <a class="btn btn-transparent-dark dropdown-toggle d-flex align-items-center" id="navbarDropdownYear" href="javascript:void(0);" role="button" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="เลือกปีงบประมาณ">
+                        <i data-feather="calendar" class="me-1"></i> ปีงบประมาณ {{ active_budget_year }}
+                    </a>
+                    <div class="dropdown-menu dropdown-menu-end border-0 shadow animated--fade-in-up" aria-labelledby="navbarDropdownYear">
+                        {% for y in budget_year_options %}
+                        <a class="dropdown-item budget-year-option d-flex align-items-center justify-content-between" href="javascript:void(0);" data-year="{{ y }}">
+                            {{ y }}{% if y == active_budget_year %}<i data-feather="check" class="ms-2 text-success"></i>{% endif %}
+                        </a>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <span class="btn btn-transparent-dark d-flex align-items-center disabled" title="ปีงบประมาณที่กำลังดำเนินการ">
+                        <i data-feather="calendar" class="me-1"></i> ปีงบประมาณ {{ active_budget_year }}
+                    </span>
+                    {% endif %}
+                </li>
+                <!-- Freeze Toggle (privileged users only) -->
+                {% if is_privileged_user %}
+                <li class="nav-item me-3">
+                    <a class="btn btn-icon btn-transparent-dark" id="freezeToggleBtn" href="javascript:void(0);" title="{% if system_frozen %}ปลด Freeze ระบบ{% else %}Freeze ระบบ (ปิดงบประมาณ){% endif %}" onclick="handleFreezeToggle()">
+                        <i data-feather="{% if system_frozen %}unlock{% else %}lock{% endif %}" id="freezeToggleIcon"></i>
+                    </a>
+                </li>
+                {% endif %}
                 <!-- Theme Toggle Dropdown -->
                 <li class="nav-item dropdown no-caret me-3">
                     <a class="btn btn-icon btn-transparent-dark dropdown-toggle" id="navbarDropdownTheme" href="javascript:void(0);" role="button" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Toggle Theme">
@@ -82,6 +109,20 @@
                 </li>
             </ul>
         </nav>
+        <!-- System Frozen Modal: shown to non-privileged users while the
+             system is frozen (budget closing) — no close button, static
+             backdrop, deliberately impossible to dismiss. -->
+        <div class="modal" id="systemFrozenModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content text-center">
+                    <div class="modal-body p-5">
+                        <i data-feather="lock" style="width: 48px; height: 48px;" class="text-danger mb-3"></i>
+                        <h5 class="mb-3">ระบบถูกปิดใช้งานชั่วคราว</h5>
+                        <p class="text-muted mb-0">{{ frozen_message }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
         <div id="layoutSidenav">
             <div id="layoutSidenav_nav">
                 <nav class="sidenav shadow-right sidenav-light">
@@ -298,6 +339,116 @@
 
                 ACTIVITY_EVENTS.forEach(evt => document.addEventListener(evt, onActivity, { passive: true }));
                 resetIdleTimer();
+            })();
+
+            // System freeze + active budget year — both privileged-only
+            // writes, enforced server-side (see budget_app/decorators.py);
+            // this JS is purely the UI for triggering those two actions and
+            // showing the blocking modal to everyone else while frozen.
+            // Reads its config from data-* attributes on <body> (set
+            // server-side), same convention as the idle-timeout block above.
+            (function() {
+                const body = document.body;
+                const systemFrozen = body.dataset.systemFrozen === 'true';
+                const isPrivileged = body.dataset.isPrivileged === 'true';
+                const csrfToken = body.dataset.csrfToken;
+
+                if (systemFrozen && !isPrivileged) {
+                    document.addEventListener('DOMContentLoaded', () => {
+                        const modalEl = document.getElementById('systemFrozenModal');
+                        if (modalEl && window.bootstrap) {
+                            new bootstrap.Modal(modalEl).show();
+                        }
+                    });
+                }
+
+                function submitFreezeToggle(message) {
+                    fetch(body.dataset.toggleFreezeUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                        body: JSON.stringify({ message: message || '' })
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            window.location.reload();
+                        } else {
+                            Swal.fire('ข้อผิดพลาด', data.message || 'ไม่สามารถดำเนินการได้', 'error');
+                        }
+                    })
+                    .catch(() => Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย', 'error'));
+                }
+
+                window.handleFreezeToggle = function() {
+                    if (systemFrozen) {
+                        Swal.fire({
+                            title: 'ปลด Freeze ระบบ?',
+                            text: 'ผู้ใช้ทั่วไปจะกลับมาใช้งานระบบได้ตามปกติ',
+                            icon: 'question',
+                            showCancelButton: true,
+                            confirmButtonColor: '#0061f2',
+                            cancelButtonColor: '#e81500',
+                            confirmButtonText: 'ยืนยัน',
+                            cancelButtonText: 'ยกเลิก'
+                        }).then((result) => {
+                            if (result.isConfirmed) submitFreezeToggle(null);
+                        });
+                    } else {
+                        Swal.fire({
+                            title: 'Freeze ระบบ (ปิดงบประมาณ)?',
+                            html: '<p class="text-start mb-2">ผู้ใช้ทั่วไปจะไม่สามารถใช้งานระบบได้จนกว่าจะปลด Freeze</p><p class="text-start mb-1">ข้อความที่จะแสดง (แก้ไขได้):</p>',
+                            input: 'textarea',
+                            inputValue: body.dataset.frozenMessage,
+                            inputAttributes: { style: 'height: 100px;' },
+                            showCancelButton: true,
+                            confirmButtonColor: '#e81500',
+                            cancelButtonColor: '#6c757d',
+                            confirmButtonText: 'ยืนยัน Freeze',
+                            cancelButtonText: 'ยกเลิก'
+                        }).then((result) => {
+                            if (result.isConfirmed) submitFreezeToggle(result.value);
+                        });
+                    }
+                };
+
+                function submitActiveYear(year) {
+                    fetch(body.dataset.setYearUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                        body: JSON.stringify({ year: year })
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            window.location.reload();
+                        } else {
+                            Swal.fire('ข้อผิดพลาด', data.message || 'ไม่สามารถเปลี่ยนปีได้', 'error');
+                        }
+                    })
+                    .catch(() => Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย', 'error'));
+                }
+
+                document.addEventListener('DOMContentLoaded', () => {
+                    const activeBudgetYear = parseInt(body.dataset.activeBudgetYear, 10);
+                    document.querySelectorAll('.budget-year-option').forEach(el => {
+                        el.addEventListener('click', () => {
+                            const year = parseInt(el.dataset.year, 10);
+                            if (year === activeBudgetYear) return;
+                            Swal.fire({
+                                title: 'เปลี่ยนปีงบประมาณ?',
+                                text: `เปลี่ยนเป็นปีงบประมาณ ${year} — ข้อมูลที่บันทึกใหม่ทุกหน้าจะถูกระบุเป็นปีนี้`,
+                                icon: 'question',
+                                showCancelButton: true,
+                                confirmButtonColor: '#0061f2',
+                                cancelButtonColor: '#e81500',
+                                confirmButtonText: 'ยืนยัน',
+                                cancelButtonText: 'ยกเลิก'
+                            }).then((result) => {
+                                if (result.isConfirmed) submitActiveYear(year);
+                            });
+                        });
+                    });
+                });
             })();
         </script>
         {% block extra_js %}{% endblock %}

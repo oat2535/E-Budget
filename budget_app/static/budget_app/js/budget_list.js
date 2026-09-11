@@ -169,6 +169,7 @@ const BudgetApp = (function() {
                     <tr>
                         <th>Document No</th>
                         <th>Type</th>
+                        <th>Budget Year</th>
                         <th>Date Created</th>
                         <th>Created By</th>
                         <th>Total Positions</th>
@@ -201,6 +202,7 @@ const BudgetApp = (function() {
                     <tr>
                         <td>${doc.document_no}</td>
                         <td>${catBadge}</td>
+                        <td>${doc.budget_year}</td>
                         <td>${doc.create_date}</td>
                         <td>${doc.create_eid}</td>
                         <td>${doc.total_positions}</td>
@@ -375,6 +377,7 @@ const BudgetApp = (function() {
                     populateCostCenterSelect(document.getElementById('modalDocCostCenterSelect'), result.doc_info.cost_center_name);
                     document.getElementById('modalDocCostCenterSelect').style.display = 'none';
                     document.getElementById('modalDocCostCenter').style.display = 'inline';
+                    document.getElementById('modalDocBudgetYear').innerText = result.doc_info.budget_year;
                     document.getElementById('modalDocCreator').innerText = result.doc_info.create_eid;
                     document.getElementById('modalDocDate').innerText = result.doc_info.create_date;
 
@@ -754,6 +757,7 @@ const BudgetApp = (function() {
                     populateCostCenterSelect(document.getElementById('adjModalDocCostCenterSelect'), result.doc_info.cost_center_name);
                     document.getElementById('adjModalDocCostCenterSelect').style.display = 'none';
                     document.getElementById('adjModalDocCostCenter').style.display = 'inline';
+                    document.getElementById('adjModalDocBudgetYear').innerText = result.doc_info.budget_year;
                     document.getElementById('adjModalDocCreator').innerText = result.doc_info.create_eid;
                     document.getElementById('adjModalDocDate').innerText = result.doc_info.create_date;
 

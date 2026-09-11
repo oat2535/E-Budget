@@ -1,8 +1,38 @@
+from datetime import datetime
 from django.db import models
+from budget_app.constants import DEFAULT_FROZEN_MESSAGE
 
 class Timestamp0Field(models.DateTimeField):
     def db_type(self, connection):
         return 'timestamp(0)'
+
+class SystemSettings(models.Model):
+    """Site-wide config, singleton (always pk=1). Holds the two pieces of
+    shared state a privileged user toggles from the navbar: whether normal
+    users are locked out (budget closing) and which budget year new rows
+    should be stamped with."""
+    is_frozen = models.BooleanField(default=False)
+    frozen_message = models.CharField(max_length=500, blank=True, default=DEFAULT_FROZEN_MESSAGE)
+    active_budget_year = models.PositiveIntegerField(default=datetime.now().year)
+    modify_eid = models.CharField(max_length=50, null=True, blank=True)
+    modify_date = Timestamp0Field(null=True, blank=True)
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def save(self, *args, **kwargs):
+        self.modify_date = datetime.now().replace(microsecond=0)
+        super().save(*args, **kwargs)
+
+    class Meta:
+        db_table = 'ebudget_system_settings'
+        verbose_name = "System Settings"
+        verbose_name_plural = "System Settings"
+
+    def __str__(self):
+        return f"SystemSettings(frozen={self.is_frozen}, year={self.active_budget_year})"
 
 class ebudget_vet_manpower(models.Model):
     position_name = models.CharField(max_length=255, verbose_name="ตำแหน่ง")
@@ -13,6 +43,7 @@ class ebudget_vet_manpower(models.Model):
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
     general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
+    budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
     
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
@@ -62,6 +93,7 @@ class ebudget_non_vet_manpower(models.Model):
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
     general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
+    budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
     
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
@@ -113,6 +145,7 @@ class ebudget_position_adjustment(models.Model):
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
     general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
+    budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
     
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
@@ -160,6 +193,7 @@ class ebudget_medical_equipment(models.Model):
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
     general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
+    budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
     
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
@@ -207,6 +241,7 @@ class ebudget_computer_equipment(models.Model):
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
     general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
+    budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
     
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
@@ -254,6 +289,7 @@ class ebudget_furniture(models.Model):
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
     general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
+    budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
 
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
@@ -301,6 +337,7 @@ class ebudget_tools_equipment(models.Model):
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
     general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
+    budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
 
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
@@ -365,6 +402,7 @@ class BudgetMonthlyDetail(models.Model):
 
 class ebudget_gl_entry(models.Model):
     general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
+    budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
     useful_life_percent = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, verbose_name="อายุการใช้งาน (%)")
     base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")

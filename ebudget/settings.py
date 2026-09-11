@@ -79,6 +79,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'budget_app.context_processors.session_idle_timeout',
+                'budget_app.context_processors.site_status',
             ],
         },
     },

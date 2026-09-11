@@ -104,6 +104,7 @@
                         <tr>
                             <th>Document No</th>
                             <th>Type</th>
+                            <th>Budget Year</th>
                             <th>Date Created</th>
                             <th>Created By</th>
                             <th>Total Positions</th>
@@ -141,6 +142,7 @@
                                         <th>ประเภท</th>
                                         <th>รหัสสาขา</th>
                                         <th>Cost Center</th>
+                                        <th>ปีงบประมาณ</th>
                                         <th>ผู้สร้าง</th>
                                         <th>วันที่สร้าง</th>
                                     </tr>
@@ -154,6 +156,7 @@
                                             <span id="modalDocCostCenter"></span>
                                             <select id="modalDocCostCenterSelect" class="form-select form-select-sm" style="display: none;"></select>
                                         </td>
+                                        <td id="modalDocBudgetYear"></td>
                                         <td id="modalDocCreator"></td>
                                         <td id="modalDocDate"></td>
                                     </tr>
@@ -182,7 +185,7 @@
                     </div>
                 </div>
                 <div class="modal-footer">
-                    {% if request.user.username in "nattchai_u,kanchana_a,pattida_y" %}
+                    {% if is_privileged_user %}
                     <button type="button" class="btn btn-primary" id="btnEditMode" onclick="toggleEditMode()">
                         <i data-feather="edit-2" class="me-1"></i> แก้ไขข้อมูล
                     </button>
@@ -221,6 +224,7 @@
                                         <th>ประเภท</th>
                                         <th>รหัสสาขา</th>
                                         <th>Cost Center</th>
+                                        <th>ปีงบประมาณ</th>
                                         <th>ผู้สร้าง</th>
                                         <th>วันที่สร้าง</th>
                                     </tr>
@@ -234,6 +238,7 @@
                                             <span id="adjModalDocCostCenter"></span>
                                             <select id="adjModalDocCostCenterSelect" class="form-select form-select-sm" style="display: none;"></select>
                                         </td>
+                                        <td id="adjModalDocBudgetYear"></td>
                                         <td id="adjModalDocCreator"></td>
                                         <td id="adjModalDocDate"></td>
                                     </tr>
@@ -273,7 +278,7 @@
                     </div>
                 </div>
                 <div class="modal-footer">
-                    {% if request.user.username in "nattchai_u,kanchana_a,pattida_y" %}
+                    {% if is_privileged_user %}
                     <button type="button" class="btn btn-primary text-white" id="btnAdjEditMode" onclick="toggleAdjEditMode()">
                         <i data-feather="edit-2" class="me-1"></i> แก้ไขข้อมูล
                     </button>

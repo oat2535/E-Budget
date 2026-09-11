@@ -8,8 +8,10 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db.models import Count, Max
 from master_data.models import ebudget_budget_item_master, ebudget_budget_category_master, ebudget_cost_center_master, ebudget_general_ledger_master
-from budget_app.models import ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment, ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_gl_entry
+from budget_app.models import ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment, ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_gl_entry, SystemSettings
 from budget_app.services import BudgetService
+from budget_app.constants import ALL_BRANCH_USERNAMES
+from budget_app.decorators import require_not_frozen
 
 def login_required_json(view_func):
     """Like login_required, but for fetch()/AJAX endpoints: an expired or
@@ -24,10 +26,6 @@ def login_required_json(view_func):
             )
         return view_func(request, *args, **kwargs)
     return wrapper
-
-# Usernames allowed to view/edit budget documents across every branch,
-# instead of being scoped to their own base_site_branch_id.
-ALL_BRANCH_USERNAMES = {'nattchai_u', 'kanchana_a', 'pattida_y'}
 
 def get_branch_filter_kwargs(request):
     """Filter kwargs scoping budget-document queries to the current user's
@@ -144,6 +142,7 @@ def budget_list_view(request):
     })
 
 @login_required
+@require_not_frozen
 def budget_add_view(request):
     if request.method == 'POST':
         try:
@@ -153,6 +152,7 @@ def budget_add_view(request):
             username = request.user.username
             branch_id = BudgetService.get_branch_id_from_imedx(username)
             doc_no = BudgetService.generate_document_no('VET')
+            budget_year = SystemSettings.load().active_budget_year
 
             with transaction.atomic():
                 for item in data:
@@ -165,7 +165,8 @@ def budget_add_view(request):
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
+                        budget_year=budget_year
                     )
                     BudgetService.save_monthly_data(obj, 'VET', item['monthly_data'])
             return JsonResponse({'status': 'success'})
@@ -192,6 +193,7 @@ def budget_add_view(request):
     })
 
 @login_required
+@require_not_frozen
 def budget_add_non_vet_view(request):
     if request.method == 'POST':
         try:
@@ -202,6 +204,7 @@ def budget_add_non_vet_view(request):
 
             branch_id = BudgetService.get_branch_id_from_imedx(username)
             doc_no = BudgetService.generate_document_no('NON VET')
+            budget_year = SystemSettings.load().active_budget_year
 
             with transaction.atomic():
                 for item in data:
@@ -215,7 +218,8 @@ def budget_add_non_vet_view(request):
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
+                        budget_year=budget_year
                     )
                     BudgetService.save_monthly_data(obj, 'NON VET', item['monthly_data'])
             return JsonResponse({'status': 'success'})
@@ -245,21 +249,24 @@ def get_budget_documents_api(request, category_code):
         vet_docs = ebudget_vet_manpower.objects.filter(**branch_filter).values('document_no').annotate(
             total_positions=Count('id'),
             create_date=Max('create_date'),
-            create_eid=Max('create_eid')
+            create_eid=Max('create_eid'),
+            budget_year=Max('budget_year')
         )
 
         # Fetch NON VET
         non_vet_docs = ebudget_non_vet_manpower.objects.filter(**branch_filter).values('document_no').annotate(
             total_positions=Count('id'),
             create_date=Max('create_date'),
-            create_eid=Max('create_eid')
+            create_eid=Max('create_eid'),
+            budget_year=Max('budget_year')
         )
 
         # Fetch Position Adjustment
         adj_docs = ebudget_position_adjustment.objects.filter(**branch_filter).values('document_no').annotate(
             total_positions=Count('id'),
             create_date=Max('create_date'),
-            create_eid=Max('create_eid')
+            create_eid=Max('create_eid'),
+            budget_year=Max('budget_year')
         )
         
         results = []
@@ -270,6 +277,7 @@ def get_budget_documents_api(request, category_code):
                 'create_date': doc['create_date'].strftime('%d/%m/%Y %H:%M') if doc['create_date'] else '-',
                 'create_eid': doc['create_eid'] or '-',
                 'total_positions': doc['total_positions'],
+                'budget_year': doc['budget_year'] or '-',
                 'type': 'VET'
             })
             
@@ -280,6 +288,7 @@ def get_budget_documents_api(request, category_code):
                 'create_date': doc['create_date'].strftime('%d/%m/%Y %H:%M') if doc['create_date'] else '-',
                 'create_eid': doc['create_eid'] or '-',
                 'total_positions': doc['total_positions'],
+                'budget_year': doc['budget_year'] or '-',
                 'type': 'NON VET'
             })
             
@@ -290,6 +299,7 @@ def get_budget_documents_api(request, category_code):
                 'create_date': doc['create_date'].strftime('%d/%m/%Y %H:%M') if doc['create_date'] else '-',
                 'create_eid': doc['create_eid'] or '-',
                 'total_positions': doc['total_positions'],
+                'budget_year': doc['budget_year'] or '-',
                 'type': 'Position Adjustment'
             })
             
@@ -301,25 +311,29 @@ def get_budget_documents_api(request, category_code):
         med_docs = ebudget_medical_equipment.objects.filter(**branch_filter).values('document_no').annotate(
             total_positions=Count('id'),
             create_date=Max('create_date'),
-            create_eid=Max('create_eid')
+            create_eid=Max('create_eid'),
+            budget_year=Max('budget_year')
         )
 
         comp_docs = ebudget_computer_equipment.objects.filter(**branch_filter).values('document_no').annotate(
             total_positions=Count('id'),
             create_date=Max('create_date'),
-            create_eid=Max('create_eid')
+            create_eid=Max('create_eid'),
+            budget_year=Max('budget_year')
         )
 
         furniture_docs = ebudget_furniture.objects.filter(**branch_filter).values('document_no').annotate(
             total_positions=Count('id'),
             create_date=Max('create_date'),
-            create_eid=Max('create_eid')
+            create_eid=Max('create_eid'),
+            budget_year=Max('budget_year')
         )
 
         tools_docs = ebudget_tools_equipment.objects.filter(**branch_filter).values('document_no').annotate(
             total_positions=Count('id'),
             create_date=Max('create_date'),
-            create_eid=Max('create_eid')
+            create_eid=Max('create_eid'),
+            budget_year=Max('budget_year')
         )
 
         results = []
@@ -330,6 +344,7 @@ def get_budget_documents_api(request, category_code):
                 'create_date': doc['create_date'].strftime('%d/%m/%Y %H:%M') if doc['create_date'] else '-',
                 'create_eid': doc['create_eid'] or '-',
                 'total_positions': doc['total_positions'],
+                'budget_year': doc['budget_year'] or '-',
                 'type': 'Medical Equipment'
             })
             
@@ -340,6 +355,7 @@ def get_budget_documents_api(request, category_code):
                 'create_date': doc['create_date'].strftime('%d/%m/%Y %H:%M') if doc['create_date'] else '-',
                 'create_eid': doc['create_eid'] or '-',
                 'total_positions': doc['total_positions'],
+                'budget_year': doc['budget_year'] or '-',
                 'type': 'Computer Equipment'
             })
 
@@ -350,6 +366,7 @@ def get_budget_documents_api(request, category_code):
                 'create_date': doc['create_date'].strftime('%d/%m/%Y %H:%M') if doc['create_date'] else '-',
                 'create_eid': doc['create_eid'] or '-',
                 'total_positions': doc['total_positions'],
+                'budget_year': doc['budget_year'] or '-',
                 'type': 'Furniture'
             })
 
@@ -360,6 +377,7 @@ def get_budget_documents_api(request, category_code):
                 'create_date': doc['create_date'].strftime('%d/%m/%Y %H:%M') if doc['create_date'] else '-',
                 'create_eid': doc['create_eid'] or '-',
                 'total_positions': doc['total_positions'],
+                'budget_year': doc['budget_year'] or '-',
                 'type': 'Tools & Equipment'
             })
 
@@ -402,7 +420,8 @@ def get_document_detail_api(request, doc_type, doc_no):
         'create_eid': first_item.create_eid,
         'type': doc_type,
         'base_branch_id': first_item.base_branch_id or '-',
-        'cost_center_name': first_item.cost_center_name or ''
+        'cost_center_name': first_item.cost_center_name or '',
+        'budget_year': first_item.budget_year or '-'
     }
 
     manpower_list = []
@@ -440,6 +459,7 @@ def get_document_detail_api(request, doc_type, doc_no):
     })
 
 @login_required_json
+@require_not_frozen
 def update_document_api(request, doc_type, doc_no):
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
@@ -478,6 +498,10 @@ def update_document_api(request, doc_type, doc_no):
         create_date = first_item.create_date
         create_eid = first_item.create_eid
         base_branch_id = first_item.base_branch_id
+        # Preserve the document's original budget year across an edit — an
+        # edit doesn't reclassify which budget year the document belongs to,
+        # even if the site-wide active year has since moved on.
+        budget_year = first_item.budget_year
         
         with transaction.atomic():
             existing_items.delete()
@@ -499,7 +523,8 @@ def update_document_api(request, doc_type, doc_no):
                         create_eid=create_eid,
                         modify_eid=username,
                         item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
+                        budget_year=budget_year
                     )
 
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
@@ -515,7 +540,8 @@ def update_document_api(request, doc_type, doc_no):
                         create_eid=create_eid,
                         modify_eid=username,
                         item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
+                        budget_year=budget_year
                     )
 
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
@@ -531,7 +557,8 @@ def update_document_api(request, doc_type, doc_no):
                         create_eid=create_eid,
                         modify_eid=username,
                         item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
+                        budget_year=budget_year
                     )
 
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
@@ -548,7 +575,8 @@ def update_document_api(request, doc_type, doc_no):
                         create_eid=create_eid,
                         modify_eid=username,
                         item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
+                        budget_year=budget_year
                     )
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
                 
@@ -557,6 +585,7 @@ def update_document_api(request, doc_type, doc_no):
         return JsonResponse({'status': 'error', 'message': str(e)})
 
 @login_required
+@require_not_frozen
 def budget_add_adjustment_view(request):
     if request.method == 'POST':
         try:
@@ -582,6 +611,7 @@ def budget_add_adjustment_view(request):
                 print(f"Error fetching branch_id: {e}")
 
             doc_no = BudgetService.generate_document_no('Position Adjustment')
+            budget_year = SystemSettings.load().active_budget_year
 
             with transaction.atomic():
                 for item in data:
@@ -598,7 +628,8 @@ def budget_add_adjustment_view(request):
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
+                        budget_year=budget_year
                     )
                     BudgetService.save_monthly_data(obj, 'Position Adjustment', item['monthly_data'])
             return JsonResponse({'status': 'success'})
@@ -636,6 +667,7 @@ def budget_add_adjustment_view(request):
     })
 
 @login_required
+@require_not_frozen
 def budget_add_medical_equipment_view(request):
     if request.method == 'POST':
         try:
@@ -660,6 +692,7 @@ def budget_add_medical_equipment_view(request):
                 print(f"Error fetching branch_id: {e}")
 
             doc_no = BudgetService.generate_document_no('Medical Equipment')
+            budget_year = SystemSettings.load().active_budget_year
 
             with transaction.atomic():
                 for item in data:
@@ -672,7 +705,8 @@ def budget_add_medical_equipment_view(request):
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
+                        budget_year=budget_year
                     )
                     BudgetService.save_monthly_data(obj, 'Medical Equipment', item['monthly_data'])
             return JsonResponse({'status': 'success'})
@@ -693,6 +727,7 @@ def budget_add_medical_equipment_view(request):
     })
 
 @login_required
+@require_not_frozen
 def budget_add_computer_equipment_view(request):
     from budget_app.models import ebudget_computer_equipment
     if request.method == 'POST':
@@ -718,6 +753,7 @@ def budget_add_computer_equipment_view(request):
                 print(f"Error fetching branch_id: {e}")
 
             doc_no = BudgetService.generate_document_no('Computer Equipment')
+            budget_year = SystemSettings.load().active_budget_year
 
             with transaction.atomic():
                 for item in data:
@@ -730,7 +766,8 @@ def budget_add_computer_equipment_view(request):
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
+                        budget_year=budget_year
                     )
                     BudgetService.save_monthly_data(obj, 'Computer Equipment', item['monthly_data'])
             return JsonResponse({'status': 'success'})
@@ -751,6 +788,7 @@ def budget_add_computer_equipment_view(request):
     })
 
 @login_required
+@require_not_frozen
 def budget_add_furniture_view(request):
     if request.method == 'POST':
         try:
@@ -775,6 +813,7 @@ def budget_add_furniture_view(request):
                 print(f"Error fetching branch_id: {e}")
 
             doc_no = BudgetService.generate_document_no('Furniture')
+            budget_year = SystemSettings.load().active_budget_year
 
             with transaction.atomic():
                 for item in data:
@@ -787,7 +826,8 @@ def budget_add_furniture_view(request):
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
+                        budget_year=budget_year
                     )
                     BudgetService.save_monthly_data(obj, 'Furniture', item['monthly_data'])
             return JsonResponse({'status': 'success'})
@@ -808,6 +848,7 @@ def budget_add_furniture_view(request):
     })
 
 @login_required
+@require_not_frozen
 def budget_add_tools_equipment_view(request):
     if request.method == 'POST':
         try:
@@ -832,6 +873,7 @@ def budget_add_tools_equipment_view(request):
                 print(f"Error fetching branch_id: {e}")
 
             doc_no = BudgetService.generate_document_no('Tools & Equipment')
+            budget_year = SystemSettings.load().active_budget_year
 
             with transaction.atomic():
                 for item in data:
@@ -844,7 +886,8 @@ def budget_add_tools_equipment_view(request):
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None
+                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
+                        budget_year=budget_year
                     )
                     BudgetService.save_monthly_data(obj, 'Tools & Equipment', item['monthly_data'])
             return JsonResponse({'status': 'success'})
@@ -865,6 +908,7 @@ def budget_add_tools_equipment_view(request):
     })
 
 @login_required
+@require_not_frozen
 def budget_add_gl_entry_view(request):
     if request.method == 'POST':
         try:
@@ -874,6 +918,7 @@ def budget_add_gl_entry_view(request):
             username = request.user.username
             branch_id = BudgetService.get_branch_id_from_imedx(username)
             doc_no = BudgetService.generate_document_no('GL Entry')
+            budget_year = SystemSettings.load().active_budget_year
 
             with transaction.atomic():
                 for item in data:
@@ -883,7 +928,8 @@ def budget_add_gl_entry_view(request):
                         create_eid=username,
                         base_branch_id=branch_id,
                         cost_center_name=item.get('cost_center_name'),
-                        document_no=doc_no
+                        document_no=doc_no,
+                        budget_year=budget_year
                     )
                     BudgetService.save_gl_entry_monthly_data(obj, item['monthly_data'])
             return JsonResponse({'status': 'success'})
@@ -894,3 +940,48 @@ def budget_add_gl_entry_view(request):
         'general_ledgers_json': get_general_ledgers_json(),
         'cost_centers_json': get_cost_centers_json()
     })
+
+@login_required_json
+def toggle_freeze_view(request):
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
+    if request.user.username not in ALL_BRANCH_USERNAMES:
+        return JsonResponse({'status': 'error', 'message': 'ไม่มีสิทธิ์ในการดำเนินการนี้'}, status=403)
+
+    try:
+        data = json.loads(request.body or '{}')
+        settings_obj = SystemSettings.load()
+        settings_obj.is_frozen = not settings_obj.is_frozen
+        if settings_obj.is_frozen:
+            custom_message = (data.get('message') or '').strip()
+            if custom_message:
+                settings_obj.frozen_message = custom_message
+        settings_obj.modify_eid = request.user.username
+        settings_obj.save()
+        return JsonResponse({
+            'status': 'success',
+            'is_frozen': settings_obj.is_frozen,
+            'frozen_message': settings_obj.frozen_message,
+        })
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)})
+
+@login_required_json
+def set_active_year_view(request):
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
+    if request.user.username not in ALL_BRANCH_USERNAMES:
+        return JsonResponse({'status': 'error', 'message': 'ไม่มีสิทธิ์ในการดำเนินการนี้'}, status=403)
+
+    try:
+        data = json.loads(request.body or '{}')
+        year = int(data.get('year'))
+        settings_obj = SystemSettings.load()
+        settings_obj.active_budget_year = year
+        settings_obj.modify_eid = request.user.username
+        settings_obj.save()
+        return JsonResponse({'status': 'success', 'active_budget_year': settings_obj.active_budget_year})
+    except (TypeError, ValueError):
+        return JsonResponse({'status': 'error', 'message': 'ปีไม่ถูกต้อง'})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)})
