@@ -3,6 +3,7 @@ from django.db import models
 class ebudget_general_ledger_master(models.Model):
     gl_code = models.CharField(max_length=50, unique=True, verbose_name="รหัส general ledger")
     gl_name = models.CharField(max_length=255, verbose_name="ชื่อ general_ledger")
+    category = models.ForeignKey('ebudget_budget_category_master', on_delete=models.CASCADE, verbose_name="Category", null=True, blank=True)
 
     def __str__(self):
         return f"{self.gl_code} - {self.gl_name}"
@@ -37,8 +38,9 @@ class ebudget_budget_item_master(models.Model):
         return self.item_name
 
 class ebudget_cost_center_master(models.Model):
+    cost_center_code = models.CharField(max_length=10, unique=True, verbose_name="รหัส Cost Center")
     cost_center_name = models.CharField(max_length=255, unique=True, verbose_name="ชื่อ Cost Center")
     description = models.CharField(max_length=255, null=True, blank=True, verbose_name="คำอธิบาย")
 
     def __str__(self):
-        return self.cost_center_name
+        return f"{self.cost_center_code} - {self.cost_center_name}"

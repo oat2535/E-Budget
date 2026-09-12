@@ -17,6 +17,7 @@ urlpatterns = [
     path('add_furniture/', views.budget_add_furniture_view, name='budget_add_furniture'),
     path('add_tools_equipment/', views.budget_add_tools_equipment_view, name='budget_add_tools_equipment'),
     path('add_gl_entry/', views.budget_add_gl_entry_view, name='budget_add_gl_entry'),
+    path('add_budget_plan/', views.budget_add_budget_plan_view, name='budget_add_budget_plan'),
     path('system/toggle_freeze/', views.toggle_freeze_view, name='toggle_freeze'),
     path('system/set_active_year/', views.set_active_year_view, name='set_active_year'),
 ]

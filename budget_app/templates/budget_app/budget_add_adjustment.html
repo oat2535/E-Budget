@@ -22,6 +22,12 @@
     .card-body {
         overflow: hidden;
     }
+    /* The blanket rule above contains the jspreadsheet grid, but it also
+       clips the Cost Center dropdown's floating option list (an absolutely
+       positioned child that needs to escape its card to render fully). */
+    #cost-center-card-body {
+        overflow: visible;
+    }
     .jexcel tbody tr td {
         vertical-align: middle;
     }
@@ -54,11 +60,11 @@
 
 <div class="container-fluid px-4 mt-n10">
     <div class="card mb-4 shadow-sm border-0 card-soft">
-        <div class="card-body">
+        <div class="card-body" id="cost-center-card-body">
             <label for="cost-center-select" class="form-label fw-500">Cost Center <span class="text-danger">*</span></label>
-            <select id="cost-center-select" class="form-select" style="max-width: 320px;">
-                <option value="">-- เลือก Cost Center --</option>
-            </select>
+            <div style="max-width: 500px;">
+                <select id="cost-center-select" class="form-select" placeholder="-- เลือก Cost Center --"></select>
+            </div>
         </div>
     </div>
 
@@ -120,11 +126,13 @@
         // onto every row on save (not a per-row jspreadsheet column).
         const costCenters = JSON.parse(document.getElementById('cost-centers-data').textContent);
         const costCenterSelect = document.getElementById('cost-center-select');
-        costCenters.forEach(cc => {
-            const opt = document.createElement('option');
-            opt.value = cc.cost_center_name;
-            opt.textContent = cc.cost_center_name;
-            costCenterSelect.appendChild(opt);
+        new TomSelect(costCenterSelect, {
+            options: costCenters.map(cc => ({ value: cc.cost_center_name, text: `${cc.cost_center_code}: ${cc.cost_center_name}` })),
+            valueField: 'value',
+            labelField: 'text',
+            searchField: ['text', 'value'],
+            create: false,
+            placeholder: '-- เลือก Cost Center --',
         });
 
         // Carry-forward budget: every month's cost is the running headcount total

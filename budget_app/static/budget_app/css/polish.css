@@ -171,3 +171,21 @@ table,
     height: 160px;
     border-radius: 0.35rem;
 }
+
+/* --- Cost Center dropdown (jSuites.dropdown), all Add Budget pages + the
+   two Budget List edit modals: one shared class set (.jdropdown-*), so one
+   override here covers every usage. jsuites.css's own hover/selected color
+   is #1f93ff, close to but not the theme's actual primary — swap it for
+   --bs-primary so the highlight matches the rest of the app's buttons/links
+   instead of an off-brand blue. The bordered "card" look came from
+   .jdropdown-content's shadow-less 1px border, which already reads close to
+   a native <select> listbox; this just aligns its border color with the
+   theme's own form-control border instead of jsuites' default. */
+.jdropdown-default .jdropdown-content {
+    border-color: var(--bs-border-color, #ced4da);
+}
+.jdropdown-default .jdropdown-item:hover,
+.jdropdown-default .jdropdown-selected {
+    background-color: var(--bs-primary);
+    color: #fff;
+}

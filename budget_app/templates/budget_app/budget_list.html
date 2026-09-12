@@ -21,6 +21,21 @@
     .jexcel tbody tr td {
         vertical-align: middle;
     }
+
+    /* The Cost Center TomSelect pickers in the detail modals use
+       dropdownParent:'body' (see populateCostCenterSelect in budget_list.js)
+       so their popup escapes the modal's .table-responsive doc-info table
+       instead of being clipped/stacked under later content. Once portaled to
+       <body> it's a sibling of Bootstrap's .modal (z-index 1055) rather than
+       a descendant, so it needs its own z-index above that to still render
+       on top — otherwise it's there in the DOM but visually hidden behind
+       the modal. !important because this page's own <style> block is placed
+       in base.html's <head> before the TomSelect CDN stylesheet link, so
+       without it TomSelect's same-specificity default would win on load
+       order alone. */
+    .ts-dropdown {
+        z-index: 1075 !important;
+    }
 </style>
 {% endblock %}
 
@@ -154,7 +169,7 @@
                                         <td id="modalDocBranch"></td>
                                         <td>
                                             <span id="modalDocCostCenter"></span>
-                                            <select id="modalDocCostCenterSelect" class="form-select form-select-sm" style="display: none;"></select>
+                                            <select id="modalDocCostCenterSelect" class="form-select" style="display: none; max-width: 260px;"></select>
                                         </td>
                                         <td id="modalDocBudgetYear"></td>
                                         <td id="modalDocCreator"></td>
@@ -236,7 +251,7 @@
                                         <td id="adjModalDocBranch"></td>
                                         <td>
                                             <span id="adjModalDocCostCenter"></span>
-                                            <select id="adjModalDocCostCenterSelect" class="form-select form-select-sm" style="display: none;"></select>
+                                            <select id="adjModalDocCostCenterSelect" class="form-select" style="display: none; max-width: 260px;"></select>
                                         </td>
                                         <td id="adjModalDocBudgetYear"></td>
                                         <td id="adjModalDocCreator"></td>
@@ -291,6 +306,72 @@
             </div>
         </div>
     </div>
+
+    <!-- General Ledger Document Detail Modal (GL Entry / Budget Plan — read-only) -->
+    <div class="modal fade" id="glDocumentDetailModal" tabindex="-1" aria-labelledby="glDocumentDetailModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="glDocumentDetailModalLabel">รายละเอียดเอกสาร</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="glModalLoadingSpinner" class="text-center py-5" style="display: none;">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <div class="mt-2 text-muted">กำลังโหลดข้อมูล...</div>
+                    </div>
+                    <div id="glModalContent" style="display: none;">
+                        <h6 class="text-primary mb-3"><i data-feather="file-text" class="me-2"></i>ข้อมูลเอกสาร (Document Info)</h6>
+                        <div class="table-responsive mb-4">
+                            <table class="table table-bordered table-sm">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>เลขที่เอกสาร</th>
+                                        <th>ประเภท</th>
+                                        <th>รหัสสาขา</th>
+                                        <th>Cost Center</th>
+                                        <th>ปีงบประมาณ</th>
+                                        <th>ผู้สร้าง</th>
+                                        <th>วันที่สร้าง</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td id="glModalDocNo"></td>
+                                        <td id="glModalDocType"></td>
+                                        <td id="glModalDocBranch"></td>
+                                        <td>
+                                            <span id="glModalDocCostCenter"></span>
+                                            <select id="glModalDocCostCenterSelect" class="form-select" style="display: none; max-width: 260px;"></select>
+                                        </td>
+                                        <td id="glModalDocBudgetYear"></td>
+                                        <td id="glModalDocCreator"></td>
+                                        <td id="glModalDocDate"></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <h6 class="text-primary mb-3"><i data-feather="list" class="me-2"></i>รายการ (Line Items)</h6>
+                        <div id="glDetailTableContainer"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    {% if is_privileged_user %}
+                    <button type="button" class="btn btn-primary" id="btnGlEditMode" onclick="toggleGlEditMode()">
+                        <i data-feather="edit-2" class="me-1"></i> แก้ไขข้อมูล
+                    </button>
+                    {% endif %}
+                    <button type="button" class="btn btn-success" id="btnGlSaveDocument" style="display: none;" onclick="saveGlDocument()">
+                        <i data-feather="save" class="me-1"></i> บันทึกข้อมูล
+                    </button>
+                    <button type="button" class="btn btn-secondary" id="btnGlCloseModal" data-bs-dismiss="modal">ปิด</button>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -306,6 +387,7 @@
 {{ items_furniture_json|json_script:"furniture-items-data" }}
 {{ items_tools_json|json_script:"tools-items-data" }}
 {{ cost_centers_json|json_script:"modal-cost-centers-data" }}
+{{ general_ledgers_json|json_script:"gl-data" }}
 
 <script>
     window.APP_CONFIG = {

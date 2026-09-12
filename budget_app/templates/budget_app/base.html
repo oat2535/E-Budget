@@ -17,6 +17,28 @@
         <script defer src="https://cdnjs.cloudflare.com/ajax/libs/feather-icons/4.29.0/feather.min.js" crossorigin="anonymous"></script>
         <!-- SweetAlert2 -->
         <script defer src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+        <!-- Tom Select -->
+        <link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.bootstrap5.min.css" rel="stylesheet">
+        <script defer src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
+        <style>
+            .ts-control {
+                flex-wrap: nowrap !important;
+            }
+            .ts-control > .item {
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                max-width: calc(100% - 24px) !important;
+                display: inline-block !important;
+                vertical-align: middle !important;
+                /* Flex items default to min-width:auto, which refuses to
+                   shrink below the unwrapped text's intrinsic width — the
+                   classic reason ellipsis/nowrap/overflow above get ignored
+                   and the whole control wraps to a second line instead of
+                   truncating once the selected text is long enough. */
+                min-width: 0 !important;
+            }
+        </style>
     </head>
     <body class="nav-fixed" data-authenticated="{{ user.is_authenticated|yesno:'true,false' }}" data-idle-timeout-seconds="{{ session_idle_timeout_seconds }}" data-system-frozen="{{ system_frozen|yesno:'true,false' }}" data-is-privileged="{{ is_privileged_user|yesno:'true,false' }}" data-active-budget-year="{{ active_budget_year }}" data-frozen-message="{{ frozen_message }}" data-toggle-freeze-url="{% url 'toggle_freeze' %}" data-set-year-url="{% url 'set_active_year' %}" data-csrf-token="{{ csrf_token }}">
         <script>
@@ -139,12 +161,12 @@
             Budget List
         </a>
         
-        <a id="addBudgetToggle" class="nav-link {% if request.resolver_match.url_name != 'budget_add' and request.resolver_match.url_name != 'budget_add_non_vet' and request.resolver_match.url_name != 'budget_add_adjustment' and request.resolver_match.url_name != 'budget_add_medical_equipment' and request.resolver_match.url_name != 'budget_add_computer_equipment' and request.resolver_match.url_name != 'budget_add_furniture' and request.resolver_match.url_name != 'budget_add_tools_equipment' and request.resolver_match.url_name != 'budget_add_gl_entry' %}collapsed{% endif %}" href="javascript:void(0);" aria-expanded="{% if request.resolver_match.url_name == 'budget_add' or request.resolver_match.url_name == 'budget_add_non_vet' or request.resolver_match.url_name == 'budget_add_adjustment' or request.resolver_match.url_name == 'budget_add_medical_equipment' or request.resolver_match.url_name == 'budget_add_computer_equipment' or request.resolver_match.url_name == 'budget_add_furniture' or request.resolver_match.url_name == 'budget_add_tools_equipment' or request.resolver_match.url_name == 'budget_add_gl_entry' %}true{% else %}false{% endif %}" aria-controls="collapseAddBudget">
+        <a id="addBudgetToggle" class="nav-link {% if request.resolver_match.url_name != 'budget_add' and request.resolver_match.url_name != 'budget_add_non_vet' and request.resolver_match.url_name != 'budget_add_adjustment' and request.resolver_match.url_name != 'budget_add_medical_equipment' and request.resolver_match.url_name != 'budget_add_computer_equipment' and request.resolver_match.url_name != 'budget_add_furniture' and request.resolver_match.url_name != 'budget_add_tools_equipment' and request.resolver_match.url_name != 'budget_add_gl_entry' and request.resolver_match.url_name != 'budget_add_budget_plan' %}collapsed{% endif %}" href="javascript:void(0);" aria-expanded="{% if request.resolver_match.url_name == 'budget_add' or request.resolver_match.url_name == 'budget_add_non_vet' or request.resolver_match.url_name == 'budget_add_adjustment' or request.resolver_match.url_name == 'budget_add_medical_equipment' or request.resolver_match.url_name == 'budget_add_computer_equipment' or request.resolver_match.url_name == 'budget_add_furniture' or request.resolver_match.url_name == 'budget_add_tools_equipment' or request.resolver_match.url_name == 'budget_add_gl_entry' or request.resolver_match.url_name == 'budget_add_budget_plan' %}true{% else %}false{% endif %}" aria-controls="collapseAddBudget">
             <div class="nav-link-icon"><i data-feather="plus-circle"></i></div>
             Add Budget
             <div class="sidenav-collapse-arrow"><i data-feather="chevron-down"></i></div>
         </a>
-        <div class="eb-collapse {% if request.resolver_match.url_name == 'budget_add' or request.resolver_match.url_name == 'budget_add_non_vet' or request.resolver_match.url_name == 'budget_add_adjustment' or request.resolver_match.url_name == 'budget_add_medical_equipment' or request.resolver_match.url_name == 'budget_add_computer_equipment' or request.resolver_match.url_name == 'budget_add_furniture' or request.resolver_match.url_name == 'budget_add_tools_equipment' or request.resolver_match.url_name == 'budget_add_gl_entry' %}eb-collapse-open{% endif %}" id="collapseAddBudget">
+        <div class="eb-collapse {% if request.resolver_match.url_name == 'budget_add' or request.resolver_match.url_name == 'budget_add_non_vet' or request.resolver_match.url_name == 'budget_add_adjustment' or request.resolver_match.url_name == 'budget_add_medical_equipment' or request.resolver_match.url_name == 'budget_add_computer_equipment' or request.resolver_match.url_name == 'budget_add_furniture' or request.resolver_match.url_name == 'budget_add_tools_equipment' or request.resolver_match.url_name == 'budget_add_gl_entry' or request.resolver_match.url_name == 'budget_add_budget_plan' %}eb-collapse-open{% endif %}" id="collapseAddBudget">
             <div>
             <nav class="sidenav-menu-nested nav">
                 <div class="px-3 pt-2 pb-1 small fw-bold text-primary text-uppercase">Manpower</div>
@@ -160,6 +182,7 @@
 
                 <div class="px-3 pt-3 pb-1 small fw-bold text-primary text-uppercase">General Ledger</div>
                 <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_gl_entry' %}active{% endif %}" href="{% url 'budget_add_gl_entry' %}">GL Entry (การลงระหว่างเดือน)</a>
+                <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_budget_plan' %}active{% endif %}" href="{% url 'budget_add_budget_plan' %}">Budget Plan - Back Office (แผนงบประมาณประจำปี)</a>
             </nav>
             </div>
         </div>

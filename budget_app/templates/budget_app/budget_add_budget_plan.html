@@ -1,0 +1,322 @@
+{% extends "budget_app/base.html" %}
+{% load static %}
+
+{% block title %}Add Budget - Budget Plan - Back Office (แผนงบประมาณประจำปี){% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://bossanova.uk/jspreadsheet/v4/jexcel.css" type="text/css" />
+<link rel="stylesheet" href="https://jsuites.net/v4/jsuites.css" type="text/css" />
+<style>
+    .jexcel_container {
+        width: 100%;
+        max-width: 100%;
+    }
+    .jexcel_content {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto;
+    }
+    .jexcel {
+        width: 100% !important;
+    }
+    .card-body {
+        overflow: hidden;
+    }
+    /* The blanket rule above contains the jspreadsheet grid, but it also
+       clips the Cost Center dropdown's floating option list (an absolutely
+       positioned child that needs to escape its card to render fully). */
+    #cost-center-card-body {
+        overflow: visible;
+    }
+    .jexcel tbody tr td {
+        vertical-align: middle;
+    }
+    /* Freeze each table's own column-title row so it stays visible while
+       scrolling through many rows inside jspreadsheet's scrollable container. */
+    .plan-spreadsheet .jexcel_content {
+        position: relative;
+    }
+    .plan-spreadsheet thead tr td {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background-color: #f5f5f5;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<header class="page-header page-header-dark bg-gradient-primary-to-secondary pb-10">
+    <div class="container-fluid px-4">
+        <div class="page-header-content pt-4">
+            <div class="row align-items-center justify-content-between">
+                <div class="col-auto mt-4">
+                    <h1 class="page-header-title">
+                        <div class="page-header-icon"><i data-feather="plus-circle"></i></div>
+                        Budget Plan - Back Office (แผนงบประมาณประจำปี)
+                    </h1>
+                </div>
+                <div class="col-auto mt-4">
+                    <a href="{% url 'budget_list' %}" class="btn btn-light text-dark me-2 shadow-sm fw-500" style="width: 120px;"><i data-feather="arrow-left" class="me-1"></i> กลับ</a>
+                    <button id="save-budget-btn" class="btn btn-success shadow-sm fw-500" style="width: 120px;"><i data-feather="save" class="me-1"></i> บันทึก</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</header>
+
+<div class="container-fluid px-4 mt-n10">
+    <div class="card mb-4 shadow-sm border-0 card-soft">
+        <div class="card-body" id="cost-center-card-body">
+            <label for="cost-center-select" class="form-label fw-500">Cost Center <span class="text-danger">*</span></label>
+            <div style="max-width: 500px;">
+                <select id="cost-center-select" class="form-select" placeholder="-- เลือก Cost Center --"></select>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4 shadow-sm border-0 card-soft">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h6 class="m-0 font-weight-bold text-primary">รายได้เพิ่ม ที่ไม่ใช่จากการขายปกติ (ค่าสนับสนุน commission ส่วนแบ่ง)</h6>
+            <button id="add-row-extra-revenue" class="btn btn-sm btn-primary"><i data-feather="plus" class="me-1"></i> เพิ่มรายการ</button>
+        </div>
+        <div class="card-body">
+            <div id="spreadsheet-extra-revenue" class="plan-spreadsheet"></div>
+        </div>
+    </div>
+
+    <div class="card mb-4 shadow-sm border-0 card-soft">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h6 class="m-0 font-weight-bold text-primary">กิจกรรมที่จะทำ (ทั้งหมด ทั้งที่เคยทำและจะทำเพิ่ม)</h6>
+            <button id="add-row-activity" class="btn btn-sm btn-primary"><i data-feather="plus" class="me-1"></i> เพิ่มรายการ</button>
+        </div>
+        <div class="card-body">
+            <div id="spreadsheet-activity" class="plan-spreadsheet"></div>
+        </div>
+    </div>
+
+    <div class="card mb-4 shadow-sm border-0 card-soft">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h6 class="m-0 font-weight-bold text-primary">ค่าจ้างบุคคลากร (เพิ่ม)</h6>
+            <button id="add-row-personnel" class="btn btn-sm btn-primary"><i data-feather="plus" class="me-1"></i> เพิ่มรายการ</button>
+        </div>
+        <div class="card-body">
+            <div id="spreadsheet-personnel" class="plan-spreadsheet"></div>
+        </div>
+    </div>
+
+    <div class="card mb-4 shadow-sm border-0 card-soft">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h6 class="m-0 font-weight-bold text-primary">ทรัพย์สินย์และ Software (&gt;5,000 บาท)</h6>
+            <button id="add-row-asset" class="btn btn-sm btn-primary"><i data-feather="plus" class="me-1"></i> เพิ่มรายการ</button>
+        </div>
+        <div class="card-body">
+            <div id="spreadsheet-asset" class="plan-spreadsheet"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://bossanova.uk/jspreadsheet/v4/jexcel.js"></script>
+<script src="https://jsuites.net/v4/jsuites.js"></script>
+
+{{ general_ledgers_json|json_script:"gl-data" }}
+{{ cost_centers_json|json_script:"cost-centers-data" }}
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        // GL dropdown: shows gl_name, but the value actually stamped onto
+        // each row is gl_code — same reasoning/pattern as budget_add_gl_entry.html.
+        const generalLedgers = JSON.parse(document.getElementById('gl-data').textContent);
+        const glNames = generalLedgers.map(g => g.gl_name);
+        const getGlCode = (name) => {
+            const match = generalLedgers.find(g => g.gl_name === name);
+            return match ? match.gl_code : null;
+        };
+
+        // Cost center select: chosen once for the whole document, stamped
+        // onto every row (across all 3 tables) on save.
+        const costCenters = JSON.parse(document.getElementById('cost-centers-data').textContent);
+        const costCenterSelect = document.getElementById('cost-center-select');
+        new TomSelect(costCenterSelect, {
+            options: costCenters.map(cc => ({ value: cc.cost_center_name, text: `${cc.cost_center_code}: ${cc.cost_center_name}` })),
+            valueField: 'value',
+            labelField: 'text',
+            searchField: ['text', 'value'],
+            create: false,
+            placeholder: '-- เลือก Cost Center --',
+        });
+
+        const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+        const monthTitles = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+        // col 0-2 = the source sheet's own numbered columns (1. การลงงบ, #,
+        // 3. ...), col 3-14 = Jan..Dec, col 15 = รวม. Back Office's use of
+        // this sheet has no activity type / controller / budget type
+        // concept, so columns 2. ประเภทกิจกรรม / 4. ผู้ควบคุม / 5. การเบิกงบ
+        // from the source sheet are dropped entirely (not just hidden).
+        const monthCol = (m) => 3 + m;
+        const totalCol = 3 + 12; // 15
+
+        // All 3 sections share identical columns — only column 2's title
+        // differs, matching the source sheet's own per-section "3. ..." header.
+        const buildColumns = (section3Title) => {
+            const columns = [
+                { type: 'dropdown', title: '1. การลงงบ', width: 220, source: glNames, autocomplete: true },
+                { type: 'text', title: '#', width: 90 },
+                { type: 'text', title: section3Title, width: 260 },
+            ];
+            monthTitles.forEach((m) => {
+                columns.push({ type: 'numeric', title: m, width: 100, mask: '#,##0' });
+            });
+            columns.push({ type: 'numeric', title: 'รวม', width: 110, readOnly: true, mask: '#,##0' });
+            return columns;
+        };
+
+        let isUpdating = false;
+        const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
+
+        // รวม = SUM(Jan:Dec) for the row — the only per-row formula in the
+        // source sheet; no carry-forward/mirror logic like other add pages.
+        const makeOnchange = (getTable) => function(instance, cell, x, y, value) {
+            const table = getTable();
+            if (!table || isUpdating) return;
+            isUpdating = true;
+
+            const rowData = table.getRowData(y);
+            let total = 0;
+            for (let m = 0; m < 12; m++) {
+                total += getNum(rowData[monthCol(m)]);
+            }
+            table.setValueFromCoords(totalCol, y, total, true);
+
+            isUpdating = false;
+        };
+
+        const makeTable = (elementId, columns, getTable) => jspreadsheet(document.getElementById(elementId), {
+            data: [Array(columns.length).fill('')],
+            columns: columns,
+            minDimensions: [columns.length, 1],
+            onchange: makeOnchange(getTable),
+            allowInsertColumn: false,
+            allowManualInsertColumn: false,
+            allowDeleteColumn: false,
+            allowInsertRow: true,
+            allowDeleteRow: true,
+            tableOverflow: true,
+            freezeColumns: 3,
+        });
+
+        let tableExtraRevenue, tableActivity, tablePersonnel, tableAsset;
+        tableExtraRevenue = makeTable('spreadsheet-extra-revenue', buildColumns('3. รายได้เพิ่ม ที่ไม่ใช่จากการขายปกติ (ค่าสนับสนุน commission ส่วนแบ่ง)'), () => tableExtraRevenue);
+        tableActivity = makeTable('spreadsheet-activity', buildColumns('3. กิจกรรมที่จะทำ (ทั้งหมด ทั้งที่เคยทำและจะทำเพิ่ม)'), () => tableActivity);
+        tablePersonnel = makeTable('spreadsheet-personnel', buildColumns('3. ค่าจ้างบุคคลากร (เพิ่ม)'), () => tablePersonnel);
+        tableAsset = makeTable('spreadsheet-asset', buildColumns('3. ทรัพย์สินย์และ Software (>5,000 บาท)'), () => tableAsset);
+
+        document.getElementById('add-row-extra-revenue').addEventListener('click', () => tableExtraRevenue.insertRow());
+        document.getElementById('add-row-activity').addEventListener('click', () => tableActivity.insertRow());
+        document.getElementById('add-row-personnel').addEventListener('click', () => tablePersonnel.insertRow());
+        document.getElementById('add-row-asset').addEventListener('click', () => tableAsset.insertRow());
+
+        // Collect rows from one table, tagging every row with the fixed
+        // budget_category for that section (no longer a per-row dropdown —
+        // it's implicit in which of the 3 tables the row came from).
+        // A row is skipped only if it's completely blank: "group" rows from
+        // the source sheet (e.g. # = "IT-01", column 3 = a section name,
+        // everything else empty) are real data rows here, not headers, so
+        // they must be kept — see the Excel-fidelity notes in the plan.
+        const collectRows = (table, budgetCategory, costCenterName) => {
+            const rows = table.getData();
+            const collected = [];
+            for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                const itemCode = row[1];
+                const section3 = row[2];
+                const glName = row[0];
+
+                if (!itemCode && !section3 && !glName) continue;
+
+                const monthlyData = {};
+                monthKeys.forEach((key, m) => {
+                    monthlyData[key] = { amount: getNum(row[monthCol(m)]) };
+                });
+
+                collected.push({
+                    'budget_category': budgetCategory,
+                    'item_code': itemCode || '',
+                    'general_ledger_code': getGlCode(glName) || '',
+                    'description': section3 || '',
+                    'cost_center_name': costCenterName,
+                    'monthly_data': monthlyData
+                });
+            }
+            return collected;
+        };
+
+        // Save button logic
+        document.getElementById('save-budget-btn').addEventListener('click', function() {
+            const costCenterName = costCenterSelect.value;
+            if (!costCenterName) {
+                Swal.fire('แจ้งเตือน', 'กรุณาเลือก Cost Center ก่อนบันทึก', 'warning');
+                return;
+            }
+
+            const dataToSave = [
+                ...collectRows(tableExtraRevenue, 'EXTRA_REVENUE', costCenterName),
+                ...collectRows(tableActivity, 'ACTIVITY', costCenterName),
+                ...collectRows(tablePersonnel, 'PERSONNEL', costCenterName),
+                ...collectRows(tableAsset, 'ASSET', costCenterName),
+            ];
+
+            if (dataToSave.length === 0) {
+                Swal.fire('แจ้งเตือน', 'ไม่มีข้อมูลสำหรับบันทึก กรุณากรอกอย่างน้อย 1 แถวก่อนครับ', 'warning');
+                return;
+            }
+
+            Swal.fire({
+                title: 'ยืนยันการบันทึกข้อมูล?',
+                text: "คุณตรวจสอบข้อมูลครบถ้วนและต้องการบันทึกใช่หรือไม่?",
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonColor: '#0061f2',
+                cancelButtonColor: '#e81500',
+                confirmButtonText: 'ยืนยัน',
+                cancelButtonText: 'ยกเลิก'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    Swal.fire({
+                        title: 'กำลังบันทึกข้อมูล...',
+                        allowOutsideClick: false,
+                        didOpen: () => {
+                            Swal.showLoading();
+                        }
+                    });
+
+                    fetch('{% url "budget_add_budget_plan" %}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify(dataToSave)
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            Swal.fire('สำเร็จ!', 'บันทึกข้อมูลเรียบร้อยแล้ว', 'success').then(() => {
+                                window.location.href = '{% url "budget_list" %}';
+                            });
+                        } else {
+                            Swal.fire('ข้อผิดพลาด', 'ไม่สามารถบันทึกได้: ' + data.message, 'error');
+                        }
+                    })
+                    .catch(error => {
+                        console.error(error);
+                        Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย', 'error');
+                    });
+                }
+            });
+        });
+    });
+</script>
+{% endblock %}

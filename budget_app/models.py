@@ -469,3 +469,71 @@ class ebudget_gl_entry_monthly_detail(models.Model):
 
     def __str__(self):
         return f"Month {self.month} - Amount: {self.amount}, Cumulative: {self.cumulative_amount}"
+
+class ebudget_budget_plan_item(models.Model):
+    BUDGET_CATEGORY_CHOICES = [
+        ('EXTRA_REVENUE', 'รายได้เพิ่ม ที่ไม่ใช่จากการขายปกติ'),
+        ('ACTIVITY', 'กิจกรรมที่จะทำ'),
+        ('PERSONNEL', 'ค่าจ้างบุคคลากร'),
+        ('ASSET', 'ทรัพย์สินและ Software'),
+    ]
+
+    budget_category = models.CharField(max_length=20, choices=BUDGET_CATEGORY_CHOICES, verbose_name="หมวด")
+    item_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัสรายการ")
+    general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
+    description = models.CharField(max_length=255, null=True, blank=True, verbose_name="รายละเอียด")
+    budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
+    base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
+    cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
+    document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
+
+    create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
+    create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
+    modify_date = Timestamp0Field(verbose_name="วันที่แก้ไขล่าสุด", null=True, blank=True)
+    modify_eid = models.CharField(max_length=50, verbose_name="ผู้แก้ไข (Employee ID)", null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        from datetime import datetime
+        now = datetime.now().replace(microsecond=0)
+        if not self.id and not self.create_date:
+            self.create_date = now
+        self.modify_date = now
+        super().save(*args, **kwargs)
+
+    @property
+    def monthly_data_dict(self):
+        month_map_rev = {
+            1: 'jan', 2: 'feb', 3: 'mar', 4: 'apr',
+            5: 'may', 6: 'jun', 7: 'jul', 8: 'aug',
+            9: 'sep', 10: 'oct', 11: 'nov', 12: 'dec'
+        }
+        res = {}
+        for detail in self.monthly_details.all():
+            m_str = month_map_rev.get(detail.month)
+            if m_str:
+                res[m_str] = {'amount': float(detail.amount)}
+        return res
+
+    class Meta:
+        db_table = 'ebudget_budget_plan_item'
+        verbose_name = "Budget Plan Item"
+        verbose_name_plural = "Budget Plan Items"
+
+    def __str__(self):
+        return f"{self.document_no} - {self.description}"
+
+class ebudget_budget_plan_monthly_detail(models.Model):
+    MONTH_CHOICES = [(i, str(i)) for i in range(1, 13)]
+
+    month = models.PositiveSmallIntegerField(choices=MONTH_CHOICES, verbose_name="เดือน (1-12)")
+    amount = models.DecimalField(max_digits=14, decimal_places=2, default=0, verbose_name="งบประมาณ")
+
+    plan_item = models.ForeignKey(ebudget_budget_plan_item, on_delete=models.CASCADE, related_name='monthly_details')
+
+    class Meta:
+        db_table = 'ebudget_budget_plan_monthly_detail'
+        verbose_name = "Budget Plan Monthly Detail"
+        verbose_name_plural = "Budget Plan Monthly Details"
+
+    def __str__(self):
+        return f"Month {self.month} - Amount: {self.amount}"

@@ -9,7 +9,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db.models import Count, Max
 from master_data.models import ebudget_budget_item_master, ebudget_budget_category_master, ebudget_cost_center_master, ebudget_general_ledger_master
-from budget_app.models import ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment, ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_gl_entry, SystemSettings
+from budget_app.models import ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment, ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_gl_entry, ebudget_budget_plan_item, SystemSettings
 from budget_app.services import BudgetService
 from budget_app.constants import ALL_BRANCH_USERNAMES
 from budget_app.decorators import require_not_frozen
@@ -42,10 +42,12 @@ def get_branch_filter_kwargs(request):
     return {'base_branch_id': request.session['base_site_branch_id']}
 
 def get_cost_centers_json():
-    """Dropdown source for the cost-center selector on every add-budget page,
-    in the same {id, name} shape as the existing item-master dropdowns."""
+    """Autocomplete source for the cost-center input on every add-budget
+    page. Ordered by code to match the meaningful grouping the master list
+    is maintained in (overhead codes first, then department codes) rather
+    than alphabetically by name."""
     return list(
-        ebudget_cost_center_master.objects.values('id', 'cost_center_name').order_by('cost_center_name')
+        ebudget_cost_center_master.objects.values('id', 'cost_center_code', 'cost_center_name').order_by('cost_center_code')
     )
 
 def get_general_ledgers_json():
@@ -72,7 +74,7 @@ def login_view(request):
 
 @login_required
 def budget_list_view(request):
-    categories = ebudget_budget_category_master.objects.all().order_by('category_code')
+    categories = ebudget_budget_category_master.objects.filter(category_code__startswith='C').order_by('category_code')
     # If no categories, create some dummy data for display
     if not categories.exists():
         c1, _ = ebudget_budget_category_master.objects.get_or_create(category_code='C01', category_name='Category 1')
@@ -139,7 +141,8 @@ def budget_list_view(request):
         'items_comp_json': comp_items_list,
         'items_furniture_json': furniture_items_list,
         'items_tools_json': tools_items_list,
-        'cost_centers_json': get_cost_centers_json()
+        'cost_centers_json': get_cost_centers_json(),
+        'general_ledgers_json': get_general_ledgers_json()
     })
 
 @login_required
@@ -386,9 +389,48 @@ def get_budget_documents_api(request, category_code):
         return JsonResponse({'status': 'success', 'data': results})
 
     elif category_code == 'C03':
-        # C03 — currently no dedicated tables, return empty or extend later
-        return JsonResponse({'status': 'success', 'data': []})
-        
+        # Fetch GL Entry
+        gl_docs = ebudget_gl_entry.objects.filter(**branch_filter).values('document_no').annotate(
+            total_positions=Count('id'),
+            create_date=Max('create_date'),
+            create_eid=Max('create_eid'),
+            budget_year=Max('budget_year')
+        )
+
+        # Fetch Budget Plan
+        plan_docs = ebudget_budget_plan_item.objects.filter(**branch_filter).values('document_no').annotate(
+            total_positions=Count('id'),
+            create_date=Max('create_date'),
+            create_eid=Max('create_eid'),
+            budget_year=Max('budget_year')
+        )
+
+        results = []
+        for doc in gl_docs:
+            results.append({
+                'document_no': doc['document_no'] or '-',
+                'create_date_raw': doc['create_date'].isoformat() if doc['create_date'] else '',
+                'create_date': doc['create_date'].strftime('%d/%m/%Y %H:%M') if doc['create_date'] else '-',
+                'create_eid': doc['create_eid'] or '-',
+                'total_positions': doc['total_positions'],
+                'budget_year': doc['budget_year'] or '-',
+                'type': 'GL Entry'
+            })
+
+        for doc in plan_docs:
+            results.append({
+                'document_no': doc['document_no'] or '-',
+                'create_date_raw': doc['create_date'].isoformat() if doc['create_date'] else '',
+                'create_date': doc['create_date'].strftime('%d/%m/%Y %H:%M') if doc['create_date'] else '-',
+                'create_eid': doc['create_eid'] or '-',
+                'total_positions': doc['total_positions'],
+                'budget_year': doc['budget_year'] or '-',
+                'type': 'Budget Plan'
+            })
+
+        results.sort(key=lambda x: x['create_date_raw'], reverse=True)
+        return JsonResponse({'status': 'success', 'data': results})
+
     return JsonResponse({'status': 'error', 'message': 'ไม่มีข้อมูลสำหรับหมวดหมู่นี้'})
 
 @login_required_json
@@ -408,6 +450,10 @@ def get_document_detail_api(request, doc_type, doc_no):
         items = ebudget_furniture.objects.filter(document_no=doc_no, **branch_filter)
     elif doc_type == 'Tools & Equipment':
         items = ebudget_tools_equipment.objects.filter(document_no=doc_no, **branch_filter)
+    elif doc_type == 'GL Entry':
+        items = ebudget_gl_entry.objects.filter(document_no=doc_no, **branch_filter)
+    elif doc_type == 'Budget Plan':
+        items = ebudget_budget_plan_item.objects.filter(document_no=doc_no, **branch_filter)
     else:
         return JsonResponse({'status': 'error', 'message': 'ประเภทเอกสารไม่ถูกต้อง'})
 
@@ -425,6 +471,12 @@ def get_document_detail_api(request, doc_type, doc_no):
         'budget_year': first_item.budget_year or '-'
     }
 
+    # Only GL Entry/Budget Plan rows need a gl_code -> gl_name lookup, so
+    # build it lazily to avoid an extra query for every other doc_type.
+    gl_name_by_code = {}
+    if doc_type in ('GL Entry', 'Budget Plan'):
+        gl_name_by_code = dict(ebudget_general_ledger_master.objects.values_list('gl_code', 'gl_name'))
+
     manpower_list = []
     for item in items:
         if doc_type == 'Position Adjustment':
@@ -441,6 +493,23 @@ def get_document_detail_api(request, doc_type, doc_no):
             data = {
                 'item_name': item.item_name,
                 'purchase_price': float(item.purchase_price),
+                'monthly_data': item.monthly_data_dict
+            }
+        elif doc_type == 'GL Entry':
+            data = {
+                'general_ledger_code': item.general_ledger_code,
+                'general_ledger_name': gl_name_by_code.get(item.general_ledger_code, item.general_ledger_code),
+                'useful_life_percent': float(item.useful_life_percent) if item.useful_life_percent is not None else None,
+                'monthly_data': item.monthly_data_dict
+            }
+        elif doc_type == 'Budget Plan':
+            data = {
+                'budget_category': item.budget_category,
+                'budget_category_display': item.get_budget_category_display(),
+                'item_code': item.item_code,
+                'general_ledger_code': item.general_ledger_code,
+                'general_ledger_name': gl_name_by_code.get(item.general_ledger_code, item.general_ledger_code),
+                'description': item.description,
                 'monthly_data': item.monthly_data_dict
             }
         else:
@@ -488,6 +557,10 @@ def update_document_api(request, doc_type, doc_no):
             model_class = ebudget_furniture
         elif doc_type == 'Tools & Equipment':
             model_class = ebudget_tools_equipment
+        elif doc_type == 'GL Entry':
+            model_class = ebudget_gl_entry
+        elif doc_type == 'Budget Plan':
+            model_class = ebudget_budget_plan_item
         else:
             return JsonResponse({'status': 'error', 'message': 'ประเภทเอกสารไม่ถูกต้อง'})
             
@@ -563,6 +636,34 @@ def update_document_api(request, doc_type, doc_no):
                     )
 
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
+                elif doc_type == 'GL Entry':
+                    obj = model_class.objects.create(
+                        general_ledger_code=item.get('general_ledger_code'),
+                        useful_life_percent=item.get('useful_life_percent'),
+                        base_branch_id=base_branch_id,
+                        cost_center_name=item.get('cost_center_name'),
+                        document_no=doc_no,
+                        create_date=create_date,
+                        create_eid=create_eid,
+                        modify_eid=username,
+                        budget_year=budget_year
+                    )
+                    BudgetService.save_gl_entry_monthly_data(obj, item['monthly_data'])
+                elif doc_type == 'Budget Plan':
+                    obj = model_class.objects.create(
+                        budget_category=item.get('budget_category'),
+                        item_code=item.get('item_code'),
+                        general_ledger_code=item.get('general_ledger_code'),
+                        description=item.get('description'),
+                        base_branch_id=base_branch_id,
+                        cost_center_name=item.get('cost_center_name'),
+                        document_no=doc_no,
+                        create_date=create_date,
+                        create_eid=create_eid,
+                        modify_eid=username,
+                        budget_year=budget_year
+                    )
+                    BudgetService.save_budget_plan_monthly_data(obj, item['monthly_data'])
                 else:
                     master_obj, gl_obj = BudgetService.get_master_fks(item['position_name'])
                     obj = model_class.objects.create(
@@ -938,6 +1039,42 @@ def budget_add_gl_entry_view(request):
             return JsonResponse({'status': 'error', 'message': str(e)})
 
     return render(request, 'budget_app/budget_add_gl_entry.html', {
+        'general_ledgers_json': get_general_ledgers_json(),
+        'cost_centers_json': get_cost_centers_json()
+    })
+
+@login_required
+@require_not_frozen
+def budget_add_budget_plan_view(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            if not data or not data[0].get('cost_center_name'):
+                return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
+            username = request.user.username
+            branch_id = BudgetService.get_branch_id_from_imedx(username)
+            doc_no = BudgetService.generate_document_no('Budget Plan')
+            budget_year = SystemSettings.load().active_budget_year
+
+            with transaction.atomic():
+                for item in data:
+                    obj = ebudget_budget_plan_item.objects.create(
+                        budget_category=item.get('budget_category'),
+                        item_code=item.get('item_code'),
+                        general_ledger_code=item.get('general_ledger_code'),
+                        description=item.get('description'),
+                        create_eid=username,
+                        base_branch_id=branch_id,
+                        cost_center_name=item.get('cost_center_name'),
+                        document_no=doc_no,
+                        budget_year=budget_year
+                    )
+                    BudgetService.save_budget_plan_monthly_data(obj, item['monthly_data'])
+            return JsonResponse({'status': 'success'})
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'message': str(e)})
+
+    return render(request, 'budget_app/budget_add_budget_plan.html', {
         'general_ledgers_json': get_general_ledgers_json(),
         'cost_centers_json': get_cost_centers_json()
     })

@@ -4,7 +4,8 @@ from datetime import datetime
 from budget_app.models import (
     ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment,
     ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, BudgetMonthlyDetail,
-    ebudget_gl_entry, ebudget_gl_entry_monthly_detail
+    ebudget_gl_entry, ebudget_gl_entry_monthly_detail,
+    ebudget_budget_plan_item, ebudget_budget_plan_monthly_detail
 )
 from master_data.models import ebudget_budget_item_master
 
@@ -54,7 +55,8 @@ class BudgetService:
             'Computer Equipment': 'COM',
             'Furniture': 'FUR',
             'Tools & Equipment': 'TEQ',
-            'GL Entry': 'GLE'
+            'GL Entry': 'GLE',
+            'Budget Plan': 'PLAN'
         }
         model_map = {
             'VET': ebudget_vet_manpower,
@@ -64,7 +66,8 @@ class BudgetService:
             'Computer Equipment': ebudget_computer_equipment,
             'Furniture': ebudget_furniture,
             'Tools & Equipment': ebudget_tools_equipment,
-            'GL Entry': ebudget_gl_entry
+            'GL Entry': ebudget_gl_entry,
+            'Budget Plan': ebudget_budget_plan_item
         }
         
         prefix_code = prefix_map.get(doc_type, 'DOC')
@@ -140,4 +143,23 @@ class BudgetService:
                 amount=data.get('amount') or 0,
                 cumulative_amount=data.get('cumulative_amount') or 0,
                 gl_entry=parent_obj
+            )
+
+    @staticmethod
+    @transaction.atomic
+    def save_budget_plan_monthly_data(parent_obj, monthly_data_dict):
+        """Same delete-and-recreate pattern as save_gl_entry_monthly_data, but
+        for ebudget_budget_plan_monthly_detail's shape: a single amount per
+        month, no detail_note/cumulative_amount."""
+        ebudget_budget_plan_monthly_detail.objects.filter(plan_item=parent_obj).delete()
+
+        for month_str, data in monthly_data_dict.items():
+            month_int = MONTH_MAP.get(month_str.lower())
+            if not month_int:
+                continue
+
+            ebudget_budget_plan_monthly_detail.objects.create(
+                month=month_int,
+                amount=data.get('amount') or 0,
+                plan_item=parent_obj
             )

@@ -3,6 +3,12 @@ const BudgetApp = (function() {
     let dataTable = null;
     let fetchController = null;
     let detailModalInstance = null;
+    let glModalInstance = null;
+    let glDetailTables = [];
+    let isGlEditMode = false;
+    let currentGlDocNo = '';
+    let currentGlDocType = '';
+    let currentGlCostCenterName = '';
     let modalTable1 = null;
     let modalTable2 = null;
     let isEditMode = false;
@@ -30,25 +36,60 @@ const BudgetApp = (function() {
     const toolsItems = document.getElementById('tools-items-data') ? JSON.parse(document.getElementById('tools-items-data').textContent) : [];
     const costCenters = document.getElementById('modal-cost-centers-data') ? JSON.parse(document.getElementById('modal-cost-centers-data').textContent) : [];
 
+    // GL dropdown source for editing GL Entry/Budget Plan documents — same
+    // gl_name-displayed/gl_code-stored pattern as budget_add_gl_entry.html.
+    const generalLedgers = document.getElementById('gl-data') ? JSON.parse(document.getElementById('gl-data').textContent) : [];
+    const glNames = generalLedgers.map(g => g.gl_name);
+    const getGlCode = (name) => {
+        const match = generalLedgers.find(g => g.gl_name === name);
+        return match ? match.gl_code : null;
+    };
+
     const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
 
-    // Fills a cost-center <select> with every known cost center and
-    // preselects `currentValue` (kept as an option even if it's since been
-    // renamed/removed from the master table, so editing never silently
-    // drops the document's existing value).
-    function populateCostCenterSelect(selectEl, currentValue) {
-        selectEl.innerHTML = '';
-        const names = costCenters.map(cc => cc.cost_center_name);
-        if (currentValue && !names.includes(currentValue)) {
-            names.unshift(currentValue);
+    // Builds (or refreshes, via setData) a jSuites searchable dropdown on
+    // `containerEl` with every known cost center, labelled "code: name",
+    // and preselects `currentValue`. If currentValue has since been
+    // renamed/removed from the master table, it's prepended as its own
+    // entry (shown as its raw name, no code) so editing never silently
+    // drops the document's existing value.
+    // TomSelect (same widget/config as the add pages' Cost Center picker,
+    // e.g. budget_add_gl_entry.html) — replaced the jSuites dropdown these
+    // view/edit modals used previously, whose compact fixed-height list felt
+    // incomplete next to the searchable TomSelect UI everywhere else in the app.
+    function populateCostCenterSelect(containerEl, currentValue) {
+        const options = costCenters.map(cc => ({ value: cc.cost_center_name, text: `${cc.cost_center_code}: ${cc.cost_center_name}` }));
+        if (currentValue && !costCenters.some(cc => cc.cost_center_name === currentValue)) {
+            options.unshift({ value: currentValue, text: currentValue });
         }
-        names.forEach(name => {
-            const opt = document.createElement('option');
-            opt.value = name;
-            opt.textContent = name;
-            selectEl.appendChild(opt);
-        });
-        selectEl.value = currentValue || '';
+        if (containerEl.tomSelectInstance) {
+            containerEl.tomSelectInstance.clearOptions();
+            options.forEach(o => containerEl.tomSelectInstance.addOption(o));
+            containerEl.tomSelectInstance.refreshOptions(false);
+        } else {
+            containerEl.tomSelectInstance = new TomSelect(containerEl, {
+                options: options,
+                valueField: 'value',
+                labelField: 'text',
+                searchField: ['text', 'value'],
+                create: false,
+                placeholder: '-- เลือก Cost Center --',
+                // These pickers live inside a modal's .table-responsive doc-info
+                // table, which stacks/clips an in-place dropdown popup — portal
+                // it to <body> instead, same as it would render on a plain page.
+                dropdownParent: 'body',
+            });
+        }
+        containerEl.tomSelectInstance.setValue(currentValue || '', true);
+    }
+
+    // TomSelect hides the original <select> permanently once initialized and
+    // renders its own wrapper element beside it — so showing/hiding the
+    // picker means toggling that wrapper, not the original element.
+    function setCostCenterSelectVisible(containerEl, visible) {
+        if (containerEl && containerEl.tomSelectInstance) {
+            containerEl.tomSelectInstance.wrapper.style.display = visible ? '' : 'none';
+        }
     }
 
     // Shared response handler for every fetch() call in this module: an
@@ -191,8 +232,13 @@ const BudgetApp = (function() {
                     doc.type === 'Computer Equipment' ? '<span class="badge bg-warning text-dark">Computer Equipment</span>' :
                     doc.type === 'Furniture' ? '<span class="badge bg-secondary">Furniture</span>' :
                     doc.type === 'Tools & Equipment' ? '<span class="badge bg-dark">Tools & Equipment</span>' :
+                    doc.type === 'GL Entry' ? '<span class="badge" style="background-color: #0dcaf0;">GL Entry</span>' :
+                    doc.type === 'Budget Plan' ? '<span class="badge" style="background-color: #20c997;">Budget Plan</span>' :
                     '<span class="badge" style="background-color: #6610f2;">NON VET</span>';
-                const actionUrl = `javascript:viewDocumentDetails('${doc.document_no}', '${doc.type}')`;
+                const isGeneralLedgerDoc = doc.type === 'GL Entry' || doc.type === 'Budget Plan';
+                const actionUrl = isGeneralLedgerDoc ?
+                    `javascript:viewGeneralLedgerDocumentDetails('${doc.document_no}', '${doc.type}')` :
+                    `javascript:viewDocumentDetails('${doc.document_no}', '${doc.type}')`;
 
                 // Per-row stagger delay is handled entirely in CSS via
                 // nth-child (see polish.css) — simple-datatables rebuilds
@@ -375,7 +421,7 @@ const BudgetApp = (function() {
                     document.getElementById('modalDocBranch').innerText = result.doc_info.base_branch_id;
                     document.getElementById('modalDocCostCenter').innerText = result.doc_info.cost_center_name || '-';
                     populateCostCenterSelect(document.getElementById('modalDocCostCenterSelect'), result.doc_info.cost_center_name);
-                    document.getElementById('modalDocCostCenterSelect').style.display = 'none';
+                    setCostCenterSelectVisible(document.getElementById('modalDocCostCenterSelect'), false);
                     document.getElementById('modalDocCostCenter').style.display = 'inline';
                     document.getElementById('modalDocBudgetYear').innerText = result.doc_info.budget_year;
                     document.getElementById('modalDocCreator').innerText = result.doc_info.create_eid;
@@ -545,7 +591,7 @@ const BudgetApp = (function() {
             if (btnClose) btnClose.style.display = 'none';
 
             document.getElementById('modalDocCostCenter').style.display = 'none';
-            document.getElementById('modalDocCostCenterSelect').style.display = 'inline-block';
+            setCostCenterSelectVisible(document.getElementById('modalDocCostCenterSelect'), true);
 
             // Re-create Table 1 for Edit
             let columns = [
@@ -712,9 +758,441 @@ const BudgetApp = (function() {
     }
     
     // ==========================================
+    // JS Logic for General Ledger Document Detail Modal (GL Entry / Budget Plan)
+    // ==========================================
+    // Renders via jspreadsheet with freezeColumns (same library/technique as
+    // budget_add_gl_entry.html/budget_add_budget_plan.html and every other
+    // detail modal on this page) — a plain HTML table with hand-rolled CSS
+    // sticky columns was tried first but proved unreliable (ghosting/overlap
+    // while scrolling); freezeColumns renders frozen columns as a genuinely
+    // separate panel, not CSS position:sticky. View mode uses readOnly
+    // columns; edit mode (gated by is_privileged_user, same as every other
+    // modal here) swaps in editable/dropdown columns and an onchange total
+    // recompute, mirroring toggleAdjEditMode's destroy-and-rebuild pattern.
+
+    const monthTitlesShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const monthKeysShort = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+    let isGlDetailUpdating = false;
+
+    function sumMonthlyData(monthlyData) {
+        return monthKeysShort.reduce((total, key) => total + getNum((monthlyData[key] || {}).amount), 0);
+    }
+
+    // Mirrors budget_add_budget_plan.html's 4 sections exactly (same order as
+    // ebudget_budget_plan_item.BUDGET_CATEGORY_CHOICES) — the add page splits
+    // Budget Plan documents into 4 tables by category, so the view here does
+    // the same instead of one combined table with a "หมวด" column.
+    const BUDGET_PLAN_SECTIONS = [
+        { category: 'EXTRA_REVENUE', columnLabel: '3. รายได้เพิ่ม ที่ไม่ใช่จากการขายปกติ (ค่าสนับสนุน commission ส่วนแบ่ง)', heading: 'รายได้เพิ่ม ที่ไม่ใช่จากการขายปกติ (ค่าสนับสนุน commission ส่วนแบ่ง)' },
+        { category: 'ACTIVITY', columnLabel: '3. กิจกรรมที่จะทำ (ทั้งหมด ทั้งที่เคยทำและจะทำเพิ่ม)', heading: 'กิจกรรมที่จะทำ (ทั้งหมด ทั้งที่เคยทำและจะทำเพิ่ม)' },
+        { category: 'PERSONNEL', columnLabel: '3. ค่าจ้างบุคคลากร (เพิ่ม)', heading: 'ค่าจ้างบุคคลากร (เพิ่ม)' },
+        { category: 'ASSET', columnLabel: '3. ทรัพย์สินย์และ Software (>5,000 บาท)', heading: 'ทรัพย์สินย์และ Software (>5,000 บาท)' },
+    ];
+
+    function glCommonTableOptions(editable) {
+        return {
+            tableOverflow: true,
+            allowInsertRow: editable,
+            allowDeleteRow: editable,
+            allowInsertColumn: false,
+            allowDeleteColumn: false,
+            allowManualInsertColumn: false,
+            columnDrag: false,
+            contextMenu: function() { return editable; },
+        };
+    }
+
+    // "รวม" = SUM(Jan:Dec) for the row, recomputed live in edit mode — same
+    // guarded-onchange pattern as budget_add_budget_plan.html.
+    function makeGlOnchange(getTable, monthStartCol, totalCol) {
+        return function() {
+            const table = getTable();
+            if (!table || isGlDetailUpdating) return;
+            isGlDetailUpdating = true;
+            for (let y = 0; y < table.getData().length; y++) {
+                const rowData = table.getRowData(y);
+                let total = 0;
+                for (let m = 0; m < 12; m++) total += getNum(rowData[monthStartCol + m]);
+                table.setValueFromCoords(totalCol, y, total, true);
+            }
+            isGlDetailUpdating = false;
+        };
+    }
+
+    function glEntryColumns(editable) {
+        const monthColumns = monthTitlesShort.map(m => ({ type: 'numeric', title: m, width: 100, readOnly: !editable, mask: '#,##0' }));
+        return [
+            editable
+                ? { type: 'dropdown', title: 'GL', width: 220, source: glNames, autocomplete: true }
+                : { type: 'text', title: 'GL', width: 220, readOnly: true },
+            { type: 'numeric', title: 'อายุการใช้งาน (%)', width: 130, readOnly: !editable, mask: '#,##0.00' },
+            ...monthColumns,
+            { type: 'numeric', title: 'รวม', width: 110, readOnly: true, mask: '#,##0' },
+        ];
+    }
+
+    function glEntryRowData(item) {
+        const monthValues = monthKeysShort.map(key => getNum((item.monthly_data[key] || {}).amount));
+        const total = sumMonthlyData(item.monthly_data);
+        const lifePercent = (item.useful_life_percent !== null && item.useful_life_percent !== undefined) ? item.useful_life_percent : '';
+        const glName = item.general_ledger_name && item.general_ledger_name !== '-' ? item.general_ledger_name : '';
+        return [glName, lifePercent, ...monthValues, total];
+    }
+
+    function buildBudgetPlanViewColumns(columnLabel, editable) {
+        const monthColumns = monthTitlesShort.map(m => ({ type: 'numeric', title: m, width: 100, readOnly: !editable, mask: '#,##0' }));
+        return [
+            editable
+                ? { type: 'dropdown', title: '1. การลงงบ', width: 220, source: glNames, autocomplete: true }
+                : { type: 'text', title: '1. การลงงบ', width: 220, readOnly: true },
+            { type: 'text', title: '#', width: 90, readOnly: !editable },
+            { type: 'text', title: columnLabel, width: 260, readOnly: !editable },
+            ...monthColumns,
+            { type: 'numeric', title: 'รวม', width: 110, readOnly: true, mask: '#,##0' },
+        ];
+    }
+
+    function budgetPlanRowData(item) {
+        const monthValues = monthKeysShort.map(key => getNum((item.monthly_data[key] || {}).amount));
+        const total = sumMonthlyData(item.monthly_data);
+        const glName = item.general_ledger_name && item.general_ledger_name !== '-' ? item.general_ledger_name : '';
+        const itemCode = item.item_code && item.item_code !== '-' ? item.item_code : '';
+        const description = item.description && item.description !== '-' ? item.description : '';
+        return [glName, itemCode, description, ...monthValues, total];
+    }
+
+    // Converts a jspreadsheet row already on screen back into the API's item
+    // shape, so entering edit mode can reuse renderGlDetailSpreadsheet against
+    // the data already loaded instead of an extra round trip to the server.
+    function glEntryGridRowToItem(row) {
+        const monthly_data = {};
+        monthKeysShort.forEach((key, m) => { monthly_data[key] = { amount: row[2 + m] }; });
+        return { general_ledger_name: row[0], useful_life_percent: row[1] === '' ? null : row[1], monthly_data };
+    }
+
+    function budgetPlanGridRowToItem(row, category) {
+        const monthly_data = {};
+        monthKeysShort.forEach((key, m) => { monthly_data[key] = { amount: row[3 + m] }; });
+        return { budget_category: category, general_ledger_name: row[0], item_code: row[1], description: row[2], monthly_data };
+    }
+
+    function addGlRowButton(table) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-sm btn-primary';
+        btn.innerHTML = '<i data-feather="plus" class="me-1"></i>เพิ่มรายการ';
+        btn.addEventListener('click', () => table.insertRow());
+        return btn;
+    }
+
+    function renderGlDetailSpreadsheet(docType, items, editable) {
+        const container = document.getElementById('glDetailTableContainer');
+
+        glDetailTables.forEach(table => table && table.destroy());
+        glDetailTables = [];
+        container.innerHTML = '';
+
+        if ((!items || items.length === 0) && !editable) {
+            container.innerHTML = '<p class="text-muted text-center py-4 mb-0">ไม่มีรายการ</p>';
+            return;
+        }
+
+        if (docType === 'GL Entry') {
+            const columns = glEntryColumns(editable);
+            const data = (items && items.length > 0) ? items.map(glEntryRowData) : [Array(columns.length).fill('')];
+
+            const headerEl = document.createElement('div');
+            const mountEl = document.createElement('div');
+            container.appendChild(headerEl);
+            container.appendChild(mountEl);
+
+            const extraOptions = editable ? { minDimensions: [columns.length, 1], onchange: makeGlOnchange(() => glDetailTables[0], 2, 14) } : {};
+            const table = jspreadsheet(mountEl, Object.assign({}, glCommonTableOptions(editable), {
+                data: data,
+                columns: columns,
+                freezeColumns: 2,
+            }, extraOptions));
+            glDetailTables[0] = table;
+
+            if (editable) {
+                headerEl.className = 'd-flex justify-content-end mb-2';
+                headerEl.appendChild(addGlRowButton(table));
+                if (typeof feather !== 'undefined') feather.replace();
+            }
+            return;
+        }
+
+        // Budget Plan: one table per category, same as the add page. Every
+        // section always shows its heading (even with zero items) — only
+        // whether a table gets mounted for it differs by mode.
+        BUDGET_PLAN_SECTIONS.forEach((section, idx) => {
+            const sectionItems = (items || []).filter(item => item.budget_category === section.category);
+
+            const sectionEl = document.createElement('div');
+            sectionEl.className = idx > 0 ? 'mt-4' : '';
+            const headerEl = document.createElement('div');
+            headerEl.className = 'd-flex justify-content-between align-items-center mb-2';
+            headerEl.innerHTML = `<h6 class="text-primary mb-0">${section.heading}</h6>`;
+            const mountEl = document.createElement('div');
+            sectionEl.appendChild(headerEl);
+            sectionEl.appendChild(mountEl);
+            container.appendChild(sectionEl);
+
+            if (sectionItems.length === 0 && !editable) {
+                mountEl.innerHTML = '<p class="text-muted small mb-0">ไม่มีรายการ</p>';
+                glDetailTables[idx] = null;
+                return;
+            }
+
+            const columns = buildBudgetPlanViewColumns(section.columnLabel, editable);
+            const data = sectionItems.length > 0 ? sectionItems.map(budgetPlanRowData) : [Array(columns.length).fill('')];
+
+            const extraOptions = editable ? { minDimensions: [columns.length, 1], onchange: makeGlOnchange(() => glDetailTables[idx], 3, 15) } : {};
+            const table = jspreadsheet(mountEl, Object.assign({}, glCommonTableOptions(editable), {
+                data: data,
+                columns: columns,
+                freezeColumns: 3,
+            }, extraOptions));
+            glDetailTables[idx] = table;
+
+            if (editable) {
+                headerEl.appendChild(addGlRowButton(table));
+            }
+        });
+
+        if (editable && typeof feather !== 'undefined') feather.replace();
+    }
+
+    function resetGlEditButtons() {
+        const btnGlEdit = document.getElementById('btnGlEditMode');
+        if (btnGlEdit) {
+            btnGlEdit.innerHTML = '<i data-feather="edit-2" class="me-1"></i> แก้ไขข้อมูล';
+            btnGlEdit.classList.remove('btn-outline-danger');
+            btnGlEdit.classList.add('btn-primary');
+        }
+        const btnGlSave = document.getElementById('btnGlSaveDocument');
+        if (btnGlSave) btnGlSave.style.display = 'none';
+        const btnGlClose = document.getElementById('btnGlCloseModal');
+        if (btnGlClose) btnGlClose.style.display = 'inline-block';
+        const costCenterSpan = document.getElementById('glModalDocCostCenter');
+        const costCenterSelect = document.getElementById('glModalDocCostCenterSelect');
+        if (costCenterSpan) costCenterSpan.style.display = 'inline';
+        setCostCenterSelectVisible(costCenterSelect, false);
+    }
+
+    function viewGeneralLedgerDocumentDetails(docNo, docType) {
+        currentGlDocNo = docNo;
+        currentGlDocType = docType;
+        isGlEditMode = false;
+        resetGlEditButtons();
+
+        if (!glModalInstance) {
+            glModalInstance = new bootstrap.Modal(document.getElementById('glDocumentDetailModal'));
+        }
+        glModalInstance.show();
+
+        document.getElementById('glModalContent').style.display = 'none';
+        document.getElementById('glModalLoadingSpinner').style.display = 'block';
+
+        const urlTemplate = window.APP_CONFIG.urls.apiDocumentDetail;
+        const url = urlTemplate.replace('TYPE', encodeURIComponent(docType)).replace('DOCNO', encodeURIComponent(docNo));
+
+        fetch(url)
+            .then(handleApiResponse)
+            .then(result => {
+                document.getElementById('glModalLoadingSpinner').style.display = 'none';
+
+                if (result.status === 'success') {
+                    document.getElementById('glModalDocNo').innerText = result.doc_info.document_no;
+                    document.getElementById('glModalDocType').innerHTML = result.doc_info.type === 'GL Entry' ?
+                        '<span class="badge" style="background-color: #0dcaf0;">GL Entry</span>' :
+                        '<span class="badge" style="background-color: #20c997;">Budget Plan</span>';
+                    document.getElementById('glModalDocBranch').innerText = result.doc_info.base_branch_id;
+                    currentGlCostCenterName = result.doc_info.cost_center_name || '';
+                    document.getElementById('glModalDocCostCenter').innerText = result.doc_info.cost_center_name || '-';
+                    populateCostCenterSelect(document.getElementById('glModalDocCostCenterSelect'), result.doc_info.cost_center_name);
+                    setCostCenterSelectVisible(document.getElementById('glModalDocCostCenterSelect'), false);
+                    document.getElementById('glModalDocBudgetYear').innerText = result.doc_info.budget_year;
+                    document.getElementById('glModalDocCreator').innerText = result.doc_info.create_eid;
+                    document.getElementById('glModalDocDate').innerText = result.doc_info.create_date;
+
+                    renderGlDetailSpreadsheet(docType, result.manpower_list, false);
+
+                    const modalContentEl = document.getElementById('glModalContent');
+                    modalContentEl.style.display = 'block';
+                    modalContentEl.classList.remove('modal-content-fade-in');
+                    void modalContentEl.offsetWidth;
+                    modalContentEl.classList.add('modal-content-fade-in');
+                } else {
+                    Swal.fire('ข้อผิดพลาด', result.message || 'ไม่พบเอกสารนี้', 'error');
+                    glModalInstance.hide();
+                }
+            })
+            .catch(error => {
+                if (error.message === SESSION_EXPIRED) return;
+                document.getElementById('glModalLoadingSpinner').style.display = 'none';
+                console.error(error);
+                Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
+                glModalInstance.hide();
+            });
+    }
+
+    function toggleGlEditMode() {
+        isGlEditMode = !isGlEditMode;
+        const btnGlEdit = document.getElementById('btnGlEditMode');
+        const btnGlSave = document.getElementById('btnGlSaveDocument');
+        const btnGlClose = document.getElementById('btnGlCloseModal');
+        const costCenterSpan = document.getElementById('glModalDocCostCenter');
+        const costCenterSelect = document.getElementById('glModalDocCostCenterSelect');
+
+        if (isGlEditMode) {
+            if (btnGlEdit) {
+                btnGlEdit.innerHTML = '<i data-feather="x" class="me-1"></i> ยกเลิกการแก้ไข';
+                btnGlEdit.classList.remove('btn-primary');
+                btnGlEdit.classList.add('btn-outline-danger');
+            }
+            if (btnGlSave) btnGlSave.style.display = 'inline-block';
+            if (btnGlClose) btnGlClose.style.display = 'none';
+            // Budget Plan's Cost Center is fixed for the life of the
+            // document (business rule) — leave it as plain text even in
+            // edit mode, unlike every other doc type here. GL Entry keeps
+            // the normal editable picker.
+            if (currentGlDocType !== 'Budget Plan') {
+                if (costCenterSpan) costCenterSpan.style.display = 'none';
+                setCostCenterSelectVisible(costCenterSelect, true);
+            }
+
+            // Rebuild from the data already on screen (no extra fetch),
+            // same as toggleAdjEditMode's currentData = table.getData() step.
+            let items;
+            if (currentGlDocType === 'GL Entry') {
+                const table = glDetailTables[0];
+                items = table ? table.getData().filter(row => row[0]).map(glEntryGridRowToItem) : [];
+            } else {
+                items = [];
+                BUDGET_PLAN_SECTIONS.forEach((section, idx) => {
+                    const table = glDetailTables[idx];
+                    if (!table) return;
+                    table.getData().forEach(row => {
+                        if (row[0] || row[1] || row[2]) items.push(budgetPlanGridRowToItem(row, section.category));
+                    });
+                });
+            }
+            renderGlDetailSpreadsheet(currentGlDocType, items, true);
+
+            const containerEl = document.getElementById('glDetailTableContainer');
+            containerEl.classList.remove('eb-edit-flash');
+            void containerEl.offsetWidth;
+            containerEl.classList.add('eb-edit-flash');
+        } else {
+            // Cancel edit -> reload document details from the server.
+            viewGeneralLedgerDocumentDetails(currentGlDocNo, currentGlDocType);
+        }
+        if (typeof feather !== 'undefined') feather.replace();
+    }
+
+    function saveGlDocument() {
+        // Budget Plan's Cost Center is locked (see toggleGlEditMode) — reuse
+        // the document's existing value instead of reading a picker that
+        // was never shown. GL Entry keeps the normal editable picker.
+        const costCenterName = currentGlDocType === 'Budget Plan'
+            ? currentGlCostCenterName
+            : document.getElementById('glModalDocCostCenterSelect').value;
+        if (!costCenterName) {
+            Swal.fire('แจ้งเตือน', 'กรุณาเลือก Cost Center ก่อนบันทึก', 'warning');
+            return;
+        }
+
+        const dataToSave = [];
+
+        if (currentGlDocType === 'GL Entry') {
+            const table = glDetailTables[0];
+            const rows = table ? table.getData() : [];
+            rows.forEach(row => {
+                const glName = row[0];
+                if (!glName) return;
+                const monthlyData = {};
+                monthKeysShort.forEach((key, m) => { monthlyData[key] = { amount: getNum(row[2 + m]) }; });
+                dataToSave.push({
+                    general_ledger_code: getGlCode(glName),
+                    useful_life_percent: getNum(row[1]) || null,
+                    cost_center_name: costCenterName,
+                    monthly_data: monthlyData,
+                });
+            });
+        } else {
+            BUDGET_PLAN_SECTIONS.forEach((section, idx) => {
+                const table = glDetailTables[idx];
+                if (!table) return;
+                table.getData().forEach(row => {
+                    const glName = row[0];
+                    const itemCode = row[1];
+                    const description = row[2];
+                    if (!glName && !itemCode && !description) return;
+                    const monthlyData = {};
+                    monthKeysShort.forEach((key, m) => { monthlyData[key] = { amount: getNum(row[3 + m]) }; });
+                    dataToSave.push({
+                        budget_category: section.category,
+                        item_code: itemCode || '',
+                        general_ledger_code: getGlCode(glName) || '',
+                        description: description || '',
+                        cost_center_name: costCenterName,
+                        monthly_data: monthlyData,
+                    });
+                });
+            });
+        }
+
+        if (dataToSave.length === 0) {
+            Swal.fire('แจ้งเตือน', 'ไม่มีข้อมูลสำหรับบันทึก', 'warning');
+            return;
+        }
+
+        Swal.fire({
+            title: 'ยืนยันการบันทึกข้อมูล?',
+            text: 'คุณตรวจสอบข้อมูลครบถ้วนและต้องการบันทึกใช่หรือไม่?',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#0061f2',
+            cancelButtonColor: '#e81500',
+            confirmButtonText: 'ยืนยัน',
+            cancelButtonText: 'ยกเลิก'
+        }).then((result) => {
+            if (!result.isConfirmed) return;
+
+            Swal.fire({ title: 'กำลังบันทึกข้อมูล...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+
+            const urlTemplate = window.APP_CONFIG.urls.apiDocumentUpdate;
+            const url = urlTemplate.replace('TYPE', encodeURIComponent(currentGlDocType)).replace('DOCNO', encodeURIComponent(currentGlDocNo));
+
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.APP_CONFIG.csrfToken },
+                body: JSON.stringify(dataToSave)
+            })
+            .then(handleApiResponse)
+            .then(data => {
+                if (data.status === 'success') {
+                    Swal.fire('สำเร็จ!', 'บันทึกข้อมูลเรียบร้อยแล้ว', 'success').then(() => {
+                        isGlEditMode = false;
+                        viewGeneralLedgerDocumentDetails(currentGlDocNo, currentGlDocType);
+                    });
+                } else {
+                    Swal.fire('ข้อผิดพลาด', 'ไม่สามารถบันทึกได้: ' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                if (error.message === SESSION_EXPIRED) return;
+                console.error(error);
+                Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
+            });
+        });
+    }
+
+    // ==========================================
     // JS Logic for Position Adjustment Modal
     // ==========================================
-    
+
 
     function viewAdjustmentDetails(docNo) {
         currentAdjDocNo = docNo;
@@ -755,7 +1233,7 @@ const BudgetApp = (function() {
                     document.getElementById('adjModalDocBranch').innerText = result.doc_info.base_branch_id;
                     document.getElementById('adjModalDocCostCenter').innerText = result.doc_info.cost_center_name || '-';
                     populateCostCenterSelect(document.getElementById('adjModalDocCostCenterSelect'), result.doc_info.cost_center_name);
-                    document.getElementById('adjModalDocCostCenterSelect').style.display = 'none';
+                    setCostCenterSelectVisible(document.getElementById('adjModalDocCostCenterSelect'), false);
                     document.getElementById('adjModalDocCostCenter').style.display = 'inline';
                     document.getElementById('adjModalDocBudgetYear').innerText = result.doc_info.budget_year;
                     document.getElementById('adjModalDocCreator').innerText = result.doc_info.create_eid;
@@ -1031,7 +1509,7 @@ const BudgetApp = (function() {
             if (btnClose) btnClose.style.display = 'none';
 
             document.getElementById('adjModalDocCostCenter').style.display = 'none';
-            document.getElementById('adjModalDocCostCenterSelect').style.display = 'inline-block';
+            setCostCenterSelectVisible(document.getElementById('adjModalDocCostCenterSelect'), true);
 
             const cols1 = [
                 { type: 'dropdown', title: 'ตำแหน่งเดิม', width: 200, source: allAdjItems, autocomplete: true },
@@ -1201,6 +1679,9 @@ const BudgetApp = (function() {
         fetchDocuments: fetchDocuments,
         applyTypeFilter: applyTypeFilter,
         viewDocumentDetails: viewDocumentDetails,
+        viewGeneralLedgerDocumentDetails: viewGeneralLedgerDocumentDetails,
+        toggleGlEditMode: toggleGlEditMode,
+        saveGlDocument: saveGlDocument,
         toggleEditMode: toggleEditMode,
         addSpreadsheetRow: addSpreadsheetRow,
         saveDocument: saveDocument,
@@ -1215,6 +1696,9 @@ const BudgetApp = (function() {
 window.fetchDocuments = BudgetApp.fetchDocuments;
 window.applyTypeFilter = BudgetApp.applyTypeFilter;
 window.viewDocumentDetails = BudgetApp.viewDocumentDetails;
+window.viewGeneralLedgerDocumentDetails = BudgetApp.viewGeneralLedgerDocumentDetails;
+window.toggleGlEditMode = BudgetApp.toggleGlEditMode;
+window.saveGlDocument = BudgetApp.saveGlDocument;
 window.toggleEditMode = BudgetApp.toggleEditMode;
 window.addSpreadsheetRow = BudgetApp.addSpreadsheetRow;
 window.saveDocument = BudgetApp.saveDocument;
