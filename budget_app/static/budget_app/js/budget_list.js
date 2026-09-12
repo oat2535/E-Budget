@@ -213,7 +213,6 @@ const BudgetApp = (function() {
                         <th>Budget Year</th>
                         <th>Date Created</th>
                         <th>Created By</th>
-                        <th>Total Positions</th>
                         <th>Action</th>
                     </tr>
                 </thead>
@@ -251,7 +250,6 @@ const BudgetApp = (function() {
                         <td>${doc.budget_year}</td>
                         <td>${doc.create_date}</td>
                         <td>${doc.create_eid}</td>
-                        <td>${doc.total_positions}</td>
                         <td>
                             <a class="btn btn-datatable btn-icon btn-transparent-dark me-2" href="${actionUrl}"><i data-feather="eye"></i></a>
                         </td>
