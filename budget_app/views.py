@@ -141,7 +141,6 @@ def budget_list_view(request):
         'items_comp_json': comp_items_list,
         'items_furniture_json': furniture_items_list,
         'items_tools_json': tools_items_list,
-        'cost_centers_json': get_cost_centers_json(),
         'general_ledgers_json': get_general_ledgers_json()
     })
 

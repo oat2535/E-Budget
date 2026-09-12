@@ -14,13 +14,15 @@ const BudgetApp = (function() {
     let isEditMode = false;
     let currentDocNo = '';
     let currentDocType = '';
+    let currentCostCenterName = '';
     let isUpdating = false;
     let currentCategoryData = [];
-    
+
     let adjModalInstance = null;
     let adjTable1 = null, adjTable2 = null, adjTable3 = null;
     let isAdjEditMode = false;
     let currentAdjDocNo = '';
+    let currentAdjCostCenterName = '';
     let isAdjUpdating = false;
 
     // Wait for DOM
@@ -34,7 +36,6 @@ const BudgetApp = (function() {
     const compItems = document.getElementById('comp-items-data') ? JSON.parse(document.getElementById('comp-items-data').textContent) : [];
     const furnitureItems = document.getElementById('furniture-items-data') ? JSON.parse(document.getElementById('furniture-items-data').textContent) : [];
     const toolsItems = document.getElementById('tools-items-data') ? JSON.parse(document.getElementById('tools-items-data').textContent) : [];
-    const costCenters = document.getElementById('modal-cost-centers-data') ? JSON.parse(document.getElementById('modal-cost-centers-data').textContent) : [];
 
     // GL dropdown source for editing GL Entry/Budget Plan documents — same
     // gl_name-displayed/gl_code-stored pattern as budget_add_gl_entry.html.
@@ -46,51 +47,6 @@ const BudgetApp = (function() {
     };
 
     const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
-
-    // Builds (or refreshes, via setData) a jSuites searchable dropdown on
-    // `containerEl` with every known cost center, labelled "code: name",
-    // and preselects `currentValue`. If currentValue has since been
-    // renamed/removed from the master table, it's prepended as its own
-    // entry (shown as its raw name, no code) so editing never silently
-    // drops the document's existing value.
-    // TomSelect (same widget/config as the add pages' Cost Center picker,
-    // e.g. budget_add_gl_entry.html) — replaced the jSuites dropdown these
-    // view/edit modals used previously, whose compact fixed-height list felt
-    // incomplete next to the searchable TomSelect UI everywhere else in the app.
-    function populateCostCenterSelect(containerEl, currentValue) {
-        const options = costCenters.map(cc => ({ value: cc.cost_center_name, text: `${cc.cost_center_code}: ${cc.cost_center_name}` }));
-        if (currentValue && !costCenters.some(cc => cc.cost_center_name === currentValue)) {
-            options.unshift({ value: currentValue, text: currentValue });
-        }
-        if (containerEl.tomSelectInstance) {
-            containerEl.tomSelectInstance.clearOptions();
-            options.forEach(o => containerEl.tomSelectInstance.addOption(o));
-            containerEl.tomSelectInstance.refreshOptions(false);
-        } else {
-            containerEl.tomSelectInstance = new TomSelect(containerEl, {
-                options: options,
-                valueField: 'value',
-                labelField: 'text',
-                searchField: ['text', 'value'],
-                create: false,
-                placeholder: '-- เลือก Cost Center --',
-                // These pickers live inside a modal's .table-responsive doc-info
-                // table, which stacks/clips an in-place dropdown popup — portal
-                // it to <body> instead, same as it would render on a plain page.
-                dropdownParent: 'body',
-            });
-        }
-        containerEl.tomSelectInstance.setValue(currentValue || '', true);
-    }
-
-    // TomSelect hides the original <select> permanently once initialized and
-    // renders its own wrapper element beside it — so showing/hiding the
-    // picker means toggling that wrapper, not the original element.
-    function setCostCenterSelectVisible(containerEl, visible) {
-        if (containerEl && containerEl.tomSelectInstance) {
-            containerEl.tomSelectInstance.wrapper.style.display = visible ? '' : 'none';
-        }
-    }
 
     // Shared response handler for every fetch() call in this module: an
     // expired session comes back as HTTP 401 JSON (see login_required_json
@@ -417,10 +373,8 @@ const BudgetApp = (function() {
                     document.getElementById('modalDocNo').innerText = result.doc_info.document_no;
                     document.getElementById('modalDocType').innerHTML = result.doc_info.type === 'VET' ? '<span class="badge bg-primary">VET</span>' : result.doc_info.type === 'Medical Equipment' ? '<span class="badge bg-success">Medical Equipment</span>' : result.doc_info.type === 'Computer Equipment' ? '<span class="badge bg-warning text-dark">Computer Equipment</span>' : result.doc_info.type === 'Furniture' ? '<span class="badge bg-secondary">Furniture</span>' : result.doc_info.type === 'Tools & Equipment' ? '<span class="badge bg-dark">Tools & Equipment</span>' : '<span class="badge" style="background-color: #6610f2;">NON VET</span>';
                     document.getElementById('modalDocBranch').innerText = result.doc_info.base_branch_id;
+                    currentCostCenterName = result.doc_info.cost_center_name || '';
                     document.getElementById('modalDocCostCenter').innerText = result.doc_info.cost_center_name || '-';
-                    populateCostCenterSelect(document.getElementById('modalDocCostCenterSelect'), result.doc_info.cost_center_name);
-                    setCostCenterSelectVisible(document.getElementById('modalDocCostCenterSelect'), false);
-                    document.getElementById('modalDocCostCenter').style.display = 'inline';
                     document.getElementById('modalDocBudgetYear').innerText = result.doc_info.budget_year;
                     document.getElementById('modalDocCreator').innerText = result.doc_info.create_eid;
                     document.getElementById('modalDocDate').innerText = result.doc_info.create_date;
@@ -588,8 +542,8 @@ const BudgetApp = (function() {
             btnSave.style.display = 'inline-block';
             if (btnClose) btnClose.style.display = 'none';
 
-            document.getElementById('modalDocCostCenter').style.display = 'none';
-            setCostCenterSelectVisible(document.getElementById('modalDocCostCenterSelect'), true);
+            // Cost Center is locked — it's never editable, in any document
+            // type's edit mode, so it stays as plain text throughout.
 
             // Re-create Table 1 for Edit
             let columns = [
@@ -645,7 +599,7 @@ const BudgetApp = (function() {
     function saveDocument() {
         if (!modalTable1 || !isEditMode) return;
 
-        const costCenterName = document.getElementById('modalDocCostCenterSelect').value;
+        const costCenterName = currentCostCenterName;
         if (!costCenterName) {
             Swal.fire('แจ้งเตือน', 'กรุณาเลือก Cost Center', 'warning');
             return;
@@ -972,10 +926,6 @@ const BudgetApp = (function() {
         if (btnGlSave) btnGlSave.style.display = 'none';
         const btnGlClose = document.getElementById('btnGlCloseModal');
         if (btnGlClose) btnGlClose.style.display = 'inline-block';
-        const costCenterSpan = document.getElementById('glModalDocCostCenter');
-        const costCenterSelect = document.getElementById('glModalDocCostCenterSelect');
-        if (costCenterSpan) costCenterSpan.style.display = 'inline';
-        setCostCenterSelectVisible(costCenterSelect, false);
     }
 
     function viewGeneralLedgerDocumentDetails(docNo, docType) {
@@ -1008,8 +958,6 @@ const BudgetApp = (function() {
                     document.getElementById('glModalDocBranch').innerText = result.doc_info.base_branch_id;
                     currentGlCostCenterName = result.doc_info.cost_center_name || '';
                     document.getElementById('glModalDocCostCenter').innerText = result.doc_info.cost_center_name || '-';
-                    populateCostCenterSelect(document.getElementById('glModalDocCostCenterSelect'), result.doc_info.cost_center_name);
-                    setCostCenterSelectVisible(document.getElementById('glModalDocCostCenterSelect'), false);
                     document.getElementById('glModalDocBudgetYear').innerText = result.doc_info.budget_year;
                     document.getElementById('glModalDocCreator').innerText = result.doc_info.create_eid;
                     document.getElementById('glModalDocDate').innerText = result.doc_info.create_date;
@@ -1040,8 +988,6 @@ const BudgetApp = (function() {
         const btnGlEdit = document.getElementById('btnGlEditMode');
         const btnGlSave = document.getElementById('btnGlSaveDocument');
         const btnGlClose = document.getElementById('btnGlCloseModal');
-        const costCenterSpan = document.getElementById('glModalDocCostCenter');
-        const costCenterSelect = document.getElementById('glModalDocCostCenterSelect');
 
         if (isGlEditMode) {
             if (btnGlEdit) {
@@ -1051,14 +997,8 @@ const BudgetApp = (function() {
             }
             if (btnGlSave) btnGlSave.style.display = 'inline-block';
             if (btnGlClose) btnGlClose.style.display = 'none';
-            // Budget Plan's Cost Center is fixed for the life of the
-            // document (business rule) — leave it as plain text even in
-            // edit mode, unlike every other doc type here. GL Entry keeps
-            // the normal editable picker.
-            if (currentGlDocType !== 'Budget Plan') {
-                if (costCenterSpan) costCenterSpan.style.display = 'none';
-                setCostCenterSelectVisible(costCenterSelect, true);
-            }
+            // Cost Center is locked — it's never editable, in any document
+            // type's edit mode, so it stays as plain text throughout.
 
             // Rebuild from the data already on screen (no extra fetch),
             // same as toggleAdjEditMode's currentData = table.getData() step.
@@ -1090,12 +1030,7 @@ const BudgetApp = (function() {
     }
 
     function saveGlDocument() {
-        // Budget Plan's Cost Center is locked (see toggleGlEditMode) — reuse
-        // the document's existing value instead of reading a picker that
-        // was never shown. GL Entry keeps the normal editable picker.
-        const costCenterName = currentGlDocType === 'Budget Plan'
-            ? currentGlCostCenterName
-            : document.getElementById('glModalDocCostCenterSelect').value;
+        const costCenterName = currentGlCostCenterName;
         if (!costCenterName) {
             Swal.fire('แจ้งเตือน', 'กรุณาเลือก Cost Center ก่อนบันทึก', 'warning');
             return;
@@ -1229,10 +1164,8 @@ const BudgetApp = (function() {
                 if (result.status === 'success') {
                     document.getElementById('adjModalDocNo').innerText = result.doc_info.document_no;
                     document.getElementById('adjModalDocBranch').innerText = result.doc_info.base_branch_id;
+                    currentAdjCostCenterName = result.doc_info.cost_center_name || '';
                     document.getElementById('adjModalDocCostCenter').innerText = result.doc_info.cost_center_name || '-';
-                    populateCostCenterSelect(document.getElementById('adjModalDocCostCenterSelect'), result.doc_info.cost_center_name);
-                    setCostCenterSelectVisible(document.getElementById('adjModalDocCostCenterSelect'), false);
-                    document.getElementById('adjModalDocCostCenter').style.display = 'inline';
                     document.getElementById('adjModalDocBudgetYear').innerText = result.doc_info.budget_year;
                     document.getElementById('adjModalDocCreator').innerText = result.doc_info.create_eid;
                     document.getElementById('adjModalDocDate').innerText = result.doc_info.create_date;
@@ -1506,8 +1439,8 @@ const BudgetApp = (function() {
             btnSave.style.display = 'inline-block';
             if (btnClose) btnClose.style.display = 'none';
 
-            document.getElementById('adjModalDocCostCenter').style.display = 'none';
-            setCostCenterSelectVisible(document.getElementById('adjModalDocCostCenterSelect'), true);
+            // Cost Center is locked — it's never editable, in any document
+            // type's edit mode, so it stays as plain text throughout.
 
             const cols1 = [
                 { type: 'dropdown', title: 'ตำแหน่งเดิม', width: 200, source: allAdjItems, autocomplete: true },
@@ -1574,7 +1507,7 @@ const BudgetApp = (function() {
     function saveAdjDocument() {
         if (!adjTable1 || !isAdjEditMode) return;
 
-        const costCenterName = document.getElementById('adjModalDocCostCenterSelect').value;
+        const costCenterName = currentAdjCostCenterName;
         if (!costCenterName) {
             Swal.fire('แจ้งเตือน', 'กรุณาเลือก Cost Center', 'warning');
             return;

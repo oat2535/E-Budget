@@ -21,21 +21,6 @@
     .jexcel tbody tr td {
         vertical-align: middle;
     }
-
-    /* The Cost Center TomSelect pickers in the detail modals use
-       dropdownParent:'body' (see populateCostCenterSelect in budget_list.js)
-       so their popup escapes the modal's .table-responsive doc-info table
-       instead of being clipped/stacked under later content. Once portaled to
-       <body> it's a sibling of Bootstrap's .modal (z-index 1055) rather than
-       a descendant, so it needs its own z-index above that to still render
-       on top — otherwise it's there in the DOM but visually hidden behind
-       the modal. !important because this page's own <style> block is placed
-       in base.html's <head> before the TomSelect CDN stylesheet link, so
-       without it TomSelect's same-specificity default would win on load
-       order alone. */
-    .ts-dropdown {
-        z-index: 1075 !important;
-    }
 </style>
 {% endblock %}
 
@@ -166,10 +151,7 @@
                                         <td id="modalDocNo"></td>
                                         <td id="modalDocType"></td>
                                         <td id="modalDocBranch"></td>
-                                        <td>
-                                            <span id="modalDocCostCenter"></span>
-                                            <select id="modalDocCostCenterSelect" class="form-select" style="display: none; max-width: 260px;"></select>
-                                        </td>
+                                        <td id="modalDocCostCenter"></td>
                                         <td id="modalDocBudgetYear"></td>
                                         <td id="modalDocCreator"></td>
                                         <td id="modalDocDate"></td>
@@ -248,10 +230,7 @@
                                         <td id="adjModalDocNo"></td>
                                         <td id="adjModalDocType"><span class="badge bg-info">Position Adjustment</span></td>
                                         <td id="adjModalDocBranch"></td>
-                                        <td>
-                                            <span id="adjModalDocCostCenter"></span>
-                                            <select id="adjModalDocCostCenterSelect" class="form-select" style="display: none; max-width: 260px;"></select>
-                                        </td>
+                                        <td id="adjModalDocCostCenter"></td>
                                         <td id="adjModalDocBudgetYear"></td>
                                         <td id="adjModalDocCreator"></td>
                                         <td id="adjModalDocDate"></td>
@@ -341,10 +320,7 @@
                                         <td id="glModalDocNo"></td>
                                         <td id="glModalDocType"></td>
                                         <td id="glModalDocBranch"></td>
-                                        <td>
-                                            <span id="glModalDocCostCenter"></span>
-                                            <select id="glModalDocCostCenterSelect" class="form-select" style="display: none; max-width: 260px;"></select>
-                                        </td>
+                                        <td id="glModalDocCostCenter"></td>
                                         <td id="glModalDocBudgetYear"></td>
                                         <td id="glModalDocCreator"></td>
                                         <td id="glModalDocDate"></td>
@@ -385,7 +361,6 @@
 {{ items_comp_json|json_script:"comp-items-data" }}
 {{ items_furniture_json|json_script:"furniture-items-data" }}
 {{ items_tools_json|json_script:"tools-items-data" }}
-{{ cost_centers_json|json_script:"modal-cost-centers-data" }}
 {{ general_ledgers_json|json_script:"gl-data" }}
 
 <script>
