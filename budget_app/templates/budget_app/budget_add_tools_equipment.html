@@ -31,6 +31,18 @@
     .jexcel tbody tr td {
         vertical-align: middle;
     }
+    /* jspreadsheet mounts into these after DOMContentLoaded, growing them
+       from 0 height and shifting everything below — reserve the rendered
+       height (1 header row + 1 data row) up front to avoid that layout shift. */
+    #spreadsheet, #calc-spreadsheet {
+        min-height: 68px;
+    }
+    /* The plain <select> renders taller than the TomSelect control that
+       replaces it after DOMContentLoaded — match its height up front so
+       swapping to TomSelect doesn't shrink the card and shift the page. */
+    #cost-center-select {
+        height: 35px;
+    }
 </style>
 {% endblock %}
 
