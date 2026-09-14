@@ -81,70 +81,82 @@ const BudgetApp = (function() {
     const onSpreadsheetChange = function(instance, cell, x, y, value) {
         if (!modalTable1 || !modalTable2 || isUpdating || !isEditMode) return;
         isUpdating = true;
-        
-        x = parseInt(x);
-        y = parseInt(y);
-        
-        const isNonVet = currentDocType === 'NON VET';
-        const isMed = currentDocType === 'Medical Equipment';
-        const isComp = currentDocType === 'Computer Equipment';
-        const isFurniture = currentDocType === 'Furniture';
-        const isTools = currentDocType === 'Tools & Equipment';
-        const isEquipment = isMed || isComp || isFurniture || isTools;
-        let itemsList = vetItems;
-        if (isNonVet) itemsList = nonVetItems;
-        if (isMed) itemsList = medItems;
-        else if (isComp) itemsList = compItems;
-        else if (isFurniture) itemsList = furnitureItems;
-        else if (isTools) itemsList = toolsItems;
 
-        // If position changed, update salary
-        if (x === 0) {
-            const match = itemsList.find(i => i.name === value);
-            const salary = match ? (isEquipment ? match.purchase_price : match.salary) : 0;
-            modalTable1.setValueFromCoords(1, y, salary, true); 
-            
-            if (isNonVet) {
-                const allowance = match ? match.position_allowance : 0;
-                modalTable1.setValueFromCoords(2, y, allowance, true);
+        try {
+            x = parseInt(x);
+            y = parseInt(y);
+
+            // modalTable1's row count can only get ahead of modalTable2's
+            // through the oninsertrow hook below, which keeps them synced
+            // regardless of how the row was added — but guard here too in
+            // case a future jspreadsheet interaction (e.g. paste) slips a
+            // row past it.
+            if (y >= modalTable2.rows.length) return;
+
+            const isNonVet = currentDocType === 'NON VET';
+            const isMed = currentDocType === 'Medical Equipment';
+            const isComp = currentDocType === 'Computer Equipment';
+            const isFurniture = currentDocType === 'Furniture';
+            const isTools = currentDocType === 'Tools & Equipment';
+            const isEquipment = isMed || isComp || isFurniture || isTools;
+            let itemsList = vetItems;
+            if (isNonVet) itemsList = nonVetItems;
+            if (isMed) itemsList = medItems;
+            else if (isComp) itemsList = compItems;
+            else if (isFurniture) itemsList = furnitureItems;
+            else if (isTools) itemsList = toolsItems;
+
+            // If position changed, update salary
+            if (x === 0) {
+                const match = itemsList.find(i => i.name === value);
+                const salary = match ? (isEquipment ? match.purchase_price : match.salary) : 0;
+                modalTable1.setValueFromCoords(1, y, salary, true);
+
+                if (isNonVet) {
+                    const allowance = match ? match.position_allowance : 0;
+                    modalTable1.setValueFromCoords(2, y, allowance, true);
+                }
             }
-        }
 
-        // Calculate total for this row in table1
-        const rowData1 = modalTable1.getRowData(y);
-        let sum1 = 0;
-        const startCol = isNonVet ? 3 : 2;
-        const endCol = isNonVet ? 14 : 13;
-        
-        for(let i = startCol; i <= endCol; i++) {
-            sum1 += getNum(rowData1[i]);
-        }
-        modalTable1.setValueFromCoords(endCol + 1, y, sum1, true);
+            // Calculate total for this row in table1
+            const rowData1 = modalTable1.getRowData(y);
+            let sum1 = 0;
+            const startCol = isNonVet ? 3 : 2;
+            const endCol = isNonVet ? 14 : 13;
 
-        // Sync with table2
-        const pos = rowData1[0];
-        const sal = getNum(rowData1[1]);
-        
-        modalTable2.setValueFromCoords(0, y, pos, true);
-        modalTable2.setValueFromCoords(1, y, sal, true);
-        
-        let total_sal = sal;
-        if (isNonVet) {
-            const allow = getNum(rowData1[2]);
-            modalTable2.setValueFromCoords(2, y, allow, true);
-            total_sal += allow;
+            for(let i = startCol; i <= endCol; i++) {
+                sum1 += getNum(rowData1[i]);
+            }
+            modalTable1.setValueFromCoords(endCol + 1, y, sum1, true);
+
+            // Sync with table2
+            const pos = rowData1[0];
+            const sal = getNum(rowData1[1]);
+
+            modalTable2.setValueFromCoords(0, y, pos, true);
+            modalTable2.setValueFromCoords(1, y, sal, true);
+
+            let total_sal = sal;
+            if (isNonVet) {
+                const allow = getNum(rowData1[2]);
+                modalTable2.setValueFromCoords(2, y, allow, true);
+                total_sal += allow;
+            }
+
+            let sum2 = 0;
+            for(let i = startCol; i <= endCol; i++) {
+                const count = getNum(rowData1[i]);
+                const cost = count * total_sal;
+                modalTable2.setValueFromCoords(i, y, cost, true);
+                sum2 += cost;
+            }
+            modalTable2.setValueFromCoords(endCol + 1, y, sum2, true);
+        } finally {
+            // Always clear the guard, even if something above throws —
+            // otherwise every future edit silently no-ops forever (the bug
+            // behind "table freezes until you refresh the page").
+            isUpdating = false;
         }
-        
-        let sum2 = 0;
-        for(let i = startCol; i <= endCol; i++) {
-            const count = getNum(rowData1[i]);
-            const cost = count * total_sal;
-            modalTable2.setValueFromCoords(i, y, cost, true);
-            sum2 += cost;
-        }
-        modalTable2.setValueFromCoords(endCol + 1, y, sum2, true);
-        
-        isUpdating = false;
     };
 
      // Store raw data for fast client-side filtering
@@ -572,7 +584,15 @@ const BudgetApp = (function() {
                 allowDeleteColumn: false,
                 tableOverflow: true,
                 onchange: onSpreadsheetChange,
-                contextMenu: function() { return true; }
+                contextMenu: function() { return true; },
+                // modalTable1 can gain a row through more than just the
+                // "เพิ่มรายการ" button — e.g. pressing Enter on its last row —
+                // and modalTable2 must always mirror it row-for-row or
+                // onSpreadsheetChange's cross-table writes land on a row that
+                // doesn't exist yet and throw, wedging isUpdating stuck true.
+                oninsertrow: function(el, rowNumber, numOfRows, rowRecords, insertBefore) {
+                    if (modalTable2) modalTable2.insertRow(numOfRows, rowNumber, insertBefore);
+                },
             });
 
             // Brief highlight so switching into edit mode reads as a
@@ -590,9 +610,10 @@ const BudgetApp = (function() {
     }
 
     function addSpreadsheetRow() {
+        // modalTable1's oninsertrow hook mirrors this into modalTable2, so
+        // it isn't done here too (that would double-insert).
         if (isEditMode && modalTable1 && modalTable2) {
             modalTable1.insertRow();
-            modalTable2.insertRow();
         }
     }
 
@@ -1332,89 +1353,100 @@ const BudgetApp = (function() {
     const onAdjSpreadsheetChange = function(instance, cell, x, y, value) {
         if (!adjTable1 || !adjTable2 || !adjTable3 || isAdjUpdating || !isAdjEditMode) return;
         isAdjUpdating = true;
-        
-        x = parseInt(x);
-        y = parseInt(y);
-        
-        const allAdjItems = [];
-        vetItems.forEach(i => allAdjItems.push({...i, group: 'VET Manpower', position_allowance: 0}));
-        nonVetItems.forEach(i => allAdjItems.push({...i, group: 'NON VET Manpower'}));
-        
-        const getSalary = (name) => { const m = allAdjItems.find(i => i.name === name); return m ? m.salary : 0; };
-        const getAllowance = (name) => { const m = allAdjItems.find(i => i.name === name); return m ? m.position_allowance : 0; };
-        const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
 
-        let oldSal = getNum(adjTable1.getValueFromCoords(2, y));
-        let oldAllow = getNum(adjTable1.getValueFromCoords(3, y));
-        let newSal = getNum(adjTable1.getValueFromCoords(5, y));
-        let newAllow = getNum(adjTable1.getValueFromCoords(6, y));
+        try {
+            x = parseInt(x);
+            y = parseInt(y);
 
-        if (x === 0) {
-            oldSal = getSalary(value);
-            oldAllow = getAllowance(value);
-            adjTable1.setValueFromCoords(2, y, oldSal, true); 
-            adjTable1.setValueFromCoords(3, y, oldAllow, true); 
+            // adjTable1's row count can only get ahead of adjTable2/adjTable3's
+            // through the oninsertrow hook below, which keeps all three synced
+            // regardless of how the row was added — but guard here too in case
+            // a future jspreadsheet interaction (e.g. paste) slips a row past it.
+            if (y >= adjTable2.rows.length || y >= adjTable3.rows.length) return;
+
+            const allAdjItems = [];
+            vetItems.forEach(i => allAdjItems.push({...i, group: 'VET Manpower', position_allowance: 0}));
+            nonVetItems.forEach(i => allAdjItems.push({...i, group: 'NON VET Manpower'}));
+
+            const getSalary = (name) => { const m = allAdjItems.find(i => i.name === name); return m ? m.salary : 0; };
+            const getAllowance = (name) => { const m = allAdjItems.find(i => i.name === name); return m ? m.position_allowance : 0; };
+            const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
+
+            let oldSal = getNum(adjTable1.getValueFromCoords(2, y));
+            let oldAllow = getNum(adjTable1.getValueFromCoords(3, y));
+            let newSal = getNum(adjTable1.getValueFromCoords(5, y));
+            let newAllow = getNum(adjTable1.getValueFromCoords(6, y));
+
+            if (x === 0) {
+                oldSal = getSalary(value);
+                oldAllow = getAllowance(value);
+                adjTable1.setValueFromCoords(2, y, oldSal, true);
+                adjTable1.setValueFromCoords(3, y, oldAllow, true);
+            }
+            if (x === 1) {
+                newSal = getSalary(value);
+                newAllow = getAllowance(value);
+                adjTable1.setValueFromCoords(5, y, newSal, true);
+                adjTable1.setValueFromCoords(6, y, newAllow, true);
+            }
+            if (x === 2) oldSal = getNum(value);
+            if (x === 3) oldAllow = getNum(value);
+            if (x === 5) newSal = getNum(value);
+            if (x === 6) newAllow = getNum(value);
+
+            if (x === 0 || x === 1 || x === 2 || x === 3 || x === 5 || x === 6) {
+                let oldTotal = oldSal + oldAllow;
+                let newTotal = newSal + newAllow;
+                adjTable1.setValueFromCoords(4, y, oldTotal, true);
+                adjTable1.setValueFromCoords(7, y, newTotal, true);
+
+                adjTable1.setValueFromCoords(8, y, newSal - oldSal, true);
+                adjTable1.setValueFromCoords(9, y, newAllow - oldAllow, true);
+            }
+
+            const rowData1 = adjTable1.getRowData(y);
+            const oldPos = rowData1[0];
+            const newPos = rowData1[1];
+            const diffSal = getNum(rowData1[8]);
+            const diffAllow = getNum(rowData1[9]);
+
+            let sumHC = 0;
+            for(let i = 10; i <= 21; i++) {
+                sumHC += getNum(rowData1[i]);
+            }
+            adjTable1.setValueFromCoords(22, y, sumHC, true);
+
+            adjTable2.setValueFromCoords(0, y, oldPos, true);
+            adjTable2.setValueFromCoords(1, y, newPos, true);
+            adjTable2.setValueFromCoords(2, y, diffSal, true);
+
+            let sumSalCost = 0;
+            for(let i = 10; i <= 21; i++) {
+                const count = getNum(rowData1[i]);
+                const cost = count * diffSal;
+                adjTable2.setValueFromCoords(i - 7, y, cost, true);
+                sumSalCost += cost;
+            }
+            adjTable2.setValueFromCoords(15, y, sumSalCost, true);
+
+            adjTable3.setValueFromCoords(0, y, oldPos, true);
+            adjTable3.setValueFromCoords(1, y, newPos, true);
+            adjTable3.setValueFromCoords(2, y, diffAllow, true);
+
+            let sumAllowCost = 0;
+            for(let i = 10; i <= 21; i++) {
+                const count = getNum(rowData1[i]);
+                const cost = count * diffAllow;
+                adjTable3.setValueFromCoords(i - 7, y, cost, true);
+                sumAllowCost += cost;
+            }
+            adjTable3.setValueFromCoords(15, y, sumAllowCost, true);
+        } finally {
+            // Always clear the guard, even if something above throws —
+            // otherwise every future edit silently no-ops forever (the bug
+            // behind "table freezes until you refresh the page").
+            isAdjUpdating = false;
         }
-        if (x === 1) {
-            newSal = getSalary(value);
-            newAllow = getAllowance(value);
-            adjTable1.setValueFromCoords(5, y, newSal, true); 
-            adjTable1.setValueFromCoords(6, y, newAllow, true); 
-        }
-        if (x === 2) oldSal = getNum(value);
-        if (x === 3) oldAllow = getNum(value);
-        if (x === 5) newSal = getNum(value);
-        if (x === 6) newAllow = getNum(value);
-
-        if (x === 0 || x === 1 || x === 2 || x === 3 || x === 5 || x === 6) {
-            let oldTotal = oldSal + oldAllow;
-            let newTotal = newSal + newAllow;
-            adjTable1.setValueFromCoords(4, y, oldTotal, true);
-            adjTable1.setValueFromCoords(7, y, newTotal, true);
-            
-            adjTable1.setValueFromCoords(8, y, newSal - oldSal, true);
-            adjTable1.setValueFromCoords(9, y, newAllow - oldAllow, true);
-        }
-
-        const rowData1 = adjTable1.getRowData(y);
-        const oldPos = rowData1[0];
-        const newPos = rowData1[1];
-        const diffSal = getNum(rowData1[8]);
-        const diffAllow = getNum(rowData1[9]);
-
-        let sumHC = 0;
-        for(let i = 10; i <= 21; i++) {
-            sumHC += getNum(rowData1[i]);
-        }
-        adjTable1.setValueFromCoords(22, y, sumHC, true);
-
-        adjTable2.setValueFromCoords(0, y, oldPos, true);
-        adjTable2.setValueFromCoords(1, y, newPos, true);
-        adjTable2.setValueFromCoords(2, y, diffSal, true);
-        
-        let sumSalCost = 0;
-        for(let i = 10; i <= 21; i++) {
-            const count = getNum(rowData1[i]);
-            const cost = count * diffSal;
-            adjTable2.setValueFromCoords(i - 7, y, cost, true);
-            sumSalCost += cost;
-        }
-        adjTable2.setValueFromCoords(15, y, sumSalCost, true);
-
-        adjTable3.setValueFromCoords(0, y, oldPos, true);
-        adjTable3.setValueFromCoords(1, y, newPos, true);
-        adjTable3.setValueFromCoords(2, y, diffAllow, true);
-        
-        let sumAllowCost = 0;
-        for(let i = 10; i <= 21; i++) {
-            const count = getNum(rowData1[i]);
-            const cost = count * diffAllow;
-            adjTable3.setValueFromCoords(i - 7, y, cost, true);
-            sumAllowCost += cost;
-        }
-        adjTable3.setValueFromCoords(15, y, sumAllowCost, true);
-        
-        isAdjUpdating = false;
     };
 
     function toggleAdjEditMode() {
@@ -1482,7 +1514,17 @@ const BudgetApp = (function() {
                 tableOverflow: true,
                 freezeColumns: 2,
                 onchange: onAdjSpreadsheetChange,
-                contextMenu: function() { return true; }
+                contextMenu: function() { return true; },
+                // adjTable1 can gain a row through more than just the
+                // "เพิ่มรายการ" button — e.g. pressing Enter on its last row —
+                // and adjTable2/adjTable3 must always mirror it row-for-row or
+                // onAdjSpreadsheetChange's cross-table writes land on a row
+                // that doesn't exist yet and throw, wedging isAdjUpdating
+                // stuck true.
+                oninsertrow: function(el, rowNumber, numOfRows, rowRecords, insertBefore) {
+                    if (adjTable2) adjTable2.insertRow(numOfRows, rowNumber, insertBefore);
+                    if (adjTable3) adjTable3.insertRow(numOfRows, rowNumber, insertBefore);
+                },
             });
 
             const adjSheetContainer = document.getElementById('adjModalSpreadsheet1');
@@ -1497,10 +1539,10 @@ const BudgetApp = (function() {
     }
 
     function addAdjSpreadsheetRow() {
+        // adjTable1's oninsertrow hook mirrors this into adjTable2/adjTable3,
+        // so it isn't done here too (that would double-insert).
         if (isAdjEditMode && adjTable1 && adjTable2 && adjTable3) {
             adjTable1.insertRow();
-            adjTable2.insertRow();
-            adjTable3.insertRow();
         }
     }
 
