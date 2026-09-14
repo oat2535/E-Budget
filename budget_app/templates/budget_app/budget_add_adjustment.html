@@ -221,10 +221,18 @@
         const onchange = function(instance, cell, x, y, value) {
             if (!table1 || !table2 || !table3 || isUpdating) return;
             isUpdating = true;
-            
+
+            try {
+
             x = parseInt(x);
             y = parseInt(y);
-            
+
+            // table1's row count can only get ahead of table2/table3's through
+            // the oninsertrow hook below, which keeps them synced regardless of
+            // how the row was added — but guard here too in case a future
+            // jspreadsheet interaction (e.g. paste) still slips a row past it.
+            if (y >= table2.rows.length || y >= table3.rows.length) return;
+
             let oldSal = getNum(table1.getValueFromCoords(2, y));
             let oldAllow = getNum(table1.getValueFromCoords(3, y));
             let newSal = getNum(table1.getValueFromCoords(5, y));
@@ -307,8 +315,13 @@
                 sumAllowCost += m.cost;
             });
             table3.setValueFromCoords(15, y, sumAllowCost, true);
-            
-            isUpdating = false;
+
+            } finally {
+                // Always clear the guard, even if something above throws —
+                // otherwise every future edit silently no-ops forever (the bug
+                // behind "table freezes until you refresh the page").
+                isUpdating = false;
+            }
         };
 
         const initData = () => {
@@ -326,7 +339,18 @@
             allowManualInsertColumn: false,
             allowDeleteColumn: false,
             tableOverflow: true,
-            freezeColumns: 2
+            freezeColumns: 2,
+            // table1 can gain a row through more than just the "เพิ่มรายการ"
+            // button — e.g. pressing Enter on its last row — and table2/table3
+            // must always mirror it row-for-row or onchange's cross-table
+            // writes land on a row that doesn't exist yet and throw. Handling
+            // every insertion here (rather than only in the button's click
+            // handler) is what keeps all 3 tables in sync regardless of how
+            // the row was added.
+            oninsertrow: function(el, rowNumber, numOfRows, rowRecords, insertBefore) {
+                if (table2) table2.insertRow(numOfRows, rowNumber, insertBefore);
+                if (table3) table3.insertRow(numOfRows, rowNumber, insertBefore);
+            },
         });
 
         table2 = jspreadsheet(document.getElementById('table2-spreadsheet'), {
@@ -355,11 +379,10 @@
             contextMenu: function() { return false; }
         });
         
-        // Bind add row button
+        // Bind add row button — table1's oninsertrow hook mirrors this into
+        // table2/table3, so it isn't done here too (that would double-insert).
         document.getElementById('add-row-btn').addEventListener('click', function() {
             table1.insertRow();
-            if (table2) table2.insertRow();
-            if (table3) table3.insertRow();
         });
 
         // Save logic

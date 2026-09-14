@@ -173,41 +173,52 @@
             if (!table1 || !table2 || isUpdating) return;
             isUpdating = true;
 
-            x = parseInt(x);
-            y = parseInt(y);
+            try {
+                x = parseInt(x);
+                y = parseInt(y);
 
-            // If item changed, update purchase price
-            if (x === 0) {
-                const salary = getSalary(value);
-                table1.setValueFromCoords(1, y, salary, true);
+                // table1's row count can only get ahead of table2's through the
+                // oninsertrow hook below, which keeps them synced regardless of
+                // how the row was added — but guard here too in case a future
+                // jspreadsheet interaction (e.g. paste) still slips a row past it.
+                if (y >= table2.rows.length) return;
+
+                // If item changed, update purchase price
+                if (x === 0) {
+                    const salary = getSalary(value);
+                    table1.setValueFromCoords(1, y, salary, true);
+                }
+
+                // Calculate total for this row in table1
+                const rowData1 = table1.getRowData(y);
+                let sum1 = 0;
+                for(let i = 2; i <= 13; i++) {
+                    sum1 += getNum(rowData1[i]);
+                }
+                table1.setValueFromCoords(14, y, sum1, true);
+
+                // Sync with table2
+                const pos = rowData1[0];
+                const sal = getNum(rowData1[1]);
+
+                // Set item and price in table 2
+                table2.setValueFromCoords(0, y, pos, true);
+                table2.setValueFromCoords(1, y, sal, true);
+
+                let sum2 = 0;
+                for(let i = 2; i <= 13; i++) {
+                    const count = getNum(rowData1[i]);
+                    const cost = count * sal;
+                    table2.setValueFromCoords(i, y, cost, true);
+                    sum2 += cost;
+                }
+                table2.setValueFromCoords(14, y, sum2, true);
+            } finally {
+                // Always clear the guard, even if something above throws —
+                // otherwise every future edit silently no-ops forever (the bug
+                // behind "table freezes until you refresh the page").
+                isUpdating = false;
             }
-
-            // Calculate total for this row in table1
-            const rowData1 = table1.getRowData(y);
-            let sum1 = 0;
-            for(let i = 2; i <= 13; i++) {
-                sum1 += getNum(rowData1[i]);
-            }
-            table1.setValueFromCoords(14, y, sum1, true);
-
-            // Sync with table2
-            const pos = rowData1[0];
-            const sal = getNum(rowData1[1]);
-
-            // Set item and price in table 2
-            table2.setValueFromCoords(0, y, pos, true);
-            table2.setValueFromCoords(1, y, sal, true);
-
-            let sum2 = 0;
-            for(let i = 2; i <= 13; i++) {
-                const count = getNum(rowData1[i]);
-                const cost = count * sal;
-                table2.setValueFromCoords(i, y, cost, true);
-                sum2 += cost;
-            }
-            table2.setValueFromCoords(14, y, sum2, true);
-
-            isUpdating = false;
         };
 
         const createInitialData = () => [['', '', '', '', '', '', '', '', '', '', '', '', '', '', '']];
@@ -221,6 +232,16 @@
             allowManualInsertColumn: false,
             allowDeleteColumn: false,
             tableOverflow: true,
+            // table1 can gain a row through more than just the "เพิ่มรายการ"
+            // button — e.g. pressing Enter on its last row — and table2 must
+            // always mirror it row-for-row or onchange's cross-table writes
+            // land on a row that doesn't exist yet and throw. Handling every
+            // insertion here (rather than only in the button's click handler)
+            // is what keeps the two tables in sync regardless of how the row
+            // was added.
+            oninsertrow: function(el, rowNumber, numOfRows, rowRecords, insertBefore) {
+                if (table2) table2.insertRow(numOfRows, rowNumber, insertBefore);
+            },
         });
 
         table2 = jspreadsheet(document.getElementById('calc-spreadsheet'), {
@@ -236,10 +257,10 @@
             contextMenu: function() { return false; }
         });
 
-        // Bind add row button
+        // Bind add row button — table1's oninsertrow hook mirrors this into
+        // table2, so it isn't done here too (that would double-insert).
         document.getElementById('add-row-btn').addEventListener('click', function() {
             table1.insertRow();
-            if (table2) table2.insertRow();
         });
 
         // Save button logic
