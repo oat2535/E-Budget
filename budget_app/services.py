@@ -46,6 +46,21 @@ class BudgetService:
         return None, None
 
     @staticmethod
+    def get_master_fks_bulk(item_names):
+        """Batch version of get_master_fks: one query for a whole submitted
+        document instead of one per line item. Returns
+        {item_name: (master_obj, gl_obj)}; a name with no master record is
+        simply absent, so callers should look it up with
+        `.get(name, (None, None))` to match get_master_fks's None fallback."""
+        try:
+            masters = ebudget_budget_item_master.objects.filter(
+                item_name__in=set(item_names)
+            ).select_related('general_ledger')
+            return {m.item_name: (m, m.general_ledger) for m in masters}
+        except Exception:
+            return {}
+
+    @staticmethod
     def generate_document_no(doc_type):
         prefix_map = {
             'VET': 'VET',

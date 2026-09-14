@@ -3,7 +3,7 @@ from datetime import datetime
 from django.shortcuts import render, redirect
 from django.http import JsonResponse
 import json
-from django.db import connections, transaction
+from django.db import transaction
 from django.contrib.auth import authenticate, login
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -156,10 +156,11 @@ def budget_add_view(request):
             branch_id = BudgetService.get_branch_id_from_imedx(username)
             doc_no = BudgetService.generate_document_no('VET')
             budget_year = SystemSettings.load().active_budget_year
+            master_fks = BudgetService.get_master_fks_bulk([item['position_name'] for item in data])
 
             with transaction.atomic():
                 for item in data:
-                    master_obj, gl_obj = BudgetService.get_master_fks(item['position_name'])
+                    master_obj, gl_obj = master_fks.get(item['position_name'], (None, None))
                     obj = ebudget_vet_manpower.objects.create(
                         position_name=item['position_name'],
                         salary=item['salary'],
@@ -208,10 +209,11 @@ def budget_add_non_vet_view(request):
             branch_id = BudgetService.get_branch_id_from_imedx(username)
             doc_no = BudgetService.generate_document_no('NON VET')
             budget_year = SystemSettings.load().active_budget_year
+            master_fks = BudgetService.get_master_fks_bulk([item['position_name'] for item in data])
 
             with transaction.atomic():
                 for item in data:
-                    master_obj, gl_obj = BudgetService.get_master_fks(item['position_name'])
+                    master_obj, gl_obj = master_fks.get(item['position_name'], (None, None))
                     obj = ebudget_non_vet_manpower.objects.create(
                         position_name=item['position_name'],
                         salary=item['salary'],
@@ -575,13 +577,25 @@ def update_document_api(request, doc_type, doc_no):
         # edit doesn't reclassify which budget year the document belongs to,
         # even if the site-wide active year has since moved on.
         budget_year = first_item.budget_year
-        
+
+        # Which submitted field identifies the master-data item depends on
+        # doc_type; GL Entry/Budget Plan don't resolve a master item at all.
+        if doc_type == 'Position Adjustment':
+            lookup_field = 'new_position_name'
+        elif doc_type in ('Medical Equipment', 'Computer Equipment', 'Furniture', 'Tools & Equipment'):
+            lookup_field = 'item_name'
+        elif doc_type in ('GL Entry', 'Budget Plan'):
+            lookup_field = None
+        else:
+            lookup_field = 'position_name'
+        master_fks = BudgetService.get_master_fks_bulk([item[lookup_field] for item in data]) if lookup_field else {}
+
         with transaction.atomic():
             existing_items.delete()
-            
+
             for item in data:
                 if doc_type == 'Position Adjustment':
-                    master_obj, gl_obj = BudgetService.get_master_fks(item['new_position_name'])
+                    master_obj, gl_obj = master_fks.get(item['new_position_name'], (None, None))
                     obj = model_class.objects.create(
                         old_position_name=item['old_position_name'],
                         new_position_name=item['new_position_name'],
@@ -602,7 +616,7 @@ def update_document_api(request, doc_type, doc_no):
 
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
                 elif doc_type == 'VET':
-                    master_obj, gl_obj = BudgetService.get_master_fks(item['position_name'])
+                    master_obj, gl_obj = master_fks.get(item['position_name'], (None, None))
                     obj = model_class.objects.create(
                         position_name=item['position_name'],
                         salary=item['salary'],
@@ -619,7 +633,7 @@ def update_document_api(request, doc_type, doc_no):
 
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
                 elif doc_type == 'Medical Equipment' or doc_type == 'Computer Equipment' or doc_type == 'Furniture' or doc_type == 'Tools & Equipment':
-                    master_obj, gl_obj = BudgetService.get_master_fks(item['item_name'])
+                    master_obj, gl_obj = master_fks.get(item['item_name'], (None, None))
                     obj = model_class.objects.create(
                         item_name=item['item_name'],
                         purchase_price=item['purchase_price'],
@@ -664,7 +678,7 @@ def update_document_api(request, doc_type, doc_no):
                     )
                     BudgetService.save_budget_plan_monthly_data(obj, item['monthly_data'])
                 else:
-                    master_obj, gl_obj = BudgetService.get_master_fks(item['position_name'])
+                    master_obj, gl_obj = master_fks.get(item['position_name'], (None, None))
                     obj = model_class.objects.create(
                         position_name=item['position_name'],
                         salary=item['salary'],
@@ -694,29 +708,15 @@ def budget_add_adjustment_view(request):
             if not data or not data[0].get('cost_center_name'):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             username = request.user.username
-
-            # Fetch branch_id automatically from imedx
-            branch_id = None
-            try:
-                with connections['imedx'].cursor() as cursor:
-                    cursor.execute("""
-                        SELECT bsp.base_site_branch_id
-                        FROM employee emp 
-                        LEFT JOIN base_service_point bsp ON emp.base_service_point_id = bsp.base_service_point_id
-                        WHERE emp.employee_id = %s AND emp.active = '1'
-                    """, [username])
-                    row = cursor.fetchone()
-                    if row:
-                        branch_id = row[0]
-            except Exception as e:
-                print(f"Error fetching branch_id: {e}")
+            branch_id = BudgetService.get_branch_id_from_imedx(username)
 
             doc_no = BudgetService.generate_document_no('Position Adjustment')
             budget_year = SystemSettings.load().active_budget_year
+            master_fks = BudgetService.get_master_fks_bulk([item['new_position_name'] for item in data])
 
             with transaction.atomic():
                 for item in data:
-                    master_obj, gl_obj = BudgetService.get_master_fks(item['new_position_name'])
+                    master_obj, gl_obj = master_fks.get(item['new_position_name'], (None, None))
                     obj = ebudget_position_adjustment.objects.create(
                         old_position_name=item['old_position_name'],
                         new_position_name=item['new_position_name'],
@@ -767,38 +767,26 @@ def budget_add_adjustment_view(request):
         'cost_centers_json': get_cost_centers_json()
     })
 
-@login_required
-@require_not_frozen
-def budget_add_medical_equipment_view(request):
+def _budget_add_equipment_view(request, model_class, doc_type, template_name, sub_category_id):
+    """Shared implementation behind the four equipment add-views below, which
+    were previously near-identical ~60-line copies of each other differing
+    only by model/doc_type/template/sub_category_id."""
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
             if not data or not data[0].get('cost_center_name'):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             username = request.user.username
+            branch_id = BudgetService.get_branch_id_from_imedx(username)
 
-            branch_id = None
-            try:
-                with connections['imedx'].cursor() as cursor:
-                    cursor.execute("""
-                        SELECT bsp.base_site_branch_id
-                        FROM employee emp 
-                        LEFT JOIN base_service_point bsp ON emp.base_service_point_id = bsp.base_service_point_id
-                        WHERE emp.employee_id = %s AND emp.active = '1'
-                    """, [username])
-                    row = cursor.fetchone()
-                    if row:
-                        branch_id = row[0]
-            except Exception as e:
-                print(f"Error fetching branch_id: {e}")
-
-            doc_no = BudgetService.generate_document_no('Medical Equipment')
+            doc_no = BudgetService.generate_document_no(doc_type)
             budget_year = SystemSettings.load().active_budget_year
+            master_fks = BudgetService.get_master_fks_bulk([item['item_name'] for item in data])
 
             with transaction.atomic():
                 for item in data:
-                    master_obj, gl_obj = BudgetService.get_master_fks(item['item_name'])
-                    obj = ebudget_medical_equipment.objects.create(
+                    master_obj, gl_obj = master_fks.get(item['item_name'], (None, None))
+                    obj = model_class.objects.create(
                         item_name=item['item_name'],
                         purchase_price=item['purchase_price'],
                         create_eid=username,
@@ -809,204 +797,43 @@ def budget_add_medical_equipment_view(request):
                         general_ledger_code=gl_obj.gl_code if gl_obj else None,
                         budget_year=budget_year
                     )
-                    BudgetService.save_monthly_data(obj, 'Medical Equipment', item['monthly_data'])
+                    BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
             return JsonResponse({'status': 'success'})
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': str(e)})
 
-    items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=4).values('item_name', 'purchase_price'))
+    items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=sub_category_id).values('item_name', 'purchase_price'))
     items_list = []
     for item in items:
         items_list.append({
             'name': item['item_name'],
             'purchase_price': float(item.get('purchase_price') or 0)
         })
-    
-    return render(request, 'budget_app/budget_add_medical_equipment.html', {
+
+    return render(request, template_name, {
         'items_json': items_list,
         'cost_centers_json': get_cost_centers_json()
     })
+
+@login_required
+@require_not_frozen
+def budget_add_medical_equipment_view(request):
+    return _budget_add_equipment_view(request, ebudget_medical_equipment, 'Medical Equipment', 'budget_app/budget_add_medical_equipment.html', 4)
 
 @login_required
 @require_not_frozen
 def budget_add_computer_equipment_view(request):
-    from budget_app.models import ebudget_computer_equipment
-    if request.method == 'POST':
-        try:
-            data = json.loads(request.body)
-            if not data or not data[0].get('cost_center_name'):
-                return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
-            username = request.user.username
-
-            branch_id = None
-            try:
-                with connections['imedx'].cursor() as cursor:
-                    cursor.execute("""
-                        SELECT bsp.base_site_branch_id
-                        FROM employee emp 
-                        LEFT JOIN base_service_point bsp ON emp.base_service_point_id = bsp.base_service_point_id
-                        WHERE emp.employee_id = %s AND emp.active = '1'
-                    """, [username])
-                    row = cursor.fetchone()
-                    if row:
-                        branch_id = row[0]
-            except Exception as e:
-                print(f"Error fetching branch_id: {e}")
-
-            doc_no = BudgetService.generate_document_no('Computer Equipment')
-            budget_year = SystemSettings.load().active_budget_year
-
-            with transaction.atomic():
-                for item in data:
-                    master_obj, gl_obj = BudgetService.get_master_fks(item['item_name'])
-                    obj = ebudget_computer_equipment.objects.create(
-                        item_name=item['item_name'],
-                        purchase_price=item['purchase_price'],
-                        create_eid=username,
-                        base_branch_id=branch_id,
-                        cost_center_name=item.get('cost_center_name'),
-                        document_no=doc_no,
-                        item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
-                        budget_year=budget_year
-                    )
-                    BudgetService.save_monthly_data(obj, 'Computer Equipment', item['monthly_data'])
-            return JsonResponse({'status': 'success'})
-        except Exception as e:
-            return JsonResponse({'status': 'error', 'message': str(e)})
-
-    items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=5).values('item_name', 'purchase_price'))
-    items_list = []
-    for item in items:
-        items_list.append({
-            'name': item['item_name'],
-            'purchase_price': float(item.get('purchase_price') or 0)
-        })
-
-    return render(request, 'budget_app/budget_add_computer_equipment.html', {
-        'items_json': items_list,
-        'cost_centers_json': get_cost_centers_json()
-    })
+    return _budget_add_equipment_view(request, ebudget_computer_equipment, 'Computer Equipment', 'budget_app/budget_add_computer_equipment.html', 5)
 
 @login_required
 @require_not_frozen
 def budget_add_furniture_view(request):
-    if request.method == 'POST':
-        try:
-            data = json.loads(request.body)
-            if not data or not data[0].get('cost_center_name'):
-                return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
-            username = request.user.username
-
-            branch_id = None
-            try:
-                with connections['imedx'].cursor() as cursor:
-                    cursor.execute("""
-                        SELECT bsp.base_site_branch_id
-                        FROM employee emp
-                        LEFT JOIN base_service_point bsp ON emp.base_service_point_id = bsp.base_service_point_id
-                        WHERE emp.employee_id = %s AND emp.active = '1'
-                    """, [username])
-                    row = cursor.fetchone()
-                    if row:
-                        branch_id = row[0]
-            except Exception as e:
-                print(f"Error fetching branch_id: {e}")
-
-            doc_no = BudgetService.generate_document_no('Furniture')
-            budget_year = SystemSettings.load().active_budget_year
-
-            with transaction.atomic():
-                for item in data:
-                    master_obj, gl_obj = BudgetService.get_master_fks(item['item_name'])
-                    obj = ebudget_furniture.objects.create(
-                        item_name=item['item_name'],
-                        purchase_price=item['purchase_price'],
-                        create_eid=username,
-                        base_branch_id=branch_id,
-                        cost_center_name=item.get('cost_center_name'),
-                        document_no=doc_no,
-                        item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
-                        budget_year=budget_year
-                    )
-                    BudgetService.save_monthly_data(obj, 'Furniture', item['monthly_data'])
-            return JsonResponse({'status': 'success'})
-        except Exception as e:
-            return JsonResponse({'status': 'error', 'message': str(e)})
-
-    items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=6).values('item_name', 'purchase_price'))
-    items_list = []
-    for item in items:
-        items_list.append({
-            'name': item['item_name'],
-            'purchase_price': float(item.get('purchase_price') or 0)
-        })
-
-    return render(request, 'budget_app/budget_add_furniture.html', {
-        'items_json': items_list,
-        'cost_centers_json': get_cost_centers_json()
-    })
+    return _budget_add_equipment_view(request, ebudget_furniture, 'Furniture', 'budget_app/budget_add_furniture.html', 6)
 
 @login_required
 @require_not_frozen
 def budget_add_tools_equipment_view(request):
-    if request.method == 'POST':
-        try:
-            data = json.loads(request.body)
-            if not data or not data[0].get('cost_center_name'):
-                return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
-            username = request.user.username
-
-            branch_id = None
-            try:
-                with connections['imedx'].cursor() as cursor:
-                    cursor.execute("""
-                        SELECT bsp.base_site_branch_id
-                        FROM employee emp
-                        LEFT JOIN base_service_point bsp ON emp.base_service_point_id = bsp.base_service_point_id
-                        WHERE emp.employee_id = %s AND emp.active = '1'
-                    """, [username])
-                    row = cursor.fetchone()
-                    if row:
-                        branch_id = row[0]
-            except Exception as e:
-                print(f"Error fetching branch_id: {e}")
-
-            doc_no = BudgetService.generate_document_no('Tools & Equipment')
-            budget_year = SystemSettings.load().active_budget_year
-
-            with transaction.atomic():
-                for item in data:
-                    master_obj, gl_obj = BudgetService.get_master_fks(item['item_name'])
-                    obj = ebudget_tools_equipment.objects.create(
-                        item_name=item['item_name'],
-                        purchase_price=item['purchase_price'],
-                        create_eid=username,
-                        base_branch_id=branch_id,
-                        cost_center_name=item.get('cost_center_name'),
-                        document_no=doc_no,
-                        item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
-                        budget_year=budget_year
-                    )
-                    BudgetService.save_monthly_data(obj, 'Tools & Equipment', item['monthly_data'])
-            return JsonResponse({'status': 'success'})
-        except Exception as e:
-            return JsonResponse({'status': 'error', 'message': str(e)})
-
-    items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=7).values('item_name', 'purchase_price'))
-    items_list = []
-    for item in items:
-        items_list.append({
-            'name': item['item_name'],
-            'purchase_price': float(item.get('purchase_price') or 0)
-        })
-
-    return render(request, 'budget_app/budget_add_tools_equipment.html', {
-        'items_json': items_list,
-        'cost_centers_json': get_cost_centers_json()
-    })
+    return _budget_add_equipment_view(request, ebudget_tools_equipment, 'Tools & Equipment', 'budget_app/budget_add_tools_equipment.html', 7)
 
 @login_required
 @require_not_frozen

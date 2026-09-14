@@ -1,7 +1,11 @@
 import hashlib
+import logging
+
 from django.contrib.auth.backends import BaseBackend
 from django.contrib.auth.models import User
 from django.db import connections
+
+logger = logging.getLogger(__name__)
 
 class ImedxAuthBackend(BaseBackend):
     def authenticate(self, request, username=None, password=None, **kwargs):
@@ -35,7 +39,7 @@ class ImedxAuthBackend(BaseBackend):
                         user.save()
                         return user
         except Exception as e:
-            print(f"ImedxAuthBackend Error: {e}")
+            logger.error(f"ImedxAuthBackend error authenticating {username}: {e}")
             return None
             
         return None
