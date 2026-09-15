@@ -408,7 +408,18 @@ class BudgetMonthlyDetail(models.Model):
 class ebudget_gl_entry(models.Model):
     general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
     budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
-    useful_life_percent = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, verbose_name="อายุการใช้งาน (%)")
+    # Snapshotted from master_data.ebudget_general_ledger_master (matched by
+    # general_ledger_code == gl_code) at create/update time — same pattern as
+    # salary/purchase_price being copied from item master elsewhere in this
+    # app. Not user-editable: always server-computed, never trusted from the
+    # client, so these stay in sync with GL master as of the save moment.
+    proportion = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="สัดส่วน")
+    depreciation = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="ค่าเสื่อม")
+    # One note per document row, distinct from monthly_details.detail_note
+    # (which is per-month and unused by the current UI) — this is the
+    # single "รายละเอียด" column shown once per row in both the add and
+    # view/edit tables.
+    detail_note = models.CharField(max_length=255, null=True, blank=True, verbose_name="รายละเอียด")
     base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)

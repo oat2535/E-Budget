@@ -31,32 +31,9 @@
     .jexcel tbody tr td {
         vertical-align: middle;
     }
-    /* "อายุการใช้งาน" is a % value. jspreadsheet's own '%' mask multiplies the
-       stored number by 100 on display but not on user edits (a library
-       inconsistency confirmed by testing), so the % sign is rendered here in
-       CSS instead — purely cosmetic, doesn't touch the underlying cell value. */
-    #spreadsheet tbody td[data-x="1"]:not(:empty)::after {
-        content: '%';
-        margin-left: 2px;
-    }
-    /* Freeze both header rows (the merged month-name row and the column-title
-       row beneath it) so they stay visible while scrolling through many rows
-       inside jspreadsheet's own scrollable container (.jexcel_content, which
-       already ships with overflow-y:auto + a fixed max-height). --gl-header-row1-height
-       is measured and set from JS after the table renders, since row height
-       depends on the library's own layout, not a value safe to hardcode. */
-    #spreadsheet .jexcel_content {
-        position: relative;
-    }
-    #spreadsheet thead tr.jexcel_nested td {
+    #spreadsheet thead tr td {
         position: sticky;
         top: 0;
-        z-index: 3;
-        background-color: #f5f5f5;
-    }
-    #spreadsheet thead tr:not(.jexcel_nested) td {
-        position: sticky;
-        top: var(--gl-header-row1-height, 29px);
         z-index: 2;
         background-color: #f5f5f5;
     }
@@ -120,7 +97,10 @@
         // ebudget_general_ledger_master via admin — the page and its logic
         // work regardless.
         const generalLedgers = JSON.parse(document.getElementById('gl-data').textContent);
-        const glNames = generalLedgers.map(g => g.gl_name);
+        // Sorted once here (not inside the dropdown's per-click rebuild,
+        // which jspreadsheet/jSuites always re-sorts internally regardless —
+        // pre-sorting lets that repeated internal sort do less work).
+        const glNames = generalLedgers.map(g => g.gl_name).sort((a, b) => a.localeCompare(b, 'th'));
         const getGlCode = (name) => {
             const match = generalLedgers.find(g => g.gl_name === name);
             return match ? match.gl_code : null;
@@ -140,46 +120,33 @@
         });
 
         const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-        const monthTitles = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        const monthTitles = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-        // One table, matching the source spreadsheet's own layout exactly:
-        // col 0 = GL, col 1 = อายุการใช้งาน (%), then per month a merged
-        // header spanning 3 sub-columns [รายละเอียด, งบประมาณที่ใช้ (editable),
-        // ลงระหว่างเดือน (read-only, mirrors งบประมาณที่ใช้ — see the onchange
-        // handler)], then รวม.
-        const detailCol = (m) => 2 + 3 * m;
-        const amountCol = (m) => 3 + 3 * m;
-        const cumulativeCol = (m) => 4 + 3 * m;
-        const totalCol = 2 + 3 * 12; // 38
+        // col 0 = GL, col 1 = รายละเอียด (one note per row, not per month),
+        // then one editable amount column per month, then รวม. สัดส่วน/
+        // ค่าเสื่อม aren't shown in this table at all — they're computed
+        // server-side from general_ledger_code and saved automatically (see
+        // BudgetService.get_gl_master_fields_bulk), not something this form
+        // displays or sends.
+        const detailCol = 1;
+        const amountCol = (m) => 2 + m;
+        const totalCol = 2 + 12; // 14
 
         const columns = [
             { type: 'dropdown', title: 'GL', width: 220, source: glNames, autocomplete: true },
-            { type: 'numeric', title: 'อายุการใช้งาน', width: 130, mask: '#,##0.00' }
+            { type: 'text', title: 'รายละเอียด', width: 150 },
         ];
-        monthTitles.forEach(() => {
-            columns.push({ type: 'text', title: 'รายละเอียด', width: 120 });
-            columns.push({ type: 'numeric', title: 'งบประมาณที่ใช้', width: 110, mask: '#,##0' });
-            columns.push({ type: 'numeric', title: 'ลงระหว่างเดือน', width: 110, readOnly: true, mask: '#,##0' });
+        monthTitles.forEach(m => {
+            columns.push({ type: 'numeric', title: m, width: 100, mask: '#,##0' });
         });
         columns.push({ type: 'numeric', title: 'รวม', width: 110, readOnly: true, mask: '#,##0' });
-
-        // Merged month header row above the column titles above — jspreadsheet's
-        // nestedHeaders groups N columns under one wide label per entry.
-        const nestedHeaders = [[
-            { title: '', colspan: '1' },
-            { title: '', colspan: '1' },
-            ...monthTitles.map(m => ({ title: m, colspan: '3' })),
-            { title: '', colspan: '1' }
-        ]];
 
         let table1;
         let isUpdating = false;
 
         const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
 
-        // "ลงระหว่างเดือน" mirrors "งบประมาณที่ใช้" directly, column for
-        // column, in the same row — not a running total (explicitly not a
-        // carry-forward like the headcount-based add-budget pages).
+        // "รวม" = SUM(Jan:Dec) for the row, recomputed live.
         const onchange = function(instance, cell, x, y, value) {
             if (!table1 || isUpdating) return;
             isUpdating = true;
@@ -187,9 +154,7 @@
             const rowData = table1.getRowData(y);
             let total = 0;
             for (let m = 0; m < 12; m++) {
-                const amt = getNum(rowData[amountCol(m)]);
-                table1.setValueFromCoords(cumulativeCol(m), y, amt, true);
-                total += amt;
+                total += getNum(rowData[amountCol(m)]);
             }
             table1.setValueFromCoords(totalCol, y, total, true);
 
@@ -201,7 +166,6 @@
         table1 = jspreadsheet(document.getElementById('spreadsheet'), {
             data: createInitialData(),
             columns: columns,
-            nestedHeaders: nestedHeaders,
             minDimensions: [columns.length, 1],
             onchange: onchange,
             allowInsertColumn: false,
@@ -212,14 +176,6 @@
             tableOverflow: true,
             freezeColumns: 2,
         });
-
-        // Pin the second header row directly beneath the first — measured
-        // rather than hardcoded, since the exact row height comes from the
-        // library's own CSS.
-        const nestedRow = document.querySelector('#spreadsheet thead tr.jexcel_nested');
-        if (nestedRow) {
-            document.getElementById('spreadsheet').style.setProperty('--gl-header-row1-height', nestedRow.offsetHeight + 'px');
-        }
 
         // Bind add row button
         document.getElementById('add-row-btn').addEventListener('click', function() {
@@ -246,21 +202,12 @@
                 if (glName) {
                     let monthlyData = {};
                     monthKeys.forEach((key, m) => {
-                        const amount = getNum(row[amountCol(m)]);
-                        monthlyData[key] = {
-                            detail_note: row[detailCol(m)] || '',
-                            amount: amount,
-                            // ลงระหว่างเดือน mirrors งบประมาณที่ใช้ (see onchange
-                            // above) — recomputed here too rather than trusting
-                            // the displayed cell, same as every other add-budget
-                            // page's save handler.
-                            cumulative_amount: amount
-                        };
+                        monthlyData[key] = { amount: getNum(row[amountCol(m)]) };
                     });
 
                     dataToSave.push({
                         'general_ledger_code': getGlCode(glName),
-                        'useful_life_percent': getNum(row[1]) || null,
+                        'detail_note': row[detailCol] || '',
                         'cost_center_name': costCenterName,
                         'monthly_data': monthlyData
                     });

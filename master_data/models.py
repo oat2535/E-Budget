@@ -4,6 +4,8 @@ class ebudget_general_ledger_master(models.Model):
     gl_code = models.CharField(max_length=50, unique=True, verbose_name="รหัส general ledger")
     gl_name = models.CharField(max_length=255, verbose_name="ชื่อ general_ledger")
     category = models.ForeignKey('ebudget_budget_category_master', on_delete=models.CASCADE, verbose_name="Category", null=True, blank=True)
+    proportion = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="สัดส่วน")
+    depreciation = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="ค่าเสื่อม")
 
     def __str__(self):
         return f"{self.gl_code} - {self.gl_name}"
@@ -24,7 +26,11 @@ class ebudget_budget_sub_category_master(models.Model):
         return f"{self.sub_category_code} - {self.sub_category_name}"
 
 class ebudget_budget_item_master(models.Model):
-    general_ledger = models.ForeignKey(ebudget_general_ledger_master, on_delete=models.CASCADE, verbose_name="General Ledger", null=True, blank=True)
+    # A loose gl_code string, not a FK — matches every other
+    # general_ledger_code field in this codebase (ebudget_gl_entry,
+    # ebudget_vet_manpower, etc.), which are all matched back to
+    # ebudget_general_ledger_master.gl_code by value rather than id.
+    general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
     category = models.ForeignKey(ebudget_budget_category_master, on_delete=models.CASCADE, verbose_name="Category", null=True, blank=True)
     sub_category = models.ForeignKey(ebudget_budget_sub_category_master, on_delete=models.CASCADE, verbose_name="Sub Category", null=True, blank=True)
     item_name = models.CharField(max_length=255, verbose_name="ชื่อตำแหน่ง/รายการ")

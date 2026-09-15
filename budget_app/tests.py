@@ -7,7 +7,8 @@ from django.test import TestCase
 from django.urls import reverse
 
 from budget_app.constants import ALL_BRANCH_USERNAMES
-from budget_app.models import SystemSettings, ebudget_vet_manpower
+from budget_app.models import SystemSettings, ebudget_vet_manpower, ebudget_gl_entry
+from master_data.models import ebudget_general_ledger_master
 
 
 class SessionExpiredApiTests(TestCase):
@@ -116,3 +117,58 @@ class BudgetAddViewTests(TestCase):
         self.assertEqual(obj.position_name, 'Nurse')
         self.assertEqual(obj.create_eid, 'regular_emp2')
         self.assertEqual(obj.monthly_details.count(), 1)
+
+
+class GlEntryMasterAutofillTests(TestCase):
+    """proportion/depreciation on ebudget_gl_entry are snapshotted from GL
+    master by general_ledger_code — never trusted from the client — so a
+    request can't spoof them (see BudgetService.get_gl_master_fields_bulk)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='regular_emp3', password='x')
+        SystemSettings.objects.create(is_frozen=0, active_budget_year=2026)
+        self.client.force_login(self.user)
+        ebudget_general_ledger_master.objects.create(
+            gl_code='GL001', gl_name='Test GL', proportion='12.50', depreciation='3.75',
+        )
+
+    @patch('budget_app.services.BudgetService.get_branch_id_from_imedx', return_value='B001')
+    def test_create_autofills_proportion_and_depreciation_from_gl_master(self, mock_branch):
+        payload = json.dumps([{
+            'cost_center_name': 'CC1',
+            'general_ledger_code': 'GL001',
+            'monthly_data': {'jan': {'amount': 1000}},
+        }])
+        response = self.client.post(reverse('budget_add_gl_entry'), data=payload, content_type='application/json')
+        self.assertEqual(response.json()['status'], 'success')
+        obj = ebudget_gl_entry.objects.get()
+        self.assertEqual(obj.proportion, 12.50)
+        self.assertEqual(obj.depreciation, 3.75)
+
+    @patch('budget_app.services.BudgetService.get_branch_id_from_imedx', return_value='B001')
+    def test_client_supplied_proportion_and_depreciation_are_ignored(self, mock_branch):
+        payload = json.dumps([{
+            'cost_center_name': 'CC1',
+            'general_ledger_code': 'GL001',
+            'proportion': 999,
+            'depreciation': 999,
+            'monthly_data': {'jan': {'amount': 1000}},
+        }])
+        response = self.client.post(reverse('budget_add_gl_entry'), data=payload, content_type='application/json')
+        self.assertEqual(response.json()['status'], 'success')
+        obj = ebudget_gl_entry.objects.get()
+        self.assertEqual(obj.proportion, 12.50)
+        self.assertEqual(obj.depreciation, 3.75)
+
+    @patch('budget_app.services.BudgetService.get_branch_id_from_imedx', return_value='B001')
+    def test_unknown_gl_code_defaults_to_zero(self, mock_branch):
+        payload = json.dumps([{
+            'cost_center_name': 'CC1',
+            'general_ledger_code': 'NO_SUCH_GL',
+            'monthly_data': {'jan': {'amount': 1000}},
+        }])
+        response = self.client.post(reverse('budget_add_gl_entry'), data=payload, content_type='application/json')
+        self.assertEqual(response.json()['status'], 'success')
+        obj = ebudget_gl_entry.objects.get()
+        self.assertEqual(obj.proportion, 0)
+        self.assertEqual(obj.depreciation, 0)

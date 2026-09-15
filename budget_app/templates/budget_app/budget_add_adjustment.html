@@ -109,7 +109,12 @@
 {{ cost_centers_json|json_script:"cost-centers-data" }}
 <script>
     document.addEventListener("DOMContentLoaded", function() {
-        const items = JSON.parse(document.getElementById('items-data').textContent);
+        // Sorted once here (not inside the dropdown's per-click rebuild,
+        // which jspreadsheet/jSuites always re-sorts internally regardless —
+        // pre-sorting lets that repeated internal sort do less work). Order
+        // doesn't affect the .find() lookups below, which match by name.
+        const items = JSON.parse(document.getElementById('items-data').textContent)
+            .sort((a, b) => a.name.localeCompare(b.name, 'th'));
 
         // Helper functions
         const getSalary = (name) => {

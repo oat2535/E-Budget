@@ -40,7 +40,7 @@
             }
         </style>
     </head>
-    <body class="nav-fixed" data-authenticated="{{ user.is_authenticated|yesno:'true,false' }}" data-idle-timeout-seconds="{{ session_idle_timeout_seconds }}" data-system-frozen="{{ system_frozen|yesno:'true,false' }}" data-is-privileged="{{ is_privileged_user|yesno:'true,false' }}" data-active-budget-year="{{ active_budget_year }}" data-frozen-message="{{ frozen_message }}" data-toggle-freeze-url="{% url 'toggle_freeze' %}" data-set-year-url="{% url 'set_active_year' %}" data-csrf-token="{{ csrf_token }}">
+    <body class="nav-fixed" data-authenticated="{{ user.is_authenticated|yesno:'true,false' }}" data-idle-timeout-seconds="{{ session_idle_timeout_seconds }}" data-system-frozen="{{ system_frozen|yesno:'true,false' }}" data-active-budget-year="{{ active_budget_year }}" data-frozen-message="{{ frozen_message }}" data-toggle-freeze-url="{% url 'toggle_freeze' %}" data-set-year-url="{% url 'set_active_year' %}" data-csrf-token="{{ csrf_token }}">
         <script>
             // Apply theme immediately to prevent flash
             (function() {
@@ -69,6 +69,18 @@
             
             <!-- Navbar Items-->
             <ul class="navbar-nav align-items-center ms-auto">
+                <!-- System Frozen status badge — visible to everyone while
+                     frozen (privileged users already get the unlock icon
+                     below, but this makes the state legible at a glance
+                     without hovering/reading it). -->
+                {% if system_frozen %}
+                <li class="nav-item me-3">
+                    <span class="badge bg-danger d-flex align-items-center px-3 py-2" style="font-size: 0.8rem;" title="{{ frozen_message }}">
+                        <i data-feather="lock" style="width: 14px; height: 14px;" class="me-1"></i>
+                        ปิดงบประมาณชั่วคราว
+                    </span>
+                </li>
+                {% endif %}
                 <!-- Budget Year -->
                 <li class="nav-item dropdown no-caret me-3">
                     {% if is_privileged_user %}
@@ -131,23 +143,6 @@
                 </li>
             </ul>
         </nav>
-        <!-- System Frozen Modal: shown to non-privileged users while the
-             system is frozen (budget closing) — no close button, static
-             backdrop, deliberately impossible to dismiss. -->
-        <div class="modal" id="systemFrozenModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
-            <div class="modal-dialog modal-dialog-centered">
-                <div class="modal-content text-center">
-                    <div class="modal-body p-5">
-                        <i data-feather="lock" style="width: 48px; height: 48px;" class="text-danger mb-3"></i>
-                        <h5 class="mb-3">ระบบถูกปิดใช้งานชั่วคราว</h5>
-                        <p class="text-muted mb-4">{{ frozen_message }}</p>
-                        <button type="button" class="btn btn-outline-secondary" onclick="confirmLogout()">
-                            <i data-feather="log-out" class="me-1"></i> ออกจากระบบ
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
         <div id="layoutSidenav">
             <div id="layoutSidenav_nav">
                 <nav class="sidenav shadow-right sidenav-light">
@@ -161,6 +156,7 @@
             Budget List
         </a>
         
+        {% if is_privileged_user or not system_frozen %}
         <a id="addBudgetToggle" class="nav-link {% if request.resolver_match.url_name != 'budget_add' and request.resolver_match.url_name != 'budget_add_non_vet' and request.resolver_match.url_name != 'budget_add_adjustment' and request.resolver_match.url_name != 'budget_add_medical_equipment' and request.resolver_match.url_name != 'budget_add_computer_equipment' and request.resolver_match.url_name != 'budget_add_furniture' and request.resolver_match.url_name != 'budget_add_tools_equipment' and request.resolver_match.url_name != 'budget_add_gl_entry' and request.resolver_match.url_name != 'budget_add_budget_plan' %}collapsed{% endif %}" href="javascript:void(0);" aria-expanded="{% if request.resolver_match.url_name == 'budget_add' or request.resolver_match.url_name == 'budget_add_non_vet' or request.resolver_match.url_name == 'budget_add_adjustment' or request.resolver_match.url_name == 'budget_add_medical_equipment' or request.resolver_match.url_name == 'budget_add_computer_equipment' or request.resolver_match.url_name == 'budget_add_furniture' or request.resolver_match.url_name == 'budget_add_tools_equipment' or request.resolver_match.url_name == 'budget_add_gl_entry' or request.resolver_match.url_name == 'budget_add_budget_plan' %}true{% else %}false{% endif %}" aria-controls="collapseAddBudget">
             <div class="nav-link-icon"><i data-feather="plus-circle"></i></div>
             Add Budget
@@ -169,23 +165,48 @@
         <div class="eb-collapse {% if request.resolver_match.url_name == 'budget_add' or request.resolver_match.url_name == 'budget_add_non_vet' or request.resolver_match.url_name == 'budget_add_adjustment' or request.resolver_match.url_name == 'budget_add_medical_equipment' or request.resolver_match.url_name == 'budget_add_computer_equipment' or request.resolver_match.url_name == 'budget_add_furniture' or request.resolver_match.url_name == 'budget_add_tools_equipment' or request.resolver_match.url_name == 'budget_add_gl_entry' or request.resolver_match.url_name == 'budget_add_budget_plan' %}eb-collapse-open{% endif %}" id="collapseAddBudget">
             <div>
             <nav class="sidenav-menu-nested nav">
-                <div class="px-3 pt-2 pb-1 small fw-bold text-primary text-uppercase">Manpower</div>
+                <a id="manpowerGroupToggle" class="nav-link px-3 py-2 small fw-bold text-primary text-uppercase {% if request.resolver_match.url_name != 'budget_add' and request.resolver_match.url_name != 'budget_add_non_vet' and request.resolver_match.url_name != 'budget_add_adjustment' %}collapsed{% endif %}" href="javascript:void(0);" aria-expanded="{% if request.resolver_match.url_name == 'budget_add' or request.resolver_match.url_name == 'budget_add_non_vet' or request.resolver_match.url_name == 'budget_add_adjustment' %}true{% else %}false{% endif %}" aria-controls="collapseManpowerGroup">
+                    Manpower
+                    <div class="sidenav-collapse-arrow"><i data-feather="chevron-down" style="width: 14px; height: 14px;"></i></div>
+                </a>
+                <div class="eb-collapse {% if request.resolver_match.url_name == 'budget_add' or request.resolver_match.url_name == 'budget_add_non_vet' or request.resolver_match.url_name == 'budget_add_adjustment' %}eb-collapse-open{% endif %}" id="collapseManpowerGroup">
+                <div>
                 <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add' %}active{% endif %}" href="{% url 'budget_add' %}">VET Manpower</a>
                 <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_non_vet' %}active{% endif %}" href="{% url 'budget_add_non_vet' %}">NON VET Manpower</a>
                 <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_adjustment' %}active{% endif %}" href="{% url 'budget_add_adjustment' %}">Position Adjustment</a>
+                </div>
+                </div>
 
-                <div class="px-3 pt-3 pb-1 small fw-bold text-primary text-uppercase">Other Expenses</div>
+                <a id="otherExpensesGroupToggle" class="nav-link px-3 py-2 mt-2 small fw-bold text-primary text-uppercase {% if request.resolver_match.url_name != 'budget_add_medical_equipment' and request.resolver_match.url_name != 'budget_add_computer_equipment' and request.resolver_match.url_name != 'budget_add_furniture' and request.resolver_match.url_name != 'budget_add_tools_equipment' %}collapsed{% endif %}" href="javascript:void(0);" aria-expanded="{% if request.resolver_match.url_name == 'budget_add_medical_equipment' or request.resolver_match.url_name == 'budget_add_computer_equipment' or request.resolver_match.url_name == 'budget_add_furniture' or request.resolver_match.url_name == 'budget_add_tools_equipment' %}true{% else %}false{% endif %}" aria-controls="collapseOtherExpensesGroup">
+                    Other Expenses
+                    <div class="sidenav-collapse-arrow"><i data-feather="chevron-down" style="width: 14px; height: 14px;"></i></div>
+                </a>
+                <div class="eb-collapse {% if request.resolver_match.url_name == 'budget_add_medical_equipment' or request.resolver_match.url_name == 'budget_add_computer_equipment' or request.resolver_match.url_name == 'budget_add_furniture' or request.resolver_match.url_name == 'budget_add_tools_equipment' %}eb-collapse-open{% endif %}" id="collapseOtherExpensesGroup">
+                <div>
                 <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_medical_equipment' %}active{% endif %}" href="{% url 'budget_add_medical_equipment' %}">Medical Equipment</a>
                 <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_computer_equipment' %}active{% endif %}" href="{% url 'budget_add_computer_equipment' %}">Computer Equipment</a>
                 <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_furniture' %}active{% endif %}" href="{% url 'budget_add_furniture' %}">Furniture</a>
                 <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_tools_equipment' %}active{% endif %}" href="{% url 'budget_add_tools_equipment' %}">Tools & Equipment</a>
+                </div>
+                </div>
 
-                <div class="px-3 pt-3 pb-1 small fw-bold text-primary text-uppercase">General Ledger</div>
+                <a id="generalLedgerGroupToggle" class="nav-link px-3 py-2 mt-2 small fw-bold text-primary text-uppercase {% if request.resolver_match.url_name != 'budget_add_gl_entry' and request.resolver_match.url_name != 'budget_add_budget_plan' %}collapsed{% endif %}" href="javascript:void(0);" aria-expanded="{% if request.resolver_match.url_name == 'budget_add_gl_entry' or request.resolver_match.url_name == 'budget_add_budget_plan' %}true{% else %}false{% endif %}" aria-controls="collapseGeneralLedgerGroup">
+                    General Ledger
+                    <div class="sidenav-collapse-arrow"><i data-feather="chevron-down" style="width: 14px; height: 14px;"></i></div>
+                </a>
+                <div class="eb-collapse {% if request.resolver_match.url_name == 'budget_add_gl_entry' or request.resolver_match.url_name == 'budget_add_budget_plan' %}eb-collapse-open{% endif %}" id="collapseGeneralLedgerGroup">
+                <div>
                 <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_gl_entry' %}active{% endif %}" href="{% url 'budget_add_gl_entry' %}">GL Entry (การลงระหว่างเดือน)</a>
+                {# Budget Plan - Back Office hidden from the sidebar for now (requested); page/route/code left intact, still reachable by direct URL. #}
+                {% comment %}
                 <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_budget_plan' %}active{% endif %}" href="{% url 'budget_add_budget_plan' %}">Budget Plan - Back Office (แผนงบประมาณประจำปี)</a>
+                {% endcomment %}
+                </div>
+                </div>
             </nav>
             </div>
         </div>
+        {% endif %}
     </div>
     <!-- Sidenav Footer-->
                     <div class="sidenav-footer">
@@ -250,24 +271,30 @@
                 });
             });
 
-            // "Add Budget" sidenav collapse: deliberately NOT using Bootstrap's
-            // data-bs-toggle="collapse" here. That plugin animates the `height`
-            // property directly (reads scrollHeight, sets an inline px value),
-            // which is a layout property the browser reflows every frame rather
-            // than a compositable one like transform/opacity — no amount of
-            // easing/duration tuning on it reads as smooth. This toggles a class
-            // instead and lets CSS animate `grid-template-rows` (see .eb-collapse
-            // in polish.css), which is genuinely smoother.
-            (function() {
-                const toggle = document.getElementById('addBudgetToggle');
-                const panel = document.getElementById('collapseAddBudget');
+            // Sidenav collapse (used by "Add Budget" and its Manpower/Other
+            // Expenses/General Ledger sub-groups): deliberately NOT using
+            // Bootstrap's data-bs-toggle="collapse" here. That plugin animates
+            // the `height` property directly (reads scrollHeight, sets an
+            // inline px value), which is a layout property the browser
+            // reflows every frame rather than a compositable one like
+            // transform/opacity — no amount of easing/duration tuning on it
+            // reads as smooth. This toggles a class instead and lets CSS
+            // animate `grid-template-rows` (see .eb-collapse in polish.css),
+            // which is genuinely smoother.
+            function bindSidenavCollapseToggle(toggleId, panelId) {
+                const toggle = document.getElementById(toggleId);
+                const panel = document.getElementById(panelId);
                 if (!toggle || !panel) return;
                 toggle.addEventListener('click', () => {
                     const isOpen = panel.classList.toggle('eb-collapse-open');
                     toggle.classList.toggle('collapsed', !isOpen);
                     toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
                 });
-            })();
+            }
+            bindSidenavCollapseToggle('addBudgetToggle', 'collapseAddBudget');
+            bindSidenavCollapseToggle('manpowerGroupToggle', 'collapseManpowerGroup');
+            bindSidenavCollapseToggle('otherExpensesGroupToggle', 'collapseOtherExpensesGroup');
+            bindSidenavCollapseToggle('generalLedgerGroupToggle', 'collapseGeneralLedgerGroup');
 
             function confirmLogout() {
                 Swal.fire({
@@ -367,26 +394,38 @@
                 resetIdleTimer();
             })();
 
+            {% if messages %}
+            // One-time notice for a non-privileged user logging in while the
+            // system is frozen (set in login_view) — Django's messages
+            // framework already clears it from the session once this
+            // template reads it, so it naturally shows exactly once per
+            // login rather than needing client-side dismissal tracking.
+            document.addEventListener('DOMContentLoaded', () => {
+                {% for message in messages %}
+                Swal.fire({
+                    icon: 'info',
+                    title: 'แจ้งเตือน: ระบบอยู่ระหว่างปิดงบประมาณ',
+                    text: '{{ message|escapejs }}',
+                    confirmButtonText: 'รับทราบ',
+                    confirmButtonColor: '#0061f2',
+                });
+                {% endfor %}
+            });
+            {% endif %}
+
             // System freeze + active budget year — both privileged-only
             // writes, enforced server-side (see budget_app/decorators.py);
-            // this JS is purely the UI for triggering those two actions and
-            // showing the blocking modal to everyone else while frozen.
+            // this JS is purely the UI for triggering those two actions.
+            // While frozen, non-privileged users just lose the "Add Budget"
+            // menu (see the is_privileged_user-or-not-system_frozen guard
+            // around it above) — they can still browse Budget List and view
+            // document details, so there's no page-blocking modal here.
             // Reads its config from data-* attributes on <body> (set
             // server-side), same convention as the idle-timeout block above.
             (function() {
                 const body = document.body;
                 const systemFrozen = body.dataset.systemFrozen === 'true';
-                const isPrivileged = body.dataset.isPrivileged === 'true';
                 const csrfToken = body.dataset.csrfToken;
-
-                if (systemFrozen && !isPrivileged) {
-                    document.addEventListener('DOMContentLoaded', () => {
-                        const modalEl = document.getElementById('systemFrozenModal');
-                        if (modalEl && window.bootstrap) {
-                            new bootstrap.Modal(modalEl).show();
-                        }
-                    });
-                }
 
                 function submitFreezeToggle(message) {
                     fetch(body.dataset.toggleFreezeUrl, {

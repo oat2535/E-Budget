@@ -140,7 +140,10 @@
         // GL dropdown: shows gl_name, but the value actually stamped onto
         // each row is gl_code — same reasoning/pattern as budget_add_gl_entry.html.
         const generalLedgers = JSON.parse(document.getElementById('gl-data').textContent);
-        const glNames = generalLedgers.map(g => g.gl_name);
+        // Sorted once here (not inside the dropdown's per-click rebuild,
+        // which jspreadsheet/jSuites always re-sorts internally regardless —
+        // pre-sorting lets that repeated internal sort do less work).
+        const glNames = generalLedgers.map(g => g.gl_name).sort((a, b) => a.localeCompare(b, 'th'));
         const getGlCode = (name) => {
             const match = generalLedgers.find(g => g.gl_name === name);
             return match ? match.gl_code : null;

@@ -107,7 +107,10 @@
     document.addEventListener("DOMContentLoaded", function() {
         const items = JSON.parse(document.getElementById('items-data').textContent);
 
-        const itemNames = items.map(i => i.name);
+        // Sorted once here (not inside the dropdown's per-click rebuild,
+        // which jspreadsheet/jSuites always re-sorts internally regardless —
+        // pre-sorting lets that repeated internal sort do less work).
+        const itemNames = items.map(i => i.name).sort((a, b) => a.localeCompare(b, 'th'));
 
         const getSalary = (name) => {
             const match = items.find(i => i.name === name);
@@ -242,6 +245,7 @@
             oninsertrow: function(el, rowNumber, numOfRows, rowRecords, insertBefore) {
                 if (table2) table2.insertRow(numOfRows, rowNumber, insertBefore);
             },
+            freezeColumns: 2,
         });
 
         table2 = jspreadsheet(document.getElementById('calc-spreadsheet'), {
@@ -254,7 +258,8 @@
             allowManualInsertColumn: false,
             allowDeleteColumn: false,
             tableOverflow: true,
-            contextMenu: function() { return false; }
+            contextMenu: function() { return false; },
+            freezeColumns: 2,
         });
 
         // Bind add row button — table1's oninsertrow hook mirrors this into

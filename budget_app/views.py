@@ -53,7 +53,10 @@ def get_cost_centers_json():
 def get_general_ledgers_json():
     """Dropdown source for the GL selector on the GL Entry add page. Empty
     until someone populates ebudget_general_ledger_master via admin — the
-    page/logic works regardless, same as cost centers did before seeding."""
+    page/logic works regardless, same as cost centers did before seeding.
+    proportion/depreciation aren't included: they're never shown to the
+    user, only computed server-side at save time (see
+    BudgetService.get_gl_master_fields_bulk)."""
     return list(
         ebudget_general_ledger_master.objects.values('id', 'gl_code', 'gl_name').order_by('gl_code')
     )
@@ -66,6 +69,16 @@ def login_view(request):
         user = authenticate(request, username=employee_id, password=password)
         if user is not None:
             login(request, user)
+            # One-time notice, shown only on this login (Django's messages
+            # framework clears it after base.html renders it once) — not a
+            # repeat-every-page-load nag. Privileged users already see the
+            # freeze state via the navbar lock icon/badge, so this is for
+            # everyone else, who'd otherwise have no reason to expect adding
+            # budget data to be blocked until they tried it.
+            if user.username not in ALL_BRANCH_USERNAMES:
+                settings_obj = SystemSettings.load()
+                if settings_obj.is_frozen:
+                    messages.info(request, settings_obj.frozen_message)
             return redirect('budget_list')
         else:
             messages.error(request, 'รหัสพนักงานหรือรหัสผ่านไม่ถูกต้อง')
@@ -160,7 +173,7 @@ def budget_add_view(request):
 
             with transaction.atomic():
                 for item in data:
-                    master_obj, gl_obj = master_fks.get(item['position_name'], (None, None))
+                    master_obj, gl_code = master_fks.get(item['position_name'], (None, None))
                     obj = ebudget_vet_manpower.objects.create(
                         position_name=item['position_name'],
                         salary=item['salary'],
@@ -169,7 +182,7 @@ def budget_add_view(request):
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
+                        general_ledger_code=gl_code,
                         budget_year=budget_year
                     )
                     BudgetService.save_monthly_data(obj, 'VET', item['monthly_data'])
@@ -213,7 +226,7 @@ def budget_add_non_vet_view(request):
 
             with transaction.atomic():
                 for item in data:
-                    master_obj, gl_obj = master_fks.get(item['position_name'], (None, None))
+                    master_obj, gl_code = master_fks.get(item['position_name'], (None, None))
                     obj = ebudget_non_vet_manpower.objects.create(
                         position_name=item['position_name'],
                         salary=item['salary'],
@@ -223,7 +236,7 @@ def budget_add_non_vet_view(request):
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
+                        general_ledger_code=gl_code,
                         budget_year=budget_year
                     )
                     BudgetService.save_monthly_data(obj, 'NON VET', item['monthly_data'])
@@ -500,7 +513,9 @@ def get_document_detail_api(request, doc_type, doc_no):
             data = {
                 'general_ledger_code': item.general_ledger_code,
                 'general_ledger_name': gl_name_by_code.get(item.general_ledger_code, item.general_ledger_code),
-                'useful_life_percent': float(item.useful_life_percent) if item.useful_life_percent is not None else None,
+                'proportion': float(item.proportion),
+                'depreciation': float(item.depreciation),
+                'detail_note': item.detail_note or '',
                 'monthly_data': item.monthly_data_dict
             }
         elif doc_type == 'Budget Plan':
@@ -589,13 +604,14 @@ def update_document_api(request, doc_type, doc_no):
         else:
             lookup_field = 'position_name'
         master_fks = BudgetService.get_master_fks_bulk([item[lookup_field] for item in data]) if lookup_field else {}
+        gl_master_fields = BudgetService.get_gl_master_fields_bulk([item.get('general_ledger_code') for item in data]) if doc_type == 'GL Entry' else {}
 
         with transaction.atomic():
             existing_items.delete()
 
             for item in data:
                 if doc_type == 'Position Adjustment':
-                    master_obj, gl_obj = master_fks.get(item['new_position_name'], (None, None))
+                    master_obj, gl_code = master_fks.get(item['new_position_name'], (None, None))
                     obj = model_class.objects.create(
                         old_position_name=item['old_position_name'],
                         new_position_name=item['new_position_name'],
@@ -610,13 +626,13 @@ def update_document_api(request, doc_type, doc_no):
                         create_eid=create_eid,
                         modify_eid=username,
                         item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
+                        general_ledger_code=gl_code,
                         budget_year=budget_year
                     )
 
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
                 elif doc_type == 'VET':
-                    master_obj, gl_obj = master_fks.get(item['position_name'], (None, None))
+                    master_obj, gl_code = master_fks.get(item['position_name'], (None, None))
                     obj = model_class.objects.create(
                         position_name=item['position_name'],
                         salary=item['salary'],
@@ -627,13 +643,13 @@ def update_document_api(request, doc_type, doc_no):
                         create_eid=create_eid,
                         modify_eid=username,
                         item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
+                        general_ledger_code=gl_code,
                         budget_year=budget_year
                     )
 
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
                 elif doc_type == 'Medical Equipment' or doc_type == 'Computer Equipment' or doc_type == 'Furniture' or doc_type == 'Tools & Equipment':
-                    master_obj, gl_obj = master_fks.get(item['item_name'], (None, None))
+                    master_obj, gl_code = master_fks.get(item['item_name'], (None, None))
                     obj = model_class.objects.create(
                         item_name=item['item_name'],
                         purchase_price=item['purchase_price'],
@@ -644,15 +660,18 @@ def update_document_api(request, doc_type, doc_no):
                         create_eid=create_eid,
                         modify_eid=username,
                         item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
+                        general_ledger_code=gl_code,
                         budget_year=budget_year
                     )
 
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
                 elif doc_type == 'GL Entry':
+                    proportion, depreciation = gl_master_fields.get(item.get('general_ledger_code'), (0, 0))
                     obj = model_class.objects.create(
                         general_ledger_code=item.get('general_ledger_code'),
-                        useful_life_percent=item.get('useful_life_percent'),
+                        proportion=proportion,
+                        depreciation=depreciation,
+                        detail_note=item.get('detail_note') or None,
                         base_branch_id=base_branch_id,
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
@@ -678,7 +697,7 @@ def update_document_api(request, doc_type, doc_no):
                     )
                     BudgetService.save_budget_plan_monthly_data(obj, item['monthly_data'])
                 else:
-                    master_obj, gl_obj = master_fks.get(item['position_name'], (None, None))
+                    master_obj, gl_code = master_fks.get(item['position_name'], (None, None))
                     obj = model_class.objects.create(
                         position_name=item['position_name'],
                         salary=item['salary'],
@@ -690,7 +709,7 @@ def update_document_api(request, doc_type, doc_no):
                         create_eid=create_eid,
                         modify_eid=username,
                         item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
+                        general_ledger_code=gl_code,
                         budget_year=budget_year
                     )
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
@@ -716,7 +735,7 @@ def budget_add_adjustment_view(request):
 
             with transaction.atomic():
                 for item in data:
-                    master_obj, gl_obj = master_fks.get(item['new_position_name'], (None, None))
+                    master_obj, gl_code = master_fks.get(item['new_position_name'], (None, None))
                     obj = ebudget_position_adjustment.objects.create(
                         old_position_name=item['old_position_name'],
                         new_position_name=item['new_position_name'],
@@ -729,7 +748,7 @@ def budget_add_adjustment_view(request):
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
+                        general_ledger_code=gl_code,
                         budget_year=budget_year
                     )
                     BudgetService.save_monthly_data(obj, 'Position Adjustment', item['monthly_data'])
@@ -785,7 +804,7 @@ def _budget_add_equipment_view(request, model_class, doc_type, template_name, su
 
             with transaction.atomic():
                 for item in data:
-                    master_obj, gl_obj = master_fks.get(item['item_name'], (None, None))
+                    master_obj, gl_code = master_fks.get(item['item_name'], (None, None))
                     obj = model_class.objects.create(
                         item_name=item['item_name'],
                         purchase_price=item['purchase_price'],
@@ -794,7 +813,7 @@ def _budget_add_equipment_view(request, model_class, doc_type, template_name, su
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger_code=gl_obj.gl_code if gl_obj else None,
+                        general_ledger_code=gl_code,
                         budget_year=budget_year
                     )
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
@@ -847,12 +866,16 @@ def budget_add_gl_entry_view(request):
             branch_id = BudgetService.get_branch_id_from_imedx(username)
             doc_no = BudgetService.generate_document_no('GL Entry')
             budget_year = SystemSettings.load().active_budget_year
+            gl_master_fields = BudgetService.get_gl_master_fields_bulk([item.get('general_ledger_code') for item in data])
 
             with transaction.atomic():
                 for item in data:
+                    proportion, depreciation = gl_master_fields.get(item.get('general_ledger_code'), (0, 0))
                     obj = ebudget_gl_entry.objects.create(
                         general_ledger_code=item.get('general_ledger_code'),
-                        useful_life_percent=item.get('useful_life_percent'),
+                        proportion=proportion,
+                        depreciation=depreciation,
+                        detail_note=item.get('detail_note') or None,
                         create_eid=username,
                         base_branch_id=branch_id,
                         cost_center_name=item.get('cost_center_name'),

@@ -40,7 +40,10 @@ const BudgetApp = (function() {
     // GL dropdown source for editing GL Entry/Budget Plan documents — same
     // gl_name-displayed/gl_code-stored pattern as budget_add_gl_entry.html.
     const generalLedgers = document.getElementById('gl-data') ? JSON.parse(document.getElementById('gl-data').textContent) : [];
-    const glNames = generalLedgers.map(g => g.gl_name);
+    // Sorted once here (not inside the dropdown's per-click rebuild, which
+    // jspreadsheet/jSuites always re-sorts internally regardless —
+    // pre-sorting lets that repeated internal sort do less work).
+    const glNames = generalLedgers.map(g => g.gl_name).sort((a, b) => a.localeCompare(b, 'th'));
     const getGlCode = (name) => {
         const match = generalLedgers.find(g => g.gl_name === name);
         return match ? match.gl_code : null;
@@ -544,7 +547,10 @@ const BudgetApp = (function() {
         else if (isComp) itemsList = compItems;
         else if (isFurniture) itemsList = furnitureItems;
         else if (isTools) itemsList = toolsItems;
-        const itemNames = itemsList.map(i => i.name);
+        // Sorted once here (not inside the dropdown's per-click rebuild,
+        // which jspreadsheet/jSuites always re-sorts internally regardless —
+        // pre-sorting lets that repeated internal sort do less work).
+        const itemNames = itemsList.map(i => i.name).sort((a, b) => a.localeCompare(b, 'th'));
         
         if (isEditMode) {
             btnEdit.innerHTML = '<i data-feather="x" class="me-1"></i> ยกเลิกการแก้ไข';
@@ -798,7 +804,7 @@ const BudgetApp = (function() {
             editable
                 ? { type: 'dropdown', title: 'GL', width: 220, source: glNames, autocomplete: true }
                 : { type: 'text', title: 'GL', width: 220, readOnly: true },
-            { type: 'numeric', title: 'อายุการใช้งาน (%)', width: 130, readOnly: !editable, mask: '#,##0.00' },
+            { type: 'text', title: 'รายละเอียด', width: 150, readOnly: !editable },
             ...monthColumns,
             { type: 'numeric', title: 'รวม', width: 110, readOnly: true, mask: '#,##0' },
         ];
@@ -807,9 +813,8 @@ const BudgetApp = (function() {
     function glEntryRowData(item) {
         const monthValues = monthKeysShort.map(key => getNum((item.monthly_data[key] || {}).amount));
         const total = sumMonthlyData(item.monthly_data);
-        const lifePercent = (item.useful_life_percent !== null && item.useful_life_percent !== undefined) ? item.useful_life_percent : '';
         const glName = item.general_ledger_name && item.general_ledger_name !== '-' ? item.general_ledger_name : '';
-        return [glName, lifePercent, ...monthValues, total];
+        return [glName, item.detail_note || '', ...monthValues, total];
     }
 
     function buildBudgetPlanViewColumns(columnLabel, editable) {
@@ -840,7 +845,7 @@ const BudgetApp = (function() {
     function glEntryGridRowToItem(row) {
         const monthly_data = {};
         monthKeysShort.forEach((key, m) => { monthly_data[key] = { amount: row[2 + m] }; });
-        return { general_ledger_name: row[0], useful_life_percent: row[1] === '' ? null : row[1], monthly_data };
+        return { general_ledger_name: row[0], detail_note: row[1], monthly_data };
     }
 
     function budgetPlanGridRowToItem(row, category) {
@@ -1069,7 +1074,7 @@ const BudgetApp = (function() {
                 monthKeysShort.forEach((key, m) => { monthlyData[key] = { amount: getNum(row[2 + m]) }; });
                 dataToSave.push({
                     general_ledger_code: getGlCode(glName),
-                    useful_life_percent: getNum(row[1]) || null,
+                    detail_note: row[1] || '',
                     cost_center_name: costCenterName,
                     monthly_data: monthlyData,
                 });
@@ -1462,6 +1467,10 @@ const BudgetApp = (function() {
         const allAdjItems = [];
         vetItems.forEach(i => allAdjItems.push({...i, group: 'VET Manpower', position_allowance: 0}));
         nonVetItems.forEach(i => allAdjItems.push({...i, group: 'NON VET Manpower'}));
+        // Sorted once here (not inside the dropdown's per-click rebuild,
+        // which jspreadsheet/jSuites always re-sorts internally regardless —
+        // pre-sorting lets that repeated internal sort do less work).
+        allAdjItems.sort((a, b) => a.name.localeCompare(b.name, 'th'));
 
         if (isAdjEditMode) {
             btnEdit.innerHTML = '<i data-feather="x" class="me-1"></i> ยกเลิกการแก้ไข';

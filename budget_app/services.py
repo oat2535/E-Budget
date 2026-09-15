@@ -7,7 +7,7 @@ from budget_app.models import (
     ebudget_gl_entry, ebudget_gl_entry_monthly_detail,
     ebudget_budget_plan_item, ebudget_budget_plan_monthly_detail
 )
-from master_data.models import ebudget_budget_item_master
+from master_data.models import ebudget_budget_item_master, ebudget_general_ledger_master
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class BudgetService:
         try:
             master = ebudget_budget_item_master.objects.filter(item_name=item_name_val).first()
             if master:
-                return master, master.general_ledger
+                return master, master.general_ledger_code
         except Exception:
             pass
         return None, None
@@ -49,14 +49,32 @@ class BudgetService:
     def get_master_fks_bulk(item_names):
         """Batch version of get_master_fks: one query for a whole submitted
         document instead of one per line item. Returns
-        {item_name: (master_obj, gl_obj)}; a name with no master record is
+        {item_name: (master_obj, gl_code)}; a name with no master record is
         simply absent, so callers should look it up with
         `.get(name, (None, None))` to match get_master_fks's None fallback."""
         try:
             masters = ebudget_budget_item_master.objects.filter(
                 item_name__in=set(item_names)
-            ).select_related('general_ledger')
-            return {m.item_name: (m, m.general_ledger) for m in masters}
+            )
+            return {m.item_name: (m, m.general_ledger_code) for m in masters}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def get_gl_master_fields_bulk(gl_codes):
+        """Batch lookup of proportion/depreciation from GL master, keyed by
+        gl_code — one query per submitted document instead of one per line
+        item. Returns {gl_code: (proportion, depreciation)}; a code with no
+        master record is simply absent, so callers should look it up with
+        `.get(code, (0, 0))`. These values are snapshotted onto ebudget_gl_entry
+        at save time and are never trusted from the client — always
+        recomputed here from general_ledger_code so they can't drift from
+        GL master or be spoofed by a crafted request."""
+        try:
+            masters = ebudget_general_ledger_master.objects.filter(
+                gl_code__in=set(filter(None, gl_codes))
+            )
+            return {m.gl_code: (m.proportion, m.depreciation) for m in masters}
         except Exception:
             return {}
 
