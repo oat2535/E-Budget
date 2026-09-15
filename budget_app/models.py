@@ -1,4 +1,5 @@
 from datetime import datetime
+from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from budget_app.constants import DEFAULT_FROZEN_MESSAGE
 
@@ -413,8 +414,12 @@ class ebudget_gl_entry(models.Model):
     # salary/purchase_price being copied from item master elsewhere in this
     # app. Not user-editable: always server-computed, never trusted from the
     # client, so these stay in sync with GL master as of the save moment.
-    proportion = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="สัดส่วน")
-    depreciation = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="ค่าเสื่อม")
+    # Whole-number percent (15.00 means 15%), matching GL master's own
+    # proportion/depreciation fields these are copied from; 0-100 validated
+    # here too as a defense-in-depth backstop, even though the real
+    # data-entry point is GL master via admin.
+    proportion = models.DecimalField(max_digits=5, decimal_places=2, default=0, validators=[MinValueValidator(0), MaxValueValidator(100)], verbose_name="สัดส่วน (%)")
+    depreciation = models.DecimalField(max_digits=5, decimal_places=2, default=0, validators=[MinValueValidator(0), MaxValueValidator(100)], verbose_name="ค่าเสื่อม (%)")
     # One note per document row, distinct from monthly_details.detail_note
     # (which is per-month and unused by the current UI) — this is the
     # single "รายละเอียด" column shown once per row in both the add and

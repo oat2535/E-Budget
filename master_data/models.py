@@ -1,11 +1,17 @@
+from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 
 class ebudget_general_ledger_master(models.Model):
     gl_code = models.CharField(max_length=50, unique=True, verbose_name="รหัส general ledger")
     gl_name = models.CharField(max_length=255, verbose_name="ชื่อ general_ledger")
     category = models.ForeignKey('ebudget_budget_category_master', on_delete=models.CASCADE, verbose_name="Category", null=True, blank=True)
-    proportion = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="สัดส่วน")
-    depreciation = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="ค่าเสื่อม")
+    # Whole-number percent (15.00 means 15%), not a fraction — same
+    # convention the removed ebudget_gl_entry.useful_life_percent field
+    # used. 0-100 is enforced here (the actual data-entry point, via
+    # admin) since these values feed a future % calculation where an
+    # out-of-range value would silently produce a wrong result.
+    proportion = models.DecimalField(max_digits=5, decimal_places=2, default=0, validators=[MinValueValidator(0), MaxValueValidator(100)], verbose_name="สัดส่วน (%)")
+    depreciation = models.DecimalField(max_digits=5, decimal_places=2, default=0, validators=[MinValueValidator(0), MaxValueValidator(100)], verbose_name="ค่าเสื่อม (%)")
 
     def __str__(self):
         return f"{self.gl_code} - {self.gl_name}"

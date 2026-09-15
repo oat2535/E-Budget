@@ -9,7 +9,22 @@ from .models import (
 
 @admin.register(ebudget_general_ledger_master)
 class EbudgetGeneralLedgerMasterAdmin(admin.ModelAdmin):
-    list_display = [field.name for field in ebudget_general_ledger_master._meta.fields]
+    # Swap proportion/depreciation for % display methods (same list
+    # position as the raw fields) — the stored value is a whole percent
+    # number (15.00 = 15%), so this is purely a "%" suffix, not a x100 scale
+    # conversion.
+    list_display = [
+        {'proportion': 'proportion_percent', 'depreciation': 'depreciation_percent'}.get(field.name, field.name)
+        for field in ebudget_general_ledger_master._meta.fields
+    ]
+
+    @admin.display(description='สัดส่วน (%)', ordering='proportion')
+    def proportion_percent(self, obj):
+        return f"{obj.proportion}%"
+
+    @admin.display(description='ค่าเสื่อม (%)', ordering='depreciation')
+    def depreciation_percent(self, obj):
+        return f"{obj.depreciation}%"
 
 @admin.register(ebudget_budget_category_master)
 class EbudgetBudgetCategoryMasterAdmin(admin.ModelAdmin):
