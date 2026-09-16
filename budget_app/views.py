@@ -9,7 +9,8 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db.models import Count, Max
 from master_data.models import ebudget_budget_item_master, ebudget_budget_category_master, ebudget_cost_center_master, ebudget_general_ledger_master
-from budget_app.models import ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment, ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_gl_entry, ebudget_budget_plan_item, SystemSettings
+from django.core.cache import cache
+from budget_app.models import ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment, ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_gl_entry, ebudget_budget_plan_item, SystemSettings, SYSTEM_SETTINGS_CACHE_KEY
 from budget_app.services import BudgetService
 from budget_app.constants import ALL_BRANCH_USERNAMES
 from budget_app.decorators import require_not_frozen
@@ -60,6 +61,15 @@ def get_general_ledgers_json():
     return list(
         ebudget_general_ledger_master.objects.values('id', 'gl_code', 'gl_name').order_by('gl_code')
     )
+
+@login_required_json
+def get_general_ledgers_api(request):
+    """Lazy-loaded counterpart to get_general_ledgers_json() for
+    budget_list.html: that page only needs the full GL master list once a
+    user opens a document's GL edit mode (see toggleGlEditMode in
+    budget_list.js), not on every landing-page load, so it fetches this
+    instead of getting the whole table embedded in the page unconditionally."""
+    return JsonResponse({'status': 'success', 'general_ledgers': get_general_ledgers_json()})
 
 def login_view(request):
     if request.method == 'POST':
@@ -154,7 +164,6 @@ def budget_list_view(request):
         'items_comp_json': comp_items_list,
         'items_furniture_json': furniture_items_list,
         'items_tools_json': tools_items_list,
-        'general_ledgers_json': get_general_ledgers_json()
     })
 
 @login_required
@@ -961,6 +970,7 @@ def toggle_freeze_view(request):
                 frozen_date=now,
             )
 
+        cache.delete(SYSTEM_SETTINGS_CACHE_KEY)
         return JsonResponse({
             'status': 'success',
             'is_frozen': bool(settings_obj.is_frozen),
@@ -986,6 +996,7 @@ def set_active_year_view(request):
         current = SystemSettings.load()
         current.active_budget_year = year
         current.save()
+        cache.delete(SYSTEM_SETTINGS_CACHE_KEY)
         return JsonResponse({'status': 'success', 'active_budget_year': current.active_budget_year})
     except (TypeError, ValueError):
         return JsonResponse({'status': 'error', 'message': 'ปีไม่ถูกต้อง'})

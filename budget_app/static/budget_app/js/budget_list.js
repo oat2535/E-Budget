@@ -39,13 +39,32 @@ const BudgetApp = (function() {
 
     // GL dropdown source for editing GL Entry/Budget Plan documents — same
     // gl_name-displayed/gl_code-stored pattern as budget_add_gl_entry.html.
-    const generalLedgers = document.getElementById('gl-data') ? JSON.parse(document.getElementById('gl-data').textContent) : [];
-    // Sorted once here (not inside the dropdown's per-click rebuild, which
-    // jspreadsheet/jSuites always re-sorts internally regardless —
-    // pre-sorting lets that repeated internal sort do less work).
-    const glNames = generalLedgers.map(g => g.gl_name).sort((a, b) => a.localeCompare(b, 'th'));
+    // Fetched lazily (not embedded in the page) since it's only ever needed
+    // once a document's GL edit mode is actually entered (toggleGlEditMode
+    // below) — the full GL master table doesn't belong in every landing-page
+    // load. generalLedgersPromise dedupes concurrent callers so a rapid
+    // double-toggle of edit mode doesn't fire the fetch twice.
+    let generalLedgers = null;
+    let glNames = [];
+    let generalLedgersPromise = null;
+    function ensureGeneralLedgersLoaded() {
+        if (generalLedgers !== null) return Promise.resolve();
+        if (!generalLedgersPromise) {
+            generalLedgersPromise = fetch(window.APP_CONFIG.urls.apiGeneralLedgers)
+                .then(handleApiResponse)
+                .then(data => {
+                    generalLedgers = data.general_ledgers;
+                    // Sorted once here (not inside the dropdown's per-click
+                    // rebuild, which jspreadsheet/jSuites always re-sorts
+                    // internally regardless — pre-sorting lets that repeated
+                    // internal sort do less work).
+                    glNames = generalLedgers.map(g => g.gl_name).sort((a, b) => a.localeCompare(b, 'th'));
+                });
+        }
+        return generalLedgersPromise;
+    }
     const getGlCode = (name) => {
-        const match = generalLedgers.find(g => g.gl_name === name);
+        const match = (generalLedgers || []).find(g => g.gl_name === name);
         return match ? match.gl_code : null;
     };
 
@@ -1047,7 +1066,7 @@ const BudgetApp = (function() {
             });
     }
 
-    function toggleGlEditMode() {
+    async function toggleGlEditMode() {
         isGlEditMode = !isGlEditMode;
         const btnGlEdit = document.getElementById('btnGlEditMode');
         const btnGlSave = document.getElementById('btnGlSaveDocument');
@@ -1080,6 +1099,7 @@ const BudgetApp = (function() {
                     });
                 });
             }
+            await ensureGeneralLedgersLoaded();
             renderGlDetailSpreadsheet(currentGlDocType, items, true);
 
             const containerEl = document.getElementById('glDetailTableContainer');

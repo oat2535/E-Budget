@@ -1,4 +1,5 @@
 from datetime import datetime
+from django.core.cache import cache
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from budget_app.constants import DEFAULT_FROZEN_MESSAGE
@@ -6,6 +7,15 @@ from budget_app.constants import DEFAULT_FROZEN_MESSAGE
 class Timestamp0Field(models.DateTimeField):
     def db_type(self, connection):
         return 'timestamp(0)'
+
+# site_status() (context_processors.py) calls SystemSettings.load() on every
+# request for every logged-in page, and the DB is a remote host — caching
+# here saves that round trip on every page, not just this one. The TTL is a
+# safety net, not the correctness mechanism: callers that write
+# SystemSettings (toggle_freeze_view, set_active_year_view in views.py) must
+# cache.delete(SYSTEM_SETTINGS_CACHE_KEY) right after saving.
+SYSTEM_SETTINGS_CACHE_KEY = 'system_settings'
+SYSTEM_SETTINGS_CACHE_TTL = 300
 
 class SystemSettings(models.Model):
     """One row per freeze episode, not a singleton and not append-only-per-
@@ -27,9 +37,13 @@ class SystemSettings(models.Model):
 
     @classmethod
     def load(cls):
+        obj = cache.get(SYSTEM_SETTINGS_CACHE_KEY)
+        if obj is not None:
+            return obj
         obj = cls.objects.order_by('-id').first()
         if obj is None:
             obj = cls.objects.create()
+        cache.set(SYSTEM_SETTINGS_CACHE_KEY, obj, SYSTEM_SETTINGS_CACHE_TTL)
         return obj
 
     class Meta:

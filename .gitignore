@@ -23,3 +23,9 @@ env/
 # Local reference spreadsheets (real budget data, not source code)
 *.xlsx
 ~$*.xlsx
+
+# Local junction exposing .agents/skills to Claude Code as .claude/skills —
+# a per-machine convenience link, not portable across OS. .agents/skills
+# itself is the tracked source; recreate the junction after a fresh clone with:
+#   New-Item -ItemType Junction -Path .claude\skills -Target .agents\skills
+.claude/skills

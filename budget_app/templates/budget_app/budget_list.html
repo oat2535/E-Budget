@@ -3,8 +3,8 @@
 
 {% block extra_css %}
 <link href="https://cdn.jsdelivr.net/npm/simple-datatables@7.1.2/dist/style.min.css" rel="stylesheet" type="text/css">
-<link rel="stylesheet" href="https://bossanova.uk/jspreadsheet/v4/jexcel.css" type="text/css" />
-<link rel="stylesheet" href="https://jsuites.net/v4/jsuites.css" type="text/css" />
+<link rel="stylesheet" href="{% static 'budget_app/vendor/jexcel/jexcel.css' %}" type="text/css" />
+<link rel="stylesheet" href="{% static 'budget_app/vendor/jsuites/jsuites.css' %}" type="text/css" />
 <style>
     .jexcel_container {
         width: 100%;
@@ -352,8 +352,8 @@
 
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/simple-datatables@7.1.2/dist/umd/simple-datatables.min.js" crossorigin="anonymous"></script>
-<script src="https://bossanova.uk/jspreadsheet/v4/jexcel.js"></script>
-<script src="https://jsuites.net/v4/jsuites.js"></script>
+<script src="{% static 'budget_app/vendor/jexcel/jexcel.js' %}"></script>
+<script src="{% static 'budget_app/vendor/jsuites/jsuites.js' %}"></script>
 
 {{ items_vet_json|json_script:"vet-items-data" }}
 {{ items_non_vet_json|json_script:"nonvet-items-data" }}
@@ -361,7 +361,6 @@
 {{ items_comp_json|json_script:"comp-items-data" }}
 {{ items_furniture_json|json_script:"furniture-items-data" }}
 {{ items_tools_json|json_script:"tools-items-data" }}
-{{ general_ledgers_json|json_script:"gl-data" }}
 
 <script>
     window.APP_CONFIG = {
@@ -370,7 +369,8 @@
             apiDocumentDetail: "{% url 'api_document_detail' 'TYPE' 'DOCNO' %}",
             apiDocumentUpdate: "{% url 'api_document_update' 'TYPE' 'DOCNO' %}",
             apiAdjustmentDetail: "{% url 'api_document_detail' 'Position Adjustment' 'DOCNO' %}",
-            apiAdjustmentUpdate: "{% url 'api_document_update' 'Position Adjustment' 'DOCNO' %}"
+            apiAdjustmentUpdate: "{% url 'api_document_update' 'Position Adjustment' 'DOCNO' %}",
+            apiGeneralLedgers: "{% url 'api_general_ledgers' %}"
         },
         csrfToken: '{{ csrf_token }}'
     };

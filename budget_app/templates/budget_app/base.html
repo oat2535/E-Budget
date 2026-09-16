@@ -8,6 +8,16 @@
         <meta name="description" content="" />
         <meta name="author" content="" />
         <title>{% block title %}E-Budget{% endblock %}</title>
+        <!-- Preload the Metropolis weights actually used on every page
+             (confirmed by what the browser fetches on a normal load) so
+             they're ready as close to first paint as possible — this is
+             what makes font-display: optional (styles.css) actually land
+             on the branded font instead of falling back, rather than just
+             preventing the swap. -->
+        <link rel="preload" as="font" type="font/otf" href="{% static 'budget_app/assets/fonts/metropolis/Metropolis-Regular.otf' %}" crossorigin>
+        <link rel="preload" as="font" type="font/otf" href="{% static 'budget_app/assets/fonts/metropolis/Metropolis-Medium.otf' %}" crossorigin>
+        <link rel="preload" as="font" type="font/otf" href="{% static 'budget_app/assets/fonts/metropolis/Metropolis-SemiBold.otf' %}" crossorigin>
+        <link rel="preload" as="font" type="font/otf" href="{% static 'budget_app/assets/fonts/metropolis/Metropolis-Bold.otf' %}" crossorigin>
         {% block extra_css %}{% endblock %}
         <link href="{% static 'budget_app/css/styles.css' %}" rel="stylesheet" />
         <link href="{% static 'budget_app/css/theme-override.css' %}" rel="stylesheet" />
@@ -17,9 +27,6 @@
         <script defer src="https://cdnjs.cloudflare.com/ajax/libs/feather-icons/4.29.0/feather.min.js" crossorigin="anonymous"></script>
         <!-- SweetAlert2 -->
         <script defer src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-        <!-- Tom Select -->
-        <link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.bootstrap5.min.css" rel="stylesheet">
-        <script defer src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
         <style>
             .ts-control {
                 flex-wrap: nowrap !important;

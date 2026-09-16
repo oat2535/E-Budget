@@ -4,8 +4,9 @@
 {% block title %}Add Budget - Medical Equipment{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="https://bossanova.uk/jspreadsheet/v4/jexcel.css" type="text/css" />
-<link rel="stylesheet" href="https://jsuites.net/v4/jsuites.css" type="text/css" />
+<link rel="stylesheet" href="{% static 'budget_app/vendor/jexcel/jexcel.css' %}" type="text/css" />
+<link rel="stylesheet" href="{% static 'budget_app/vendor/jsuites/jsuites.css' %}" type="text/css" />
+<link rel="stylesheet" href="{% static 'budget_app/vendor/tom-select/tom-select.bootstrap5.min.css' %}">
 <style>
     .jexcel_container {
         width: 100%;
@@ -86,8 +87,9 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://bossanova.uk/jspreadsheet/v4/jexcel.js"></script>
-<script src="https://jsuites.net/v4/jsuites.js"></script>
+<script src="{% static 'budget_app/vendor/jexcel/jexcel.js' %}"></script>
+<script src="{% static 'budget_app/vendor/jsuites/jsuites.js' %}"></script>
+<script defer src="{% static 'budget_app/vendor/tom-select/tom-select.complete.min.js' %}"></script>
 
 {{ items_json|json_script:"items-data" }}
 {{ cost_centers_json|json_script:"cost-centers-data" }}

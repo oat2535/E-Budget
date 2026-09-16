@@ -6,6 +6,12 @@
         <meta http-equiv="X-UA-Compatible" content="IE=edge" />
         <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
         <title>Login - E-Budget</title>
+        <!-- See base.html for why: preloads the Metropolis weights this
+             page actually uses so font-display: optional (styles.css)
+             lands on the branded font instead of falling back. -->
+        <link rel="preload" as="font" type="font/otf" href="{% static 'budget_app/assets/fonts/metropolis/Metropolis-Regular.otf' %}" crossorigin>
+        <link rel="preload" as="font" type="font/otf" href="{% static 'budget_app/assets/fonts/metropolis/Metropolis-SemiBold.otf' %}" crossorigin>
+        <link rel="preload" as="font" type="font/otf" href="{% static 'budget_app/assets/fonts/metropolis/Metropolis-Bold.otf' %}" crossorigin>
         <link href="{% static 'budget_app/css/styles.css' %}" rel="stylesheet" />
         <link rel="icon" type="image/jpeg" href="{% static 'budget_app/assets/img/coins.jpg' %}" />
         <script data-search-pseudo-elements defer src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.3.0/js/all.min.js" crossorigin="anonymous"></script>

@@ -11,6 +11,7 @@ urlpatterns = [
     path('api/get_documents/<str:category_code>/', views.get_budget_documents_api, name='api_get_documents'),
     path('api/document/<str:doc_type>/<str:doc_no>/', views.get_document_detail_api, name='api_document_detail'),
     path('api/document/update/<str:doc_type>/<str:doc_no>/', views.update_document_api, name='api_document_update'),
+    path('api/general_ledgers/', views.get_general_ledgers_api, name='api_general_ledgers'),
     path('add_adjustment/', views.budget_add_adjustment_view, name='budget_add_adjustment'),
     path('add_medical_equipment/', views.budget_add_medical_equipment_view, name='budget_add_medical_equipment'),
     path('add_computer_equipment/', views.budget_add_computer_equipment_view, name='budget_add_computer_equipment'),

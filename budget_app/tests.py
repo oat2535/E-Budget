@@ -1,9 +1,11 @@
 import json
+import os
+import re
 from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 
 from budget_app.constants import ALL_BRANCH_USERNAMES
@@ -172,3 +174,57 @@ class GlEntryMasterAutofillTests(TestCase):
         obj = ebudget_gl_entry.objects.get()
         self.assertEqual(obj.proportion, 0)
         self.assertEqual(obj.depreciation, 0)
+
+
+class MetropolisFontConsistencyTests(SimpleTestCase):
+    """Regression test for the font flipping between font-display's
+    fallback and Metropolis depending on whether the page load was a hard
+    reload (Ctrl+F5, cache bypassed) or a normal one (F5/navigation, cache
+    warm). Confirmed via a Playwright timing simulation: without an early
+    <link rel=preload> for the weights a page actually uses, a cold,
+    throttled load loses the font-display: optional ~100ms race and locks
+    in the fallback font for that whole page view, while a load where the
+    font is already available renders Metropolis - i.e. the exact flip the
+    user reported. This can't be caught at the Django TestCase seam (no
+    real browser/network here to race), so it locks down the two static
+    facts that make the real fix work instead: every page preloads the
+    Metropolis weights it uses, correctly enough to be honored, and every
+    Metropolis face opts into font-display: optional.
+    """
+
+    TEMPLATES_TO_WEIGHTS = {
+        'budget_app/templates/budget_app/base.html': ['Regular', 'Medium', 'SemiBold', 'Bold'],
+        'budget_app/templates/budget_app/login.html': ['Regular', 'SemiBold', 'Bold'],
+    }
+
+    def _read(self, relative_path):
+        with open(os.path.join(settings.BASE_DIR, relative_path), encoding='utf-8') as f:
+            return f.read()
+
+    def test_pages_preload_the_metropolis_weights_they_use(self):
+        preload_re = re.compile(
+            r'<link\s+rel="preload"\s+as="font"[^>]*href="[^"]*Metropolis-(?P<weight>\w+?)\.otf[^"]*"[^>]*>'
+        )
+        for template_path, expected_weights in self.TEMPLATES_TO_WEIGHTS.items():
+            html = self._read(template_path)
+            preloads = {m.group('weight'): m.group(0) for m in preload_re.finditer(html)}
+            for weight in expected_weights:
+                with self.subTest(template=template_path, weight=weight):
+                    self.assertIn(
+                        weight, preloads,
+                        f'{template_path} no longer preloads Metropolis-{weight}.otf',
+                    )
+                    # A font preload without crossorigin is fetched in a
+                    # different CORS mode than the @font-face request and
+                    # gets silently ignored by the browser, so the whole
+                    # point of the preload would be lost.
+                    self.assertIn('crossorigin', preloads[weight])
+
+    def test_metropolis_font_faces_use_font_display_optional(self):
+        css = self._read('budget_app/static/budget_app/css/styles.css')
+        font_face_blocks = re.findall(r'@font-face\s*\{([^}]*)\}', css)
+        metropolis_blocks = [b for b in font_face_blocks if 'font-family: "Metropolis"' in b]
+        self.assertTrue(metropolis_blocks, 'no @font-face rules found for Metropolis')
+        for block in metropolis_blocks:
+            with self.subTest(block=block):
+                self.assertIn('font-display: optional', block)
