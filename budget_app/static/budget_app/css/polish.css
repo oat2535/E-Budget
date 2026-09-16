@@ -95,6 +95,17 @@ table,
     padding-bottom: 0.65rem;
 }
 
+/* Sub-group headings (Manpower/Other Expenses/General Ledger) use
+   text-warning/text-success/text-danger directly in base.html — the same
+   three colors budget_list.html's category cards already cycle through
+   for C01/C02/C03 (warning, success, danger), so the sidebar groups read
+   as the same categories rather than introducing a new color language.
+   None of them are text-primary, which stays reserved for
+   .sidenav-light .sidenav-menu .nav-link.active (styles.css) — the "you
+   are here" highlight on an actual page link — so a heading is never
+   mistaken for the active page.
+*/
+
 /* --- Card hover treatment --- */
 /* Clickable cards (category cards): lift + shadow + pointer, as already
    used on the budget_list.html category cards. */
