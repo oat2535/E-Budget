@@ -394,11 +394,21 @@ const BudgetApp = (function() {
                     document.getElementById('modalDocCreator').innerText = result.doc_info.create_eid;
                     document.getElementById('modalDocDate').innerText = result.doc_info.create_date;
 
+                    // Laid out but not painted — jspreadsheet reads real
+                    // dimensions from the container below (getBoundingClientRect
+                    // forces layout on demand regardless of paint state), but
+                    // nothing is visible yet, so building two full jspreadsheet
+                    // grids (real DOM per cell, no virtualization — the same
+                    // jexcel characteristic behind the dropdown-open slowness
+                    // fixed earlier) can't drop frames on an animation the user
+                    // can see. The fade-in animation only starts once
+                    // everything is actually ready to show, instead of racing
+                    // this construction work (previously scheduled via a
+                    // setTimeout(fn, 50) that fired mid-animation and caused
+                    // the reported stutter).
                     const modalContentEl = document.getElementById('modalContent');
                     modalContentEl.style.display = 'block';
-                    modalContentEl.classList.remove('modal-content-fade-in');
-                    void modalContentEl.offsetWidth;
-                    modalContentEl.classList.add('modal-content-fade-in');
+                    modalContentEl.style.visibility = 'hidden';
 
                     if (modalTable1) {
                         modalTable1.destroy();
@@ -408,9 +418,8 @@ const BudgetApp = (function() {
                         modalTable2.destroy();
                         modalTable2 = null;
                     }
-                    const skeletonHtml = '<div class="placeholder-glow p-3"><span class="placeholder col-12 eb-skeleton d-block"></span></div>';
-                    document.getElementById('modalSpreadsheet1').innerHTML = skeletonHtml;
-                    document.getElementById('modalSpreadsheet2').innerHTML = skeletonHtml;
+                    document.getElementById('modalSpreadsheet1').innerHTML = '';
+                    document.getElementById('modalSpreadsheet2').innerHTML = '';
 
                     const isNonVet = result.doc_info.type === 'NON VET';
                     const isMed = result.doc_info.type === 'Medical Equipment';
@@ -471,14 +480,12 @@ const BudgetApp = (function() {
                         data2.push([...emptyRow]);
                     }
 
-                    // Render jspreadsheet inside modal (modal is already shown, and block displayed)
-                    setTimeout(() => {
-                        // jspreadsheet appends into its target rather than replacing
-                        // existing content, so the skeleton placeholder set above
-                        // must be cleared explicitly or it stays visible alongside
-                        // the real grid.
-                        document.getElementById('modalSpreadsheet1').innerHTML = '';
-                        document.getElementById('modalSpreadsheet2').innerHTML = '';
+                    // requestAnimationFrame (not a guessed setTimeout delay)
+                    // waits for one real layout/style pass so the container's
+                    // display:block change is actually in effect, then builds
+                    // both grids while still invisible, and only reveals with
+                    // the fade-in once they're done.
+                    requestAnimationFrame(() => {
                         modalTable1 = jspreadsheet(document.getElementById('modalSpreadsheet1'), {
                             data: data1,
                             columns: columns,
@@ -502,7 +509,12 @@ const BudgetApp = (function() {
                             tableOverflow: true,
                             contextMenu: function() { return false; }
                         });
-                    }, 50);
+
+                        modalContentEl.style.visibility = 'visible';
+                        modalContentEl.classList.remove('modal-content-fade-in');
+                        void modalContentEl.offsetWidth;
+                        modalContentEl.classList.add('modal-content-fade-in');
+                    });
                 } else {
                     if (typeof Swal !== 'undefined') {
                         Swal.fire('เกิดข้อผิดพลาด', result.message, 'error');
@@ -988,10 +1000,18 @@ const BudgetApp = (function() {
                     document.getElementById('glModalDocCreator').innerText = result.doc_info.create_eid;
                     document.getElementById('glModalDocDate').innerText = result.doc_info.create_date;
 
-                    renderGlDetailSpreadsheet(docType, result.manpower_list, false);
-
+                    // display:block (with visibility:hidden so nothing is
+                    // painted yet) before building the grid, not after —
+                    // jspreadsheet was previously initializing while this
+                    // container was still display:none (no layout box at
+                    // all), which risks it reading 0-width dimensions.
                     const modalContentEl = document.getElementById('glModalContent');
                     modalContentEl.style.display = 'block';
+                    modalContentEl.style.visibility = 'hidden';
+
+                    renderGlDetailSpreadsheet(docType, result.manpower_list, false);
+
+                    modalContentEl.style.visibility = 'visible';
                     modalContentEl.classList.remove('modal-content-fade-in');
                     void modalContentEl.offsetWidth;
                     modalContentEl.classList.add('modal-content-fade-in');
@@ -1196,20 +1216,23 @@ const BudgetApp = (function() {
                     document.getElementById('adjModalDocCreator').innerText = result.doc_info.create_eid;
                     document.getElementById('adjModalDocDate').innerText = result.doc_info.create_date;
 
+                    // See viewDocumentDetails for why: laid out but not
+                    // painted (visibility:hidden, not display:none) so
+                    // building 3 jspreadsheet grids (up to 23 columns each,
+                    // real DOM per cell) can't stutter an animation the user
+                    // can see — the fade-in only starts once everything is
+                    // actually ready.
                     const adjModalContentEl = document.getElementById('adjModalContent');
                     adjModalContentEl.style.display = 'block';
-                    adjModalContentEl.classList.remove('modal-content-fade-in');
-                    void adjModalContentEl.offsetWidth;
-                    adjModalContentEl.classList.add('modal-content-fade-in');
+                    adjModalContentEl.style.visibility = 'hidden';
 
                     if (adjTable1) adjTable1.destroy();
                     if (adjTable2) adjTable2.destroy();
                     if (adjTable3) adjTable3.destroy();
 
-                    const adjSkeletonHtml = '<div class="placeholder-glow p-3"><span class="placeholder col-12 eb-skeleton d-block"></span></div>';
-                    document.getElementById('adjModalSpreadsheet1').innerHTML = adjSkeletonHtml;
-                    document.getElementById('adjModalSpreadsheet2').innerHTML = adjSkeletonHtml;
-                    document.getElementById('adjModalSpreadsheet3').innerHTML = adjSkeletonHtml;
+                    document.getElementById('adjModalSpreadsheet1').innerHTML = '';
+                    document.getElementById('adjModalSpreadsheet2').innerHTML = '';
+                    document.getElementById('adjModalSpreadsheet3').innerHTML = '';
 
                     const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
                     
@@ -1315,14 +1338,7 @@ const BudgetApp = (function() {
                         data3.push(r3);
                     });
 
-                    setTimeout(() => {
-                        // Same reason as the document-detail modal: jspreadsheet
-                        // appends rather than replaces, so clear the skeleton
-                        // placeholders first or they stay visible next to the
-                        // real grids.
-                        document.getElementById('adjModalSpreadsheet1').innerHTML = '';
-                        document.getElementById('adjModalSpreadsheet2').innerHTML = '';
-                        document.getElementById('adjModalSpreadsheet3').innerHTML = '';
+                    requestAnimationFrame(() => {
                         adjTable1 = jspreadsheet(document.getElementById('adjModalSpreadsheet1'), {
                             data: data1, columns: cols1, allowInsertRow: false, allowDeleteRow: false,
                             allowInsertColumn: false, allowManualInsertColumn: false, allowDeleteColumn: false,
@@ -1338,7 +1354,12 @@ const BudgetApp = (function() {
                             allowInsertColumn: false, allowManualInsertColumn: false, allowDeleteColumn: false,
                             tableOverflow: true, contextMenu: function() { return false; }
                         });
-                    }, 50);
+
+                        adjModalContentEl.style.visibility = 'visible';
+                        adjModalContentEl.classList.remove('modal-content-fade-in');
+                        void adjModalContentEl.offsetWidth;
+                        adjModalContentEl.classList.add('modal-content-fade-in');
+                    });
 
                 } else {
                     if (typeof Swal !== 'undefined') Swal.fire('เกิดข้อผิดพลาด', result.message, 'error');

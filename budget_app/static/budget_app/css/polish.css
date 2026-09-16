@@ -177,12 +177,6 @@ table,
     animation: eb-flash 0.6s ease;
 }
 
-/* Lightweight skeleton block shown while jspreadsheet initializes */
-.eb-skeleton {
-    height: 160px;
-    border-radius: 0.35rem;
-}
-
 /* --- Cost Center dropdown (jSuites.dropdown), all Add Budget pages + the
    two Budget List edit modals: one shared class set (.jdropdown-*), so one
    override here covers every usage. jsuites.css's own hover/selected color
