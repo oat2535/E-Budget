@@ -81,6 +81,20 @@ const BudgetApp = (function() {
         return response.json();
     }
 
+    // Bootstrap's own modal-open transition (.modal-dialog transform 0.3s +
+    // backdrop fade 0.15s, both in styles.css) starts the instant .show()
+    // is called — a separate animation from any custom fade-in applied to
+    // a modal's own content later. Every "view details" popup waits on
+    // this before doing its heavy jspreadsheet construction, so that work
+    // can never block the main thread while either animation is still
+    // playing (visible stutter) — not just the custom fade-in, which was
+    // the only thing accounted for previously.
+    function waitForModalShown(modalEl) {
+        return new Promise(resolve => {
+            modalEl.addEventListener('shown.bs.modal', resolve, { once: true });
+        });
+    }
+
     const onSpreadsheetChange = function(instance, cell, x, y, value) {
         if (!modalTable1 || !modalTable2 || isUpdating || !isEditMode) return;
         isUpdating = true;
@@ -367,20 +381,25 @@ const BudgetApp = (function() {
         if(btnSave) btnSave.style.display = 'none';
         if(btnClose) btnClose.style.display = 'inline-block';
 
+        const modalEl = document.getElementById('documentDetailModal');
         if (!detailModalInstance) {
-            detailModalInstance = new bootstrap.Modal(document.getElementById('documentDetailModal'));
+            detailModalInstance = new bootstrap.Modal(modalEl);
         }
+        const shownPromise = waitForModalShown(modalEl);
         detailModalInstance.show();
-        
+
         document.getElementById('modalContent').style.display = 'none';
         document.getElementById('modalLoadingSpinner').style.display = 'block';
 
         const urlTemplate = window.APP_CONFIG.urls.apiDocumentDetail;
         const url = urlTemplate.replace('TYPE', encodeURIComponent(docType)).replace('DOCNO', encodeURIComponent(docNo));
 
-        fetch(url)
-            .then(handleApiResponse)
-            .then(result => {
+        // Spinner stays up until BOTH the fetch and Bootstrap's own modal
+        // transition are done — not just the fetch — so there's no gap
+        // where the spinner has vanished but the modal is still visibly
+        // animating open with nothing shown yet.
+        Promise.all([fetch(url).then(handleApiResponse), shownPromise])
+            .then(([result]) => {
                 document.getElementById('modalLoadingSpinner').style.display = 'none';
 
                 if (result.status === 'success') {
@@ -480,41 +499,39 @@ const BudgetApp = (function() {
                         data2.push([...emptyRow]);
                     }
 
-                    // requestAnimationFrame (not a guessed setTimeout delay)
-                    // waits for one real layout/style pass so the container's
-                    // display:block change is actually in effect, then builds
-                    // both grids while still invisible, and only reveals with
-                    // the fade-in once they're done.
-                    requestAnimationFrame(() => {
-                        modalTable1 = jspreadsheet(document.getElementById('modalSpreadsheet1'), {
-                            data: data1,
-                            columns: columns,
-                            allowInsertRow: false,
-                            allowDeleteRow: false,
-                            allowInsertColumn: false,
-                            allowManualInsertColumn: false,
-                            allowDeleteColumn: false,
-                            tableOverflow: true,
-                            contextMenu: function() { return false; }
-                        });
-
-                        modalTable2 = jspreadsheet(document.getElementById('modalSpreadsheet2'), {
-                            data: data2,
-                            columns: columns,
-                            allowInsertRow: false,
-                            allowDeleteRow: false,
-                            allowInsertColumn: false,
-                            allowManualInsertColumn: false,
-                            allowDeleteColumn: false,
-                            tableOverflow: true,
-                            contextMenu: function() { return false; }
-                        });
-
-                        modalContentEl.style.visibility = 'visible';
-                        modalContentEl.classList.remove('modal-content-fade-in');
-                        void modalContentEl.offsetWidth;
-                        modalContentEl.classList.add('modal-content-fade-in');
+                    // Building both grids now is safe from here on: the
+                    // container has real layout (display:block above) and
+                    // shownPromise already guarantees Bootstrap's own modal
+                    // transition has fully finished, so this synchronous
+                    // work has no animation left to race.
+                    modalTable1 = jspreadsheet(document.getElementById('modalSpreadsheet1'), {
+                        data: data1,
+                        columns: columns,
+                        allowInsertRow: false,
+                        allowDeleteRow: false,
+                        allowInsertColumn: false,
+                        allowManualInsertColumn: false,
+                        allowDeleteColumn: false,
+                        tableOverflow: true,
+                        contextMenu: function() { return false; }
                     });
+
+                    modalTable2 = jspreadsheet(document.getElementById('modalSpreadsheet2'), {
+                        data: data2,
+                        columns: columns,
+                        allowInsertRow: false,
+                        allowDeleteRow: false,
+                        allowInsertColumn: false,
+                        allowManualInsertColumn: false,
+                        allowDeleteColumn: false,
+                        tableOverflow: true,
+                        contextMenu: function() { return false; }
+                    });
+
+                    modalContentEl.style.visibility = 'visible';
+                    modalContentEl.classList.remove('modal-content-fade-in');
+                    void modalContentEl.offsetWidth;
+                    modalContentEl.classList.add('modal-content-fade-in');
                 } else {
                     if (typeof Swal !== 'undefined') {
                         Swal.fire('เกิดข้อผิดพลาด', result.message, 'error');
@@ -972,9 +989,11 @@ const BudgetApp = (function() {
         isGlEditMode = false;
         resetGlEditButtons();
 
+        const glModalEl = document.getElementById('glDocumentDetailModal');
         if (!glModalInstance) {
-            glModalInstance = new bootstrap.Modal(document.getElementById('glDocumentDetailModal'));
+            glModalInstance = new bootstrap.Modal(glModalEl);
         }
+        const glShownPromise = waitForModalShown(glModalEl);
         glModalInstance.show();
 
         document.getElementById('glModalContent').style.display = 'none';
@@ -983,9 +1002,8 @@ const BudgetApp = (function() {
         const urlTemplate = window.APP_CONFIG.urls.apiDocumentDetail;
         const url = urlTemplate.replace('TYPE', encodeURIComponent(docType)).replace('DOCNO', encodeURIComponent(docNo));
 
-        fetch(url)
-            .then(handleApiResponse)
-            .then(result => {
+        Promise.all([fetch(url).then(handleApiResponse), glShownPromise])
+            .then(([result]) => {
                 document.getElementById('glModalLoadingSpinner').style.display = 'none';
 
                 if (result.status === 'success') {
@@ -1191,9 +1209,11 @@ const BudgetApp = (function() {
         if(btnSave) btnSave.style.display = 'none';
         if(btnClose) btnClose.style.display = 'inline-block';
 
+        const adjModalEl = document.getElementById('adjustmentDetailModal');
         if (!adjModalInstance) {
-            adjModalInstance = new bootstrap.Modal(document.getElementById('adjustmentDetailModal'));
+            adjModalInstance = new bootstrap.Modal(adjModalEl);
         }
+        const adjShownPromise = waitForModalShown(adjModalEl);
         adjModalInstance.show();
 
         document.getElementById('adjModalContent').style.display = 'none';
@@ -1202,11 +1222,10 @@ const BudgetApp = (function() {
         const urlTemplate = window.APP_CONFIG.urls.apiAdjustmentDetail;
         const url = urlTemplate.replace('DOCNO', encodeURIComponent(docNo));
 
-        fetch(url)
-            .then(handleApiResponse)
-            .then(result => {
+        Promise.all([fetch(url).then(handleApiResponse), adjShownPromise])
+            .then(([result]) => {
                 document.getElementById('adjModalLoadingSpinner').style.display = 'none';
-                
+
                 if (result.status === 'success') {
                     document.getElementById('adjModalDocNo').innerText = result.doc_info.document_no;
                     document.getElementById('adjModalDocBranch').innerText = result.doc_info.base_branch_id;
@@ -1338,29 +1357,26 @@ const BudgetApp = (function() {
                         data3.push(r3);
                     });
 
-                    requestAnimationFrame(() => {
-                        adjTable1 = jspreadsheet(document.getElementById('adjModalSpreadsheet1'), {
-                            data: data1, columns: cols1, allowInsertRow: false, allowDeleteRow: false,
-                            allowInsertColumn: false, allowManualInsertColumn: false, allowDeleteColumn: false,
-                            tableOverflow: true, contextMenu: function() { return false; }, freezeColumns: 2
-                        });
-                        adjTable2 = jspreadsheet(document.getElementById('adjModalSpreadsheet2'), {
-                            data: data2, columns: cols2, allowInsertRow: false, allowDeleteRow: false,
-                            allowInsertColumn: false, allowManualInsertColumn: false, allowDeleteColumn: false,
-                            tableOverflow: true, contextMenu: function() { return false; }
-                        });
-                        adjTable3 = jspreadsheet(document.getElementById('adjModalSpreadsheet3'), {
-                            data: data3, columns: cols3, allowInsertRow: false, allowDeleteRow: false,
-                            allowInsertColumn: false, allowManualInsertColumn: false, allowDeleteColumn: false,
-                            tableOverflow: true, contextMenu: function() { return false; }
-                        });
-
-                        adjModalContentEl.style.visibility = 'visible';
-                        adjModalContentEl.classList.remove('modal-content-fade-in');
-                        void adjModalContentEl.offsetWidth;
-                        adjModalContentEl.classList.add('modal-content-fade-in');
+                    adjTable1 = jspreadsheet(document.getElementById('adjModalSpreadsheet1'), {
+                        data: data1, columns: cols1, allowInsertRow: false, allowDeleteRow: false,
+                        allowInsertColumn: false, allowManualInsertColumn: false, allowDeleteColumn: false,
+                        tableOverflow: true, contextMenu: function() { return false; }, freezeColumns: 2
+                    });
+                    adjTable2 = jspreadsheet(document.getElementById('adjModalSpreadsheet2'), {
+                        data: data2, columns: cols2, allowInsertRow: false, allowDeleteRow: false,
+                        allowInsertColumn: false, allowManualInsertColumn: false, allowDeleteColumn: false,
+                        tableOverflow: true, contextMenu: function() { return false; }
+                    });
+                    adjTable3 = jspreadsheet(document.getElementById('adjModalSpreadsheet3'), {
+                        data: data3, columns: cols3, allowInsertRow: false, allowDeleteRow: false,
+                        allowInsertColumn: false, allowManualInsertColumn: false, allowDeleteColumn: false,
+                        tableOverflow: true, contextMenu: function() { return false; }
                     });
 
+                    adjModalContentEl.style.visibility = 'visible';
+                    adjModalContentEl.classList.remove('modal-content-fade-in');
+                    void adjModalContentEl.offsetWidth;
+                    adjModalContentEl.classList.add('modal-content-fade-in');
                 } else {
                     if (typeof Swal !== 'undefined') Swal.fire('เกิดข้อผิดพลาด', result.message, 'error');
                     adjModalInstance.hide();
