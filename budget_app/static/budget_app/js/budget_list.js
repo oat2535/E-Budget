@@ -109,6 +109,13 @@ const BudgetApp = (function() {
     // playing (visible stutter) — not just the custom fade-in, which was
     // the only thing accounted for previously.
     function waitForModalShown(modalEl) {
+        // Bootstrap's .show() is a no-op when the modal is already open (e.g.
+        // reloading data after "ยกเลิกการแก้ไข" while the modal never closed),
+        // so shown.bs.modal never fires again — waiting for it here would
+        // hang forever. Already open means already settled: resolve now.
+        if (modalEl.classList.contains('show')) {
+            return Promise.resolve();
+        }
         return new Promise(resolve => {
             modalEl.addEventListener('shown.bs.modal', resolve, { once: true });
         });
