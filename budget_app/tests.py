@@ -71,7 +71,7 @@ class FreezeBypassTests(TestCase):
             'monthly_data': {},
         }])
 
-    @patch('budget_app.services.BudgetService.get_branch_id_from_imedx', return_value='B001')
+    @patch('budget_app.services.BudgetService.get_branch_info_from_imedx', return_value={'branches': ['B001'], 'needs_selection': False, 'department_id': None})
     def test_regular_user_blocked_while_frozen(self, mock_branch):
         self.client.force_login(self.regular_user)
         response = self.client.post(reverse('budget_add'), data=self.payload, content_type='application/json')
@@ -79,7 +79,7 @@ class FreezeBypassTests(TestCase):
         self.assertEqual(response.json()['status'], 'error')
         self.assertEqual(ebudget_vet_manpower.objects.count(), 0)
 
-    @patch('budget_app.services.BudgetService.get_branch_id_from_imedx', return_value='B001')
+    @patch('budget_app.services.BudgetService.get_branch_info_from_imedx', return_value={'branches': ['B001'], 'needs_selection': False, 'department_id': None})
     def test_privileged_user_not_blocked_while_frozen(self, mock_branch):
         self.client.force_login(self.privileged_user)
         response = self.client.post(reverse('budget_add'), data=self.payload, content_type='application/json')
@@ -98,14 +98,14 @@ class BudgetAddViewTests(TestCase):
         SystemSettings.objects.create(is_frozen=0, active_budget_year=2026)
         self.client.force_login(self.user)
 
-    @patch('budget_app.services.BudgetService.get_branch_id_from_imedx', return_value='B001')
+    @patch('budget_app.services.BudgetService.get_branch_info_from_imedx', return_value={'branches': ['B001'], 'needs_selection': False, 'department_id': None})
     def test_missing_cost_center_returns_error_without_saving(self, mock_branch):
         payload = json.dumps([{'position_name': 'Nurse', 'salary': 20000, 'monthly_data': {}}])
         response = self.client.post(reverse('budget_add'), data=payload, content_type='application/json')
         self.assertEqual(response.json()['status'], 'error')
         self.assertEqual(ebudget_vet_manpower.objects.count(), 0)
 
-    @patch('budget_app.services.BudgetService.get_branch_id_from_imedx', return_value='B001')
+    @patch('budget_app.services.BudgetService.get_branch_info_from_imedx', return_value={'branches': ['B001'], 'needs_selection': False, 'department_id': None})
     def test_happy_path_creates_document_with_monthly_data(self, mock_branch):
         payload = json.dumps([{
             'cost_center_name': 'CC1',
@@ -134,7 +134,7 @@ class GlEntryMasterAutofillTests(TestCase):
             gl_code='GL001', gl_name='Test GL', proportion='12.50', depreciation='3.75',
         )
 
-    @patch('budget_app.services.BudgetService.get_branch_id_from_imedx', return_value='B001')
+    @patch('budget_app.services.BudgetService.get_branch_info_from_imedx', return_value={'branches': ['B001'], 'needs_selection': False, 'department_id': None})
     def test_create_autofills_proportion_and_depreciation_from_gl_master(self, mock_branch):
         payload = json.dumps([{
             'cost_center_name': 'CC1',
@@ -147,7 +147,7 @@ class GlEntryMasterAutofillTests(TestCase):
         self.assertEqual(obj.proportion, 12.50)
         self.assertEqual(obj.depreciation, 3.75)
 
-    @patch('budget_app.services.BudgetService.get_branch_id_from_imedx', return_value='B001')
+    @patch('budget_app.services.BudgetService.get_branch_info_from_imedx', return_value={'branches': ['B001'], 'needs_selection': False, 'department_id': None})
     def test_client_supplied_proportion_and_depreciation_are_ignored(self, mock_branch):
         payload = json.dumps([{
             'cost_center_name': 'CC1',
@@ -162,7 +162,7 @@ class GlEntryMasterAutofillTests(TestCase):
         self.assertEqual(obj.proportion, 12.50)
         self.assertEqual(obj.depreciation, 3.75)
 
-    @patch('budget_app.services.BudgetService.get_branch_id_from_imedx', return_value='B001')
+    @patch('budget_app.services.BudgetService.get_branch_info_from_imedx', return_value={'branches': ['B001'], 'needs_selection': False, 'department_id': None})
     def test_unknown_gl_code_defaults_to_zero(self, mock_branch):
         payload = json.dumps([{
             'cost_center_name': 'CC1',

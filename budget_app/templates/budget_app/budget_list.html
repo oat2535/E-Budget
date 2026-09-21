@@ -181,7 +181,7 @@
                     </div>
                 </div>
                 <div class="modal-footer">
-                    {% if is_privileged_user %}
+                    {% if can_edit_own_documents %}
                     <button type="button" class="btn btn-primary" id="btnEditMode" onclick="toggleEditMode()">
                         <i data-feather="edit-2" class="me-1"></i> แก้ไขข้อมูล
                     </button>
@@ -271,7 +271,7 @@
                     </div>
                 </div>
                 <div class="modal-footer">
-                    {% if is_privileged_user %}
+                    {% if can_edit_own_documents %}
                     <button type="button" class="btn btn-primary text-white" id="btnAdjEditMode" onclick="toggleAdjEditMode()">
                         <i data-feather="edit-2" class="me-1"></i> แก้ไขข้อมูล
                     </button>
@@ -330,11 +330,21 @@
                         </div>
 
                         <h6 class="text-primary mb-3"><i data-feather="list" class="me-2"></i>รายการ (Line Items)</h6>
-                        <div id="glDetailTableContainer"></div>
+                        <div class="card mb-3 card-soft">
+                            <div class="card-header bg-light fw-bold text-dark d-flex justify-content-between align-items-center">
+                                <span>ตารางรายการ</span>
+                                <button type="button" class="btn btn-sm btn-primary" id="btnGlAddRow" style="display: none;" onclick="addGlSpreadsheetRow()">
+                                    <i data-feather="plus" class="me-1"></i> เพิ่มรายการ
+                                </button>
+                            </div>
+                            <div class="card-body p-0">
+                                <div id="glDetailTableContainer"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    {% if is_privileged_user %}
+                    {% if can_edit_own_documents %}
                     <button type="button" class="btn btn-primary" id="btnGlEditMode" onclick="toggleGlEditMode()">
                         <i data-feather="edit-2" class="me-1"></i> แก้ไขข้อมูล
                     </button>

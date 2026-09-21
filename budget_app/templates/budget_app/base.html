@@ -47,7 +47,7 @@
             }
         </style>
     </head>
-    <body class="nav-fixed" data-authenticated="{{ user.is_authenticated|yesno:'true,false' }}" data-idle-timeout-seconds="{{ session_idle_timeout_seconds }}" data-system-frozen="{{ system_frozen|yesno:'true,false' }}" data-active-budget-year="{{ active_budget_year }}" data-frozen-message="{{ frozen_message }}" data-toggle-freeze-url="{% url 'toggle_freeze' %}" data-set-year-url="{% url 'set_active_year' %}" data-csrf-token="{{ csrf_token }}">
+    <body class="nav-fixed" data-authenticated="{{ user.is_authenticated|yesno:'true,false' }}" data-username="{{ user.username }}" data-privileged="{{ is_privileged_user|yesno:'true,false' }}" data-idle-timeout-seconds="{{ session_idle_timeout_seconds }}" data-system-frozen="{{ system_frozen|yesno:'true,false' }}" data-active-budget-year="{{ active_budget_year }}" data-frozen-message="{{ frozen_message }}" data-toggle-freeze-url="{% url 'toggle_freeze' %}" data-set-year-url="{% url 'set_active_year' %}" data-csrf-token="{{ csrf_token }}">
         <script>
             // Apply theme immediately to prevent flash
             (function() {

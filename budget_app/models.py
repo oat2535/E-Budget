@@ -58,6 +58,10 @@ class ebudget_vet_manpower(models.Model):
     position_name = models.CharField(max_length=255, verbose_name="ตำแหน่ง")
     salary = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="เงินเดือน")
     base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
+    # Only set for back-office staff (bank_account_note containing "BACK-<dept>"
+    # in imedx) — see BudgetService.get_branch_info_from_imedx. Blank for
+    # everyone else, same as base_branch_id already is for the fallback path.
+    department_id = models.CharField(max_length=50, verbose_name="รหัสแผนก", null=True, blank=True)
     base_sub_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาย่อย", null=True, blank=True)
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
@@ -108,6 +112,10 @@ class ebudget_non_vet_manpower(models.Model):
     salary = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="เงินเดือน")
     position_allowance = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="ค่าวัดระดับ/ตำแหน่ง")
     base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
+    # Only set for back-office staff (bank_account_note containing "BACK-<dept>"
+    # in imedx) — see BudgetService.get_branch_info_from_imedx. Blank for
+    # everyone else, same as base_branch_id already is for the fallback path.
+    department_id = models.CharField(max_length=50, verbose_name="รหัสแผนก", null=True, blank=True)
     base_sub_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาย่อย", null=True, blank=True)
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
@@ -161,6 +169,10 @@ class ebudget_position_adjustment(models.Model):
     new_salary = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="เงินเดือนใหม่")
     new_allowance = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="ค่าวัดระดับ/ตำแหน่งใหม่")
     base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
+    # Only set for back-office staff (bank_account_note containing "BACK-<dept>"
+    # in imedx) — see BudgetService.get_branch_info_from_imedx. Blank for
+    # everyone else, same as base_branch_id already is for the fallback path.
+    department_id = models.CharField(max_length=50, verbose_name="รหัสแผนก", null=True, blank=True)
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
@@ -209,6 +221,10 @@ class ebudget_medical_equipment(models.Model):
     item_name = models.CharField(max_length=255, verbose_name="เครื่องมือ")
     purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="ราคาซื้อ")
     base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
+    # Only set for back-office staff (bank_account_note containing "BACK-<dept>"
+    # in imedx) — see BudgetService.get_branch_info_from_imedx. Blank for
+    # everyone else, same as base_branch_id already is for the fallback path.
+    department_id = models.CharField(max_length=50, verbose_name="รหัสแผนก", null=True, blank=True)
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
@@ -257,6 +273,10 @@ class ebudget_computer_equipment(models.Model):
     item_name = models.CharField(max_length=255, verbose_name="เครื่องมือ")
     purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="ราคาซื้อ")
     base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
+    # Only set for back-office staff (bank_account_note containing "BACK-<dept>"
+    # in imedx) — see BudgetService.get_branch_info_from_imedx. Blank for
+    # everyone else, same as base_branch_id already is for the fallback path.
+    department_id = models.CharField(max_length=50, verbose_name="รหัสแผนก", null=True, blank=True)
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
@@ -305,6 +325,10 @@ class ebudget_furniture(models.Model):
     item_name = models.CharField(max_length=255, verbose_name="เครื่องมือ")
     purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="ราคาซื้อ")
     base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
+    # Only set for back-office staff (bank_account_note containing "BACK-<dept>"
+    # in imedx) — see BudgetService.get_branch_info_from_imedx. Blank for
+    # everyone else, same as base_branch_id already is for the fallback path.
+    department_id = models.CharField(max_length=50, verbose_name="รหัสแผนก", null=True, blank=True)
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
@@ -353,6 +377,10 @@ class ebudget_tools_equipment(models.Model):
     item_name = models.CharField(max_length=255, verbose_name="เครื่องมือ")
     purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="ราคาซื้อ")
     base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
+    # Only set for back-office staff (bank_account_note containing "BACK-<dept>"
+    # in imedx) — see BudgetService.get_branch_info_from_imedx. Blank for
+    # everyone else, same as base_branch_id already is for the fallback path.
+    department_id = models.CharField(max_length=50, verbose_name="รหัสแผนก", null=True, blank=True)
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
@@ -440,6 +468,10 @@ class ebudget_gl_entry(models.Model):
     # view/edit tables.
     detail_note = models.CharField(max_length=255, null=True, blank=True, verbose_name="รายละเอียด")
     base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
+    # Only set for back-office staff (bank_account_note containing "BACK-<dept>"
+    # in imedx) — see BudgetService.get_branch_info_from_imedx. Blank for
+    # everyone else, same as base_branch_id already is for the fallback path.
+    department_id = models.CharField(max_length=50, verbose_name="รหัสแผนก", null=True, blank=True)
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
 
@@ -514,6 +546,10 @@ class ebudget_budget_plan_item(models.Model):
     description = models.CharField(max_length=255, null=True, blank=True, verbose_name="รายละเอียด")
     budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
     base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
+    # Only set for back-office staff (bank_account_note containing "BACK-<dept>"
+    # in imedx) — see BudgetService.get_branch_info_from_imedx. Blank for
+    # everyone else, same as base_branch_id already is for the fallback path.
+    department_id = models.CharField(max_length=50, verbose_name="รหัสแผนก", null=True, blank=True)
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
 

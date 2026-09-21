@@ -29,18 +29,58 @@ def login_required_json(view_func):
         return view_func(request, *args, **kwargs)
     return wrapper
 
+def get_branch_info(request):
+    """Resolves + session-caches which branch(es) the requesting user
+    belongs to (see BudgetService.get_branch_info_from_imedx for the
+    BACK/multi-branch/fallback priority) — looked up from imedx once per
+    session rather than on every request, same tradeoff the single-branch
+    lookup this replaces already made."""
+    if 'branch_info' not in request.session:
+        request.session['branch_info'] = BudgetService.get_branch_info_from_imedx(request.user.username)
+    return request.session['branch_info']
+
 def get_branch_filter_kwargs(request):
-    """Filter kwargs scoping budget-document queries to the current user's
-    own branch. Empty dict for ALL_BRANCH_USERNAMES (no scoping). The
-    branch id is looked up from imedx once per session (cached in
-    request.session) rather than on every request. Fails closed: an
-    unknown branch (None) filters to base_branch_id=None, matching no
-    real records, instead of showing everything."""
+    """Filter kwargs scoping budget-document queries to every branch the
+    current user belongs to (plural now — an employee can be assigned more
+    than one). Empty dict for ALL_BRANCH_USERNAMES (no scoping). Fails
+    closed: no resolved branch filters to base_branch_id__in=[], matching
+    no real records, instead of showing everything."""
     if request.user.username in ALL_BRANCH_USERNAMES:
         return {}
-    if 'base_site_branch_id' not in request.session:
-        request.session['base_site_branch_id'] = BudgetService.get_branch_id_from_imedx(request.user.username)
-    return {'base_branch_id': request.session['base_site_branch_id']}
+    return {'base_branch_id__in': get_branch_info(request)['branches']}
+
+def get_branch_selection_context(request):
+    """Extra template context for the add-budget branch-picker dropdown —
+    only populated when the user actually belongs to more than one branch
+    (see BudgetService.get_branch_info_from_imedx), so the ~91% of users
+    who don't need it don't pay for the extra imedx round trip to resolve
+    branch names."""
+    info = get_branch_info(request)
+    if not info['needs_selection']:
+        return {'needs_branch_selection': False, 'branch_options_json': []}
+    names = BudgetService.get_branch_names_from_imedx(info['branches'])
+    options = [{'code': code, 'name': names.get(code, code)} for code in info['branches']]
+    return {'needs_branch_selection': True, 'branch_options_json': options}
+
+def resolve_branch_for_create(request, data):
+    """Determines the (base_branch_id, department_id) to stamp on a new
+    document, from the session-cached branch info. When the user belongs
+    to more than one branch, the add-budget page must send back which one
+    the user picked (data[0]['branch_code'], same per-document-not-per-row
+    convention cost_center_name already uses) — validated against the
+    user's own branch list so a crafted request can't stamp a branch they
+    don't belong to. base_branch_id is None if no branch could be resolved
+    at all, matching the pre-existing fail-closed behavior."""
+    info = get_branch_info(request)
+    branches = info['branches']
+    if not branches:
+        return None, info['department_id']
+    if info['needs_selection']:
+        chosen = data[0].get('branch_code') if data else None
+        if chosen not in branches:
+            raise ValueError('กรุณาเลือกสาขาให้ถูกต้อง')
+        return chosen, info['department_id']
+    return branches[0], info['department_id']
 
 def get_cost_centers_json():
     """Autocomplete source for the cost-center input on every add-budget
@@ -175,7 +215,7 @@ def budget_add_view(request):
             if not data or not data[0].get('cost_center_name'):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             username = request.user.username
-            branch_id = BudgetService.get_branch_id_from_imedx(username)
+            branch_id, department_id = resolve_branch_for_create(request, data)
             doc_no = BudgetService.generate_document_no('VET')
             budget_year = SystemSettings.load().active_budget_year
             master_fks = BudgetService.get_master_fks_bulk([item['position_name'] for item in data])
@@ -188,6 +228,7 @@ def budget_add_view(request):
                         salary=item['salary'],
                         create_eid=username,
                         base_branch_id=branch_id,
+                        department_id=department_id,
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
@@ -215,7 +256,8 @@ def budget_add_view(request):
 
     return render(request, 'budget_app/budget_add.html', {
         'items_json': items_list,
-        'cost_centers_json': get_cost_centers_json()
+        'cost_centers_json': get_cost_centers_json(),
+        **get_branch_selection_context(request),
     })
 
 @login_required
@@ -228,7 +270,7 @@ def budget_add_non_vet_view(request):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             username = request.user.username
 
-            branch_id = BudgetService.get_branch_id_from_imedx(username)
+            branch_id, department_id = resolve_branch_for_create(request, data)
             doc_no = BudgetService.generate_document_no('NON VET')
             budget_year = SystemSettings.load().active_budget_year
             master_fks = BudgetService.get_master_fks_bulk([item['position_name'] for item in data])
@@ -242,6 +284,7 @@ def budget_add_non_vet_view(request):
                         position_allowance=item.get('position_allowance', 0),
                         create_eid=username,
                         base_branch_id=branch_id,
+                        department_id=department_id,
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
@@ -265,7 +308,8 @@ def budget_add_non_vet_view(request):
 
     return render(request, 'budget_app/budget_add_non_vet.html', {
         'items_json': items_list,
-        'cost_centers_json': get_cost_centers_json()
+        'cost_centers_json': get_cost_centers_json(),
+        **get_branch_selection_context(request),
     })
 
 @login_required_json
@@ -559,9 +603,16 @@ def update_document_api(request, doc_type, doc_no):
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
         
-    if request.user.username not in ALL_BRANCH_USERNAMES:
+    # Two-stage check: privileged (ALL_BRANCH_USERNAMES) users may edit any
+    # document, same as before. A MANAGER-tier employee (bank_account_note
+    # containing "MANAGER" in imedx) may edit documents they created
+    # themselves — checked further down, once first_item.create_eid is
+    # available, so this first gate only needs to rule out everyone else
+    # without a DB round trip for the document itself.
+    is_privileged = request.user.username in ALL_BRANCH_USERNAMES
+    if not is_privileged and not get_branch_info(request)['is_manager']:
         return JsonResponse({'status': 'error', 'message': 'ไม่มีสิทธิ์ในการแก้ไขข้อมูล'})
-        
+
     try:
         data = json.loads(request.body)
         if not data or not data[0].get('cost_center_name'):
@@ -597,6 +648,13 @@ def update_document_api(request, doc_type, doc_no):
         create_date = first_item.create_date
         create_eid = first_item.create_eid
         base_branch_id = first_item.base_branch_id
+        department_id = first_item.department_id
+
+        # A MANAGER-tier (non-privileged) user passed the fast-path check
+        # above only because they're a manager somewhere — that doesn't
+        # mean this particular document is theirs to edit.
+        if not is_privileged and create_eid != request.user.username:
+            return JsonResponse({'status': 'error', 'message': 'คุณแก้ไขได้เฉพาะเอกสารที่ตัวเองสร้างเท่านั้น'})
         # Preserve the document's original budget year across an edit — an
         # edit doesn't reclassify which budget year the document belongs to,
         # even if the site-wide active year has since moved on.
@@ -629,6 +687,7 @@ def update_document_api(request, doc_type, doc_no):
                         new_salary=item['new_salary'],
                         new_allowance=item['new_allowance'],
                         base_branch_id=base_branch_id,
+                        department_id=department_id,
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         create_date=create_date,
@@ -646,6 +705,7 @@ def update_document_api(request, doc_type, doc_no):
                         position_name=item['position_name'],
                         salary=item['salary'],
                         base_branch_id=base_branch_id,
+                        department_id=department_id,
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         create_date=create_date,
@@ -663,6 +723,7 @@ def update_document_api(request, doc_type, doc_no):
                         item_name=item['item_name'],
                         purchase_price=item['purchase_price'],
                         base_branch_id=base_branch_id,
+                        department_id=department_id,
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         create_date=create_date,
@@ -682,6 +743,7 @@ def update_document_api(request, doc_type, doc_no):
                         depreciation=depreciation,
                         detail_note=item.get('detail_note') or None,
                         base_branch_id=base_branch_id,
+                        department_id=department_id,
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         create_date=create_date,
@@ -697,6 +759,7 @@ def update_document_api(request, doc_type, doc_no):
                         general_ledger_code=item.get('general_ledger_code'),
                         description=item.get('description'),
                         base_branch_id=base_branch_id,
+                        department_id=department_id,
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         create_date=create_date,
@@ -712,6 +775,7 @@ def update_document_api(request, doc_type, doc_no):
                         salary=item['salary'],
                         position_allowance=item.get('position_allowance', 0),
                         base_branch_id=base_branch_id,
+                        department_id=department_id,
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         create_date=create_date,
@@ -736,7 +800,7 @@ def budget_add_adjustment_view(request):
             if not data or not data[0].get('cost_center_name'):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             username = request.user.username
-            branch_id = BudgetService.get_branch_id_from_imedx(username)
+            branch_id, department_id = resolve_branch_for_create(request, data)
 
             doc_no = BudgetService.generate_document_no('Position Adjustment')
             budget_year = SystemSettings.load().active_budget_year
@@ -754,6 +818,7 @@ def budget_add_adjustment_view(request):
                         new_allowance=item['new_allowance'],
                         create_eid=username,
                         base_branch_id=branch_id,
+                        department_id=department_id,
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
@@ -792,7 +857,8 @@ def budget_add_adjustment_view(request):
     
     return render(request, 'budget_app/budget_add_adjustment.html', {
         'items_json': items_list,
-        'cost_centers_json': get_cost_centers_json()
+        'cost_centers_json': get_cost_centers_json(),
+        **get_branch_selection_context(request),
     })
 
 def _budget_add_equipment_view(request, model_class, doc_type, template_name, sub_category_id):
@@ -805,7 +871,7 @@ def _budget_add_equipment_view(request, model_class, doc_type, template_name, su
             if not data or not data[0].get('cost_center_name'):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             username = request.user.username
-            branch_id = BudgetService.get_branch_id_from_imedx(username)
+            branch_id, department_id = resolve_branch_for_create(request, data)
 
             doc_no = BudgetService.generate_document_no(doc_type)
             budget_year = SystemSettings.load().active_budget_year
@@ -819,6 +885,7 @@ def _budget_add_equipment_view(request, model_class, doc_type, template_name, su
                         purchase_price=item['purchase_price'],
                         create_eid=username,
                         base_branch_id=branch_id,
+                        department_id=department_id,
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
@@ -840,7 +907,8 @@ def _budget_add_equipment_view(request, model_class, doc_type, template_name, su
 
     return render(request, template_name, {
         'items_json': items_list,
-        'cost_centers_json': get_cost_centers_json()
+        'cost_centers_json': get_cost_centers_json(),
+        **get_branch_selection_context(request),
     })
 
 @login_required
@@ -872,7 +940,7 @@ def budget_add_gl_entry_view(request):
             if not data or not data[0].get('cost_center_name'):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             username = request.user.username
-            branch_id = BudgetService.get_branch_id_from_imedx(username)
+            branch_id, department_id = resolve_branch_for_create(request, data)
             doc_no = BudgetService.generate_document_no('GL Entry')
             budget_year = SystemSettings.load().active_budget_year
             gl_master_fields = BudgetService.get_gl_master_fields_bulk([item.get('general_ledger_code') for item in data])
@@ -887,6 +955,7 @@ def budget_add_gl_entry_view(request):
                         detail_note=item.get('detail_note') or None,
                         create_eid=username,
                         base_branch_id=branch_id,
+                        department_id=department_id,
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         budget_year=budget_year
@@ -898,7 +967,8 @@ def budget_add_gl_entry_view(request):
 
     return render(request, 'budget_app/budget_add_gl_entry.html', {
         'general_ledgers_json': get_general_ledgers_json(),
-        'cost_centers_json': get_cost_centers_json()
+        'cost_centers_json': get_cost_centers_json(),
+        **get_branch_selection_context(request),
     })
 
 @login_required
@@ -910,7 +980,7 @@ def budget_add_budget_plan_view(request):
             if not data or not data[0].get('cost_center_name'):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             username = request.user.username
-            branch_id = BudgetService.get_branch_id_from_imedx(username)
+            branch_id, department_id = resolve_branch_for_create(request, data)
             doc_no = BudgetService.generate_document_no('Budget Plan')
             budget_year = SystemSettings.load().active_budget_year
 
@@ -923,6 +993,7 @@ def budget_add_budget_plan_view(request):
                         description=item.get('description'),
                         create_eid=username,
                         base_branch_id=branch_id,
+                        department_id=department_id,
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         budget_year=budget_year
@@ -934,7 +1005,8 @@ def budget_add_budget_plan_view(request):
 
     return render(request, 'budget_app/budget_add_budget_plan.html', {
         'general_ledgers_json': get_general_ledgers_json(),
-        'cost_centers_json': get_cost_centers_json()
+        'cost_centers_json': get_cost_centers_json(),
+        **get_branch_selection_context(request),
     })
 
 @login_required_json

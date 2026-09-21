@@ -16,7 +16,16 @@ def site_status(request):
     template that gates an edit control checks."""
     from datetime import datetime
     from budget_app.models import SystemSettings
+    from budget_app.views import get_branch_info
     is_privileged = request.user.is_authenticated and request.user.username in ALL_BRANCH_USERNAMES
+    # Narrower than is_privileged_user on purpose: a MANAGER-tier employee
+    # (bank_account_note containing "MANAGER" in imedx) may edit documents
+    # they created themselves, but nothing else is_privileged_user gates
+    # (nav menu items, the freeze-bypass in base.html) should open up for
+    # them — those stay is_privileged_user-only, unchanged.
+    can_edit_own_documents = is_privileged or (
+        request.user.is_authenticated and get_branch_info(request)['is_manager']
+    )
     settings_obj = SystemSettings.load()
     current_year = datetime.now().year
     return {
@@ -24,5 +33,6 @@ def site_status(request):
         'frozen_message': settings_obj.frozen_message,
         'active_budget_year': settings_obj.active_budget_year,
         'is_privileged_user': is_privileged,
+        'can_edit_own_documents': can_edit_own_documents,
         'budget_year_options': range(current_year - 1, current_year + 4),
     }

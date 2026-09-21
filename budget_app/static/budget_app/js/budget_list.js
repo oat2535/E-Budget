@@ -70,6 +70,21 @@ const BudgetApp = (function() {
 
     const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
 
+    // Set server-side on <body> (see base.html) — the edit button for a
+    // document-detail modal only exists in the DOM at all for users who
+    // can edit *something* (can_edit_own_documents in budget_list.html:
+    // ALL_BRANCH_USERNAMES or a MANAGER-tier employee), but a MANAGER-tier
+    // user may only edit documents they created themselves — checked here,
+    // per document, every time one is opened, since the same button
+    // element is reused across different documents' creators.
+    const currentUsername = document.body.dataset.username || '';
+    const isPrivilegedUser = document.body.dataset.privileged === 'true';
+
+    function applyEditButtonVisibility(btnEl, createEid) {
+        if (!btnEl) return;
+        btnEl.style.display = (isPrivilegedUser || createEid === currentUsername) ? '' : 'none';
+    }
+
     // Shared response handler for every fetch() call in this module: an
     // expired session comes back as HTTP 401 JSON (see login_required_json
     // in views.py) rather than a redirect to the login page HTML, which
@@ -437,6 +452,7 @@ const BudgetApp = (function() {
                     document.getElementById('modalDocCostCenter').innerText = result.doc_info.cost_center_name || '-';
                     document.getElementById('modalDocBudgetYear').innerText = result.doc_info.budget_year;
                     document.getElementById('modalDocCreator').innerText = result.doc_info.create_eid;
+                    applyEditButtonVisibility(document.getElementById('btnEditMode'), result.doc_info.create_eid);
                     document.getElementById('modalDocDate').innerText = result.doc_info.create_date;
 
                     // Laid out but not painted — jspreadsheet reads real
@@ -918,6 +934,17 @@ const BudgetApp = (function() {
         return btn;
     }
 
+    function addGlSpreadsheetRow() {
+        // GL Entry's own "เพิ่มรายการ" button lives in the card-header next
+        // to the table (see #btnGlAddRow in budget_list.html), same fixed
+        // position as VET's #btnAddRow — unlike Budget Plan's per-section
+        // add buttons below, which addGlRowButton still builds dynamically
+        // since each section needs its own.
+        if (isGlEditMode && glDetailTables[0]) {
+            glDetailTables[0].insertRow();
+        }
+    }
+
     function renderGlDetailSpreadsheet(docType, items, editable) {
         const container = document.getElementById('glDetailTableContainer');
 
@@ -934,9 +961,7 @@ const BudgetApp = (function() {
             const columns = glEntryColumns(editable);
             const data = (items && items.length > 0) ? items.map(glEntryRowData) : [Array(columns.length).fill('')];
 
-            const headerEl = document.createElement('div');
             const mountEl = document.createElement('div');
-            container.appendChild(headerEl);
             container.appendChild(mountEl);
 
             const extraOptions = editable ? { minDimensions: [columns.length, 1], onchange: makeGlOnchange(() => glDetailTables[0], 2, 14) } : {};
@@ -947,11 +972,12 @@ const BudgetApp = (function() {
             }, extraOptions));
             glDetailTables[0] = table;
 
-            if (editable) {
-                headerEl.className = 'd-flex justify-content-end mb-2';
-                headerEl.appendChild(addGlRowButton(table));
-                if (typeof feather !== 'undefined') feather.replace();
-            }
+            // Fixed-position button in the card-header (#btnGlAddRow) —
+            // matches every other add-budget table's "เพิ่มรายการ" button
+            // placement instead of floating one above the grid each render.
+            const btnGlAddRow = document.getElementById('btnGlAddRow');
+            if (btnGlAddRow) btnGlAddRow.style.display = editable ? 'inline-block' : 'none';
+            if (editable && typeof feather !== 'undefined') feather.replace();
             return;
         }
 
@@ -1007,6 +1033,8 @@ const BudgetApp = (function() {
         if (btnGlSave) btnGlSave.style.display = 'none';
         const btnGlClose = document.getElementById('btnGlCloseModal');
         if (btnGlClose) btnGlClose.style.display = 'inline-block';
+        const btnGlAddRow = document.getElementById('btnGlAddRow');
+        if (btnGlAddRow) btnGlAddRow.style.display = 'none';
     }
 
     function viewGeneralLedgerDocumentDetails(docNo, docType) {
@@ -1042,6 +1070,7 @@ const BudgetApp = (function() {
                     document.getElementById('glModalDocCostCenter').innerText = result.doc_info.cost_center_name || '-';
                     document.getElementById('glModalDocBudgetYear').innerText = result.doc_info.budget_year;
                     document.getElementById('glModalDocCreator').innerText = result.doc_info.create_eid;
+                    applyEditButtonVisibility(document.getElementById('btnGlEditMode'), result.doc_info.create_eid);
                     document.getElementById('glModalDocDate').innerText = result.doc_info.create_date;
 
                     // display:block (with visibility:hidden so nothing is
@@ -1260,6 +1289,7 @@ const BudgetApp = (function() {
                     document.getElementById('adjModalDocCostCenter').innerText = result.doc_info.cost_center_name || '-';
                     document.getElementById('adjModalDocBudgetYear').innerText = result.doc_info.budget_year;
                     document.getElementById('adjModalDocCreator').innerText = result.doc_info.create_eid;
+                    applyEditButtonVisibility(document.getElementById('btnAdjEditMode'), result.doc_info.create_eid);
                     document.getElementById('adjModalDocDate').innerText = result.doc_info.create_date;
 
                     // See viewDocumentDetails for why: laid out but not
@@ -1727,6 +1757,7 @@ const BudgetApp = (function() {
         viewDocumentDetails: viewDocumentDetails,
         viewGeneralLedgerDocumentDetails: viewGeneralLedgerDocumentDetails,
         toggleGlEditMode: toggleGlEditMode,
+        addGlSpreadsheetRow: addGlSpreadsheetRow,
         saveGlDocument: saveGlDocument,
         toggleEditMode: toggleEditMode,
         addSpreadsheetRow: addSpreadsheetRow,
@@ -1744,6 +1775,7 @@ window.applyTypeFilter = BudgetApp.applyTypeFilter;
 window.viewDocumentDetails = BudgetApp.viewDocumentDetails;
 window.viewGeneralLedgerDocumentDetails = BudgetApp.viewGeneralLedgerDocumentDetails;
 window.toggleGlEditMode = BudgetApp.toggleGlEditMode;
+window.addGlSpreadsheetRow = BudgetApp.addGlSpreadsheetRow;
 window.saveGlDocument = BudgetApp.saveGlDocument;
 window.toggleEditMode = BudgetApp.toggleEditMode;
 window.addSpreadsheetRow = BudgetApp.addSpreadsheetRow;

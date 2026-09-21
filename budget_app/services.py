@@ -19,21 +19,99 @@ MONTH_MAP = {
 
 class BudgetService:
     @staticmethod
-    def get_branch_id_from_imedx(username):
+    def get_branch_info_from_imedx(username):
+        """Resolves which branch(es) an employee belongs to, and whether the
+        add-budget UI must ask which one to stamp. Field roles, confirmed
+        with the business owner after real imedx data showed the "BACK-"
+        marker actually lives in bank_sub_name (not bank_account_note, as
+        first assumed — a real employee, 'banchong', has
+        bank_sub_name='BACK-IT'): **bank_sub_name is always where branch
+        info comes from** (plain codes, comma-separated multi-branch, or
+        the "BACK-<dept>" back-office marker); **bank_account_note is
+        always position/role info** (e.g. "MANAGER" — see is_manager
+        below), never branch codes.
+
+        Priority:
+        1. bank_sub_name containing "BACK" (back-office staff) always wins
+           over the plain-branch-code reading below: stamps
+           base_branch_id='HO' and department_id from the substring after
+           "BACK-".
+        2. Otherwise, bank_sub_name if set: comma-separated branch codes.
+           More than one means the caller must ask the user which branch
+           to stamp.
+        3. Falls back to the pre-existing base_service_point lookup when
+           bank_sub_name is blank - true for ~91% of active employees
+           today (checked directly against imedx), so this path has to
+           keep behaving exactly as it did before this feature existed,
+           or budget creation breaks for almost everyone.
+
+        Also resolves 'is_manager': whether this employee's bank_account_note
+        contains "MANAGER" (case-insensitive substring) — independent of
+        the branch/BACK logic above, computed the same way regardless of
+        which branch path below was taken. Used to let a manager edit
+        documents they created themselves (see can_edit_document in
+        views.py).
+
+        Returns {'branches': [...], 'needs_selection': bool,
+        'department_id': str|None, 'is_manager': bool}. An employee not
+        found in imedx, or any DB error, returns branches=[] - matching the
+        previous get_branch_id_from_imedx's fail-closed (None) behavior.
+        """
+        empty = {'branches': [], 'needs_selection': False, 'department_id': None, 'is_manager': False}
         try:
             with connections['imedx'].cursor() as cursor:
                 cursor.execute("""
-                    SELECT bsp.base_site_branch_id
-                    FROM employee emp 
+                    SELECT emp.bank_sub_name, emp.bank_account_note, bsp.base_site_branch_id
+                    FROM employee emp
                     LEFT JOIN base_service_point bsp ON emp.base_service_point_id = bsp.base_service_point_id
                     WHERE emp.employee_id = %s AND emp.active = '1'
                 """, [username])
                 row = cursor.fetchone()
-                if row:
-                    return row[0]
         except Exception as e:
-            logger.error(f"Error fetching branch_id for {username}: {e}")
-        return None
+            logger.error(f"Error fetching branch info for {username}: {e}")
+            return empty
+
+        if not row:
+            return empty
+        bank_sub_name, bank_account_note, fallback_branch_id = row
+        sub_name_upper = (bank_sub_name or '').upper()
+        is_manager = 'MANAGER' in (bank_account_note or '').upper()
+
+        if bank_sub_name and 'BACK' in sub_name_upper:
+            department_id = None
+            marker = sub_name_upper.find('BACK-')
+            if marker != -1:
+                department_id = bank_sub_name[marker + len('BACK-'):].strip() or None
+            return {'branches': ['HO'], 'needs_selection': False, 'department_id': department_id, 'is_manager': is_manager}
+
+        if bank_sub_name and bank_sub_name.strip():
+            branches = [b.strip() for b in bank_sub_name.split(',') if b.strip()]
+            if branches:
+                return {'branches': branches, 'needs_selection': len(branches) > 1, 'department_id': None, 'is_manager': is_manager}
+
+        if fallback_branch_id:
+            return {'branches': [fallback_branch_id], 'needs_selection': False, 'department_id': None, 'is_manager': is_manager}
+        return {'branches': [], 'needs_selection': False, 'department_id': None, 'is_manager': is_manager}
+
+    @staticmethod
+    def get_branch_names_from_imedx(codes):
+        """Bulk code->name lookup for the branch-picker dropdown (only
+        needed for the rare multi-branch case) - one query for the whole
+        list instead of one per code. Returns {code: name}; a code with no
+        match in base_site_branch is simply absent."""
+        codes = [c for c in set(codes) if c]
+        if not codes:
+            return {}
+        try:
+            with connections['imedx'].cursor() as cursor:
+                cursor.execute(
+                    "SELECT base_site_branch_id, description FROM base_site_branch WHERE base_site_branch_id = ANY(%s)",
+                    [codes]
+                )
+                return {code: name for code, name in cursor.fetchall()}
+        except Exception as e:
+            logger.error(f"Error fetching branch names for {codes}: {e}")
+            return {}
 
     @staticmethod
     def get_master_fks(item_name_val):

@@ -88,6 +88,17 @@
         </div>
     </div>
 
+    {% if needs_branch_selection %}
+    <div class="card mb-4 shadow-sm border-0 card-soft">
+        <div class="card-body" id="branch-card-body">
+            <label for="branch-select" class="form-label fw-500">สาขา <span class="text-danger">*</span></label>
+            <div style="max-width: 500px;">
+                <select id="branch-select" class="form-select" placeholder="-- เลือกสาขา --"></select>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="card mb-4 shadow-sm border-0 card-soft">
         <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
             <h6 class="m-0 font-weight-bold text-primary">รายได้เพิ่ม ที่ไม่ใช่จากการขายปกติ (ค่าสนับสนุน commission ส่วนแบ่ง)</h6>
@@ -137,6 +148,7 @@
 
 {{ general_ledgers_json|json_script:"gl-data" }}
 {{ cost_centers_json|json_script:"cost-centers-data" }}
+{{ branch_options_json|json_script:"branch-options-data" }}
 <script>
     document.addEventListener("DOMContentLoaded", function() {
         // GL dropdown: shows gl_name, but the value actually stamped onto
@@ -163,6 +175,22 @@
             create: false,
             placeholder: '-- เลือก Cost Center --',
         });
+
+        // Branch select: only present when the user belongs to more than
+        // one branch (see get_branch_selection_context in views.py) —
+        // stamped onto the document the same way cost center is.
+        const branchSelectEl = document.getElementById('branch-select');
+        if (branchSelectEl) {
+            const branchOptions = JSON.parse(document.getElementById('branch-options-data').textContent);
+            new TomSelect(branchSelectEl, {
+                options: branchOptions.map(b => ({ value: b.code, text: `${b.code} - ${b.name}` })),
+                valueField: 'value',
+                labelField: 'text',
+                searchField: ['text', 'value'],
+                create: false,
+                placeholder: '-- เลือกสาขา --',
+            });
+        }
 
         const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
         const monthTitles = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -263,7 +291,8 @@
                     'item_code': itemCode || '',
                     'general_ledger_code': getGlCode(glName) || '',
                     'description': section3 || '',
-                    'cost_center_name': costCenterName,
+                    'branch_code': branchCode,
+                        'cost_center_name': costCenterName,
                     'monthly_data': monthlyData
                 });
             }
@@ -273,6 +302,11 @@
         // Save button logic
         document.getElementById('save-budget-btn').addEventListener('click', function() {
             const costCenterName = costCenterSelect.value;
+            const branchCode = branchSelectEl ? branchSelectEl.value : null;
+            if (branchSelectEl && !branchCode) {
+                Swal.fire('แจ้งเตือน', 'กรุณาเลือกสาขาก่อนบันทึก', 'warning');
+                return;
+            }
             if (!costCenterName) {
                 Swal.fire('แจ้งเตือน', 'กรุณาเลือก Cost Center ก่อนบันทึก', 'warning');
                 return;
