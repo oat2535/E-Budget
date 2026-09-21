@@ -24,8 +24,9 @@
         overflow: hidden;
     }
     /* The blanket rule above contains the jspreadsheet grid, but it also
-       clips the Cost Center dropdown's floating option list (an absolutely
-       positioned child that needs to escape its card to render fully). */
+       clips the Cost Center / branch dropdowns' floating option lists
+       (absolutely positioned children that need to escape their card to
+       render fully). */
     #cost-center-card-body {
         overflow: visible;
     }
@@ -64,23 +65,20 @@
 <div class="container-fluid px-4 mt-n10">
     <div class="card mb-4 shadow-sm border-0 card-soft">
         <div class="card-body" id="cost-center-card-body">
-            <label for="cost-center-select" class="form-label fw-500">Cost Center <span class="text-danger">*</span></label>
-            <div style="max-width: 500px;">
-                <select id="cost-center-select" class="form-select" placeholder="-- เลือก Cost Center --"></select>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label for="cost-center-select" class="form-label fw-500">Cost Center <span class="text-danger">*</span></label>
+                    <select id="cost-center-select" class="form-select" placeholder="-- เลือก Cost Center --"></select>
+                </div>
+                {% if needs_branch_selection %}
+                <div class="col-md-6">
+                    <label for="branch-select" class="form-label fw-500">สาขา <span class="text-danger">*</span></label>
+                    <select id="branch-select" class="form-select" placeholder="-- เลือกสาขา --"></select>
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
-
-    {% if needs_branch_selection %}
-    <div class="card mb-4 shadow-sm border-0 card-soft">
-        <div class="card-body" id="branch-card-body">
-            <label for="branch-select" class="form-label fw-500">สาขา <span class="text-danger">*</span></label>
-            <div style="max-width: 500px;">
-                <select id="branch-select" class="form-select" placeholder="-- เลือกสาขา --"></select>
-            </div>
-        </div>
-    </div>
-    {% endif %}
 
     <div class="card mb-4 shadow-sm border-0 card-soft">
         <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
