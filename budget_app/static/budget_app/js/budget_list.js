@@ -1,4 +1,18 @@
 const BudgetApp = (function() {
+    // SweetAlert2 defaults to heightAuto: true, which recalculates
+    // document.body's height on every open/close — a forced reflow of the
+    // whole page. On this page specifically (two jspreadsheet grids, many
+    // columns, hundreds of cells) that reflow is expensive enough to show
+    // up as a slow, non-smooth popup (measured INP 224ms, over Chrome's
+    // 200ms "good" threshold) on every Swal.fire() call — save, approve,
+    // and cancel confirms alike, since none of them are otherwise related.
+    // Shadows the global Swal for the rest of this module so every
+    // existing Swal.fire() call site gets the fix for free. Assigned
+    // lazily below (not here) — sweetalert2 loads via <script defer> in
+    // <head>, but this file is a classic script that runs earlier, during
+    // parsing, so window.Swal doesn't exist yet at this point.
+    let Swal;
+
     // ---- Private State ----
     let dataTable = null;
     let fetchController = null;
@@ -9,12 +23,14 @@ const BudgetApp = (function() {
     let currentGlDocNo = '';
     let currentGlDocType = '';
     let currentGlCostCenterName = '';
+    let currentGlBranchCode = '';
     let modalTable1 = null;
     let modalTable2 = null;
     let isEditMode = false;
     let currentDocNo = '';
     let currentDocType = '';
     let currentCostCenterName = '';
+    let currentBranchCode = '';
     let isUpdating = false;
     let currentCategoryData = [];
 
@@ -23,11 +39,14 @@ const BudgetApp = (function() {
     let isAdjEditMode = false;
     let currentAdjDocNo = '';
     let currentAdjCostCenterName = '';
+    let currentAdjBranchCode = '';
     let isAdjUpdating = false;
 
     // Wait for DOM
     document.addEventListener('DOMContentLoaded', () => {
-        // Initialization if needed
+        // By now every deferred <script> (including sweetalert2) has run —
+        // safe to read window.Swal here, unlike at module-load time above.
+        Swal = window.Swal.mixin({ heightAuto: false });
     });
 
     const vetItems = JSON.parse(document.getElementById('vet-items-data').textContent);
@@ -36,6 +55,71 @@ const BudgetApp = (function() {
     const compItems = document.getElementById('comp-items-data') ? JSON.parse(document.getElementById('comp-items-data').textContent) : [];
     const furnitureItems = document.getElementById('furniture-items-data') ? JSON.parse(document.getElementById('furniture-items-data').textContent) : [];
     const toolsItems = document.getElementById('tools-items-data') ? JSON.parse(document.getElementById('tools-items-data').textContent) : [];
+
+    // Cost Center / branch dropdown sources for edit mode — same data the
+    // add-budget pages use (get_cost_centers_json / get_branch_selection_context
+    // in views.py), embedded once here and shared across all 3 modals since
+    // only one is ever open at a time.
+    const costCenters = JSON.parse(document.getElementById('cost-centers-data').textContent);
+    const branchOptions = document.getElementById('branch-options-data') ? JSON.parse(document.getElementById('branch-options-data').textContent) : [];
+    const needsBranchSelection = !!(window.APP_CONFIG && window.APP_CONFIG.needsBranchSelection);
+
+    // Swaps a doc-info <td> from plain text to a TomSelect <select>,
+    // pre-selected to the document's current value. Shared by all 3
+    // modals' edit-mode toggles (Cost Center always; branch only when
+    // needsBranchSelection — single-branch users have nothing to pick,
+    // same as the add-budget pages never showing that dropdown for them).
+    function buildCostCenterSelect(cellId, currentValue, onChange) {
+        const cell = document.getElementById(cellId);
+        if (!cell) return;
+        const selectId = cellId + 'Select';
+        cell.innerHTML = `<select id="${selectId}" class="form-select form-select-sm"></select>`;
+        const ts = new TomSelect(`#${selectId}`, {
+            options: costCenters.map(cc => ({ value: cc.cost_center_name, text: `${cc.cost_center_code}: ${cc.cost_center_name}` })),
+            valueField: 'value',
+            labelField: 'text',
+            searchField: ['text', 'value'],
+            create: false,
+            placeholder: '-- เลือก Cost Center --',
+            onChange: onChange,
+            // This <td> lives inside a .table-responsive wrapper, which per
+            // the CSS overflow spec forces overflow-y:auto the moment
+            // overflow-x is anything but visible — clipping the dropdown
+            // panel no matter what we set on the container directly.
+            // Rendering the panel into <body> instead sidesteps that
+            // entirely. Must be the literal string 'body', not
+            // document.body — TomSelect's positionDropdown() only computes
+            // and applies the control-relative top/left/width when it sees
+            // the exact string "body" (`if ("body" === this.settings.
+            // dropdownParent)`); passed the element itself, that check
+            // silently fails, the dropdown never gets positioned at all,
+            // and it falls back to plain CSS (position:absolute; top:100%)
+            // relative to <body> as a whole — landing near the bottom of
+            // the page instead of under the control, with no error to
+            // reveal why.
+            dropdownParent: 'body',
+        });
+        if (currentValue) ts.setValue(currentValue, true);
+    }
+
+    function buildBranchSelect(cellId, currentValue, onChange) {
+        if (!needsBranchSelection) return;
+        const cell = document.getElementById(cellId);
+        if (!cell) return;
+        const selectId = cellId + 'Select';
+        cell.innerHTML = `<select id="${selectId}" class="form-select form-select-sm"></select>`;
+        const ts = new TomSelect(`#${selectId}`, {
+            options: branchOptions.map(b => ({ value: b.code, text: `${b.code} - ${b.name}` })),
+            valueField: 'value',
+            labelField: 'text',
+            searchField: ['text', 'value'],
+            create: false,
+            placeholder: '-- เลือกสาขา --',
+            onChange: onChange,
+            dropdownParent: 'body', // see buildCostCenterSelect above — must be the string 'body', not document.body
+        });
+        if (currentValue) ts.setValue(currentValue, true);
+    }
 
     // GL dropdown source for editing GL Entry/Budget Plan documents — same
     // gl_name-displayed/gl_code-stored pattern as budget_add_gl_entry.html.
@@ -80,9 +164,49 @@ const BudgetApp = (function() {
     const currentUsername = document.body.dataset.username || '';
     const isPrivilegedUser = document.body.dataset.privileged === 'true';
 
-    function applyEditButtonVisibility(btnEl, createEid) {
+    // status is included here (not just ownership) because APPROVED and
+    // CANCELLED are both terminal, locked for everyone including privileged
+    // users — without this, Edit would stay visible and only fail once Save
+    // is clicked (see the matching lock check in update_document_api).
+    function applyEditButtonVisibility(btnEl, createEid, status) {
         if (!btnEl) return;
-        btnEl.style.display = (isPrivilegedUser || createEid === currentUsername) ? '' : 'none';
+        const ownsOrPrivileged = isPrivilegedUser || createEid === currentUsername;
+        btnEl.style.display = (ownsOrPrivileged && status !== 'APPROVED' && status !== 'CANCELLED') ? '' : 'none';
+    }
+
+    // Approve is privileged-only, gated server-side (the button isn't even
+    // in the DOM otherwise — see is_privileged_user in budget_list.html),
+    // so only the status needs checking client-side.
+    function applyApproveButtonVisibility(btnEl, status) {
+        if (!btnEl) return;
+        btnEl.style.display = (status === 'PENDING') ? '' : 'none';
+    }
+
+    // Cancel shares its DOM-presence gate with Edit (can_edit_own_documents
+    // in budget_list.html — privileged or MANAGER-tier), so it needs the
+    // same per-document ownership narrowing Edit does, plus the status gate.
+    function applyCancelButtonVisibility(btnEl, createEid, status) {
+        if (!btnEl) return;
+        const ownsOrPrivileged = isPrivilegedUser || createEid === currentUsername;
+        btnEl.style.display = (ownsOrPrivileged && status === 'PENDING') ? '' : 'none';
+    }
+
+    // Shared across the list table and all 3 modals' doc-info cell — a pure
+    // display-string helper, not per-modal state, so unlike the view/save
+    // functions it doesn't need triplicating.
+    function statusBadge(status) {
+        // Custom hex, not Bootstrap's bg-success/bg-warning: those exact
+        // classes are already used by the Medical Equipment / Computer
+        // Equipment document-type badges elsewhere on this page, and a
+        // status badge reading as the same color as an unrelated type
+        // badge defeats the point of either one.
+        if (status === 'APPROVED') {
+            return '<span class="badge d-flex align-items-center px-2 py-1" style="background-color:#047857; color:#fff; width:fit-content;"><i data-feather="check-circle" style="width:14px;height:14px;" class="me-1"></i>อนุมัติแล้ว</span>';
+        }
+        if (status === 'CANCELLED') {
+            return '<span class="badge bg-danger d-flex align-items-center px-2 py-1" style="width:fit-content;"><i data-feather="x-circle" style="width:14px;height:14px;" class="me-1"></i>ยกเลิก</span>';
+        }
+        return '<span class="badge d-flex align-items-center px-2 py-1" style="background-color:#daa520; color:#212529; width:fit-content;"><i data-feather="clock" style="width:14px;height:14px;" class="me-1"></i>รออนุมัติ</span>';
     }
 
     // Shared response handler for every fetch() call in this module: an
@@ -239,6 +363,7 @@ const BudgetApp = (function() {
                         <th>Budget Year</th>
                         <th>Date Created</th>
                         <th>Created By</th>
+                        <th>สถานะ</th>
                         <th>Action</th>
                     </tr>
                 </thead>
@@ -276,6 +401,7 @@ const BudgetApp = (function() {
                         <td>${doc.budget_year}</td>
                         <td>${doc.create_date}</td>
                         <td>${doc.create_eid}</td>
+                        <td>${statusBadge(doc.status)}</td>
                         <td>
                             <a class="btn btn-datatable btn-icon btn-transparent-dark me-2" href="${actionUrl}"><i data-feather="eye"></i></a>
                         </td>
@@ -332,6 +458,19 @@ const BudgetApp = (function() {
         } else {
             const filteredData = currentCategoryData.filter(doc => doc.type === selectedType);
             renderDataTable(filteredData);
+        }
+    }
+
+    // Patches the one row's status in the already-fetched list data and
+    // re-renders locally (via applyTypeFilter, which respects whatever type
+    // filter is currently selected) — cheaper than re-fetching the whole
+    // category, and doesn't reset the user's filter back to "ALL" the way
+    // calling fetchDocuments() again would.
+    function updateListRowStatus(docNo, newStatus) {
+        const doc = currentCategoryData.find(d => d.document_no === docNo);
+        if (doc) {
+            doc.status = newStatus;
+            applyTypeFilter();
         }
     }
 
@@ -448,11 +587,16 @@ const BudgetApp = (function() {
                     document.getElementById('modalDocNo').innerText = result.doc_info.document_no;
                     document.getElementById('modalDocType').innerHTML = result.doc_info.type === 'VET' ? '<span class="badge bg-primary">VET</span>' : result.doc_info.type === 'Medical Equipment' ? '<span class="badge bg-success">Medical Equipment</span>' : result.doc_info.type === 'Computer Equipment' ? '<span class="badge bg-warning text-dark">Computer Equipment</span>' : result.doc_info.type === 'Furniture' ? '<span class="badge bg-secondary">Furniture</span>' : result.doc_info.type === 'Tools & Equipment' ? '<span class="badge bg-dark">Tools & Equipment</span>' : '<span class="badge" style="background-color: #6610f2;">NON VET</span>';
                     document.getElementById('modalDocBranch').innerText = result.doc_info.base_branch_id;
+                    currentBranchCode = result.doc_info.base_branch_id || '';
                     currentCostCenterName = result.doc_info.cost_center_name || '';
                     document.getElementById('modalDocCostCenter').innerText = result.doc_info.cost_center_name || '-';
                     document.getElementById('modalDocBudgetYear').innerText = result.doc_info.budget_year;
                     document.getElementById('modalDocCreator').innerText = result.doc_info.create_eid;
-                    applyEditButtonVisibility(document.getElementById('btnEditMode'), result.doc_info.create_eid);
+                    applyEditButtonVisibility(document.getElementById('btnEditMode'), result.doc_info.create_eid, result.doc_info.status);
+                    applyApproveButtonVisibility(document.getElementById('btnApproveDocument'), result.doc_info.status);
+                    applyCancelButtonVisibility(document.getElementById('btnCancelDocument'), result.doc_info.create_eid, result.doc_info.status);
+                    document.getElementById('modalDocStatus').innerHTML = statusBadge(result.doc_info.status);
+                    if (typeof feather !== 'undefined') feather.replace();
                     document.getElementById('modalDocDate').innerText = result.doc_info.create_date;
 
                     // Laid out but not painted — jspreadsheet reads real
@@ -631,8 +775,8 @@ const BudgetApp = (function() {
             btnSave.style.display = 'inline-block';
             if (btnClose) btnClose.style.display = 'none';
 
-            // Cost Center is locked — it's never editable, in any document
-            // type's edit mode, so it stays as plain text throughout.
+            buildCostCenterSelect('modalDocCostCenter', currentCostCenterName, (value) => { currentCostCenterName = value; });
+            buildBranchSelect('modalDocBranch', currentBranchCode, (value) => { currentBranchCode = value; });
 
             // Re-create Table 1 for Edit
             let columns = [
@@ -702,6 +846,7 @@ const BudgetApp = (function() {
             Swal.fire('แจ้งเตือน', 'กรุณาเลือก Cost Center', 'warning');
             return;
         }
+        const branchCode = currentBranchCode;
 
         const isNonVet = currentDocType === 'NON VET';
         const isMed = currentDocType === 'Medical Equipment';
@@ -742,6 +887,7 @@ const BudgetApp = (function() {
                         'item_name': position,
                         'purchase_price': salary,
                         'cost_center_name': costCenterName,
+                        'branch_code': branchCode,
                         'monthly_data': monthlyData
                     };
                 } else {
@@ -749,6 +895,7 @@ const BudgetApp = (function() {
                         'position_name': position,
                         'salary': salary,
                         'cost_center_name': costCenterName,
+                        'branch_code': branchCode,
                         'monthly_data': monthlyData
                     };
                     if (isNonVet) {
@@ -806,7 +953,98 @@ const BudgetApp = (function() {
             }
         });
     }
-    
+
+    function approveDocument() {
+        Swal.fire({
+            title: 'ยืนยันการอนุมัติเอกสาร?',
+            text: 'เอกสารนี้จะถูกล็อกและไม่สามารถแก้ไขได้อีกหลังจากอนุมัติ',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#28a745',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: 'อนุมัติ',
+            cancelButtonText: 'ยกเลิก'
+        }).then((result) => {
+            if (!result.isConfirmed) return;
+            Swal.fire({ title: 'กำลังบันทึกข้อมูล...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); }});
+
+            const urlTemplate = window.APP_CONFIG.urls.apiDocumentApprove;
+            const url = urlTemplate.replace('TYPE', encodeURIComponent(currentDocType)).replace('DOCNO', encodeURIComponent(currentDocNo));
+
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.APP_CONFIG.csrfToken },
+                body: JSON.stringify({})
+            })
+            .then(handleApiResponse)
+            .then(data => {
+                if (data.status === 'success') {
+                    updateListRowStatus(currentDocNo, 'APPROVED');
+                    Swal.fire('สำเร็จ!', 'อนุมัติเอกสารเรียบร้อยแล้ว', 'success').then(() => {
+                        viewDocumentDetails(currentDocNo, currentDocType);
+                    });
+                } else {
+                    Swal.fire('ข้อผิดพลาด', 'ไม่สามารถอนุมัติได้: ' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                if (error.message === SESSION_EXPIRED) return;
+                console.error(error);
+                Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
+            });
+        });
+    }
+
+    function cancelDocument() {
+        Swal.fire({
+            title: 'ยืนยันการยกเลิกเอกสาร?',
+            input: 'textarea',
+            inputLabel: 'เหตุผลการยกเลิก',
+            inputPlaceholder: 'กรุณาระบุเหตุผล...',
+            inputValidator: (value) => (!value || !value.trim()) ? 'กรุณาระบุเหตุผลการยกเลิก' : undefined,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#dc3545',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: 'ยกเลิกเอกสาร',
+            cancelButtonText: 'ปิด',
+            // Bootstrap's modal focus trap keeps yanking focus back into
+            // #documentDetailModal (still open underneath) since Swal mounts
+            // its popup on document.body, outside that modal's DOM subtree —
+            // without this, the textarea below is completely untypable.
+            didOpen: () => { detailModalInstance?._focustrap?.deactivate?.(); },
+            didClose: () => { detailModalInstance?._focustrap?.activate?.(); },
+        }).then((result) => {
+            if (!result.isConfirmed) return;
+            Swal.fire({ title: 'กำลังบันทึกข้อมูล...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); }});
+
+            const urlTemplate = window.APP_CONFIG.urls.apiDocumentCancel;
+            const url = urlTemplate.replace('TYPE', encodeURIComponent(currentDocType)).replace('DOCNO', encodeURIComponent(currentDocNo));
+
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.APP_CONFIG.csrfToken },
+                body: JSON.stringify({ cancel_reason: result.value.trim() })
+            })
+            .then(handleApiResponse)
+            .then(data => {
+                if (data.status === 'success') {
+                    updateListRowStatus(currentDocNo, 'CANCELLED');
+                    Swal.fire('สำเร็จ!', 'ยกเลิกเอกสารเรียบร้อยแล้ว', 'success').then(() => {
+                        viewDocumentDetails(currentDocNo, currentDocType);
+                    });
+                } else {
+                    Swal.fire('ข้อผิดพลาด', 'ไม่สามารถยกเลิกได้: ' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                if (error.message === SESSION_EXPIRED) return;
+                console.error(error);
+                Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
+            });
+        });
+    }
+
     // ==========================================
     // JS Logic for General Ledger Document Detail Modal (GL Entry / Budget Plan)
     // ==========================================
@@ -1066,11 +1304,16 @@ const BudgetApp = (function() {
                         '<span class="badge" style="background-color: #0dcaf0;">GL Entry</span>' :
                         '<span class="badge" style="background-color: #20c997;">Budget Plan</span>';
                     document.getElementById('glModalDocBranch').innerText = result.doc_info.base_branch_id;
+                    currentGlBranchCode = result.doc_info.base_branch_id || '';
                     currentGlCostCenterName = result.doc_info.cost_center_name || '';
                     document.getElementById('glModalDocCostCenter').innerText = result.doc_info.cost_center_name || '-';
                     document.getElementById('glModalDocBudgetYear').innerText = result.doc_info.budget_year;
                     document.getElementById('glModalDocCreator').innerText = result.doc_info.create_eid;
-                    applyEditButtonVisibility(document.getElementById('btnGlEditMode'), result.doc_info.create_eid);
+                    applyEditButtonVisibility(document.getElementById('btnGlEditMode'), result.doc_info.create_eid, result.doc_info.status);
+                    applyApproveButtonVisibility(document.getElementById('btnGlApproveDocument'), result.doc_info.status);
+                    applyCancelButtonVisibility(document.getElementById('btnGlCancelDocument'), result.doc_info.create_eid, result.doc_info.status);
+                    document.getElementById('glModalDocStatus').innerHTML = statusBadge(result.doc_info.status);
+                    if (typeof feather !== 'undefined') feather.replace();
                     document.getElementById('glModalDocDate').innerText = result.doc_info.create_date;
 
                     // display:block (with visibility:hidden so nothing is
@@ -1116,8 +1359,8 @@ const BudgetApp = (function() {
             }
             if (btnGlSave) btnGlSave.style.display = 'inline-block';
             if (btnGlClose) btnGlClose.style.display = 'none';
-            // Cost Center is locked — it's never editable, in any document
-            // type's edit mode, so it stays as plain text throughout.
+            buildCostCenterSelect('glModalDocCostCenter', currentGlCostCenterName, (value) => { currentGlCostCenterName = value; });
+            buildBranchSelect('glModalDocBranch', currentGlBranchCode, (value) => { currentGlBranchCode = value; });
 
             // Rebuild from the data already on screen (no extra fetch),
             // same as toggleAdjEditMode's currentData = table.getData() step.
@@ -1155,6 +1398,7 @@ const BudgetApp = (function() {
             Swal.fire('แจ้งเตือน', 'กรุณาเลือก Cost Center ก่อนบันทึก', 'warning');
             return;
         }
+        const branchCode = currentGlBranchCode;
 
         const dataToSave = [];
 
@@ -1170,6 +1414,7 @@ const BudgetApp = (function() {
                     general_ledger_code: getGlCode(glName),
                     detail_note: row[1] || '',
                     cost_center_name: costCenterName,
+                    branch_code: branchCode,
                     monthly_data: monthlyData,
                 });
             });
@@ -1190,6 +1435,7 @@ const BudgetApp = (function() {
                         general_ledger_code: getGlCode(glName) || '',
                         description: description || '',
                         cost_center_name: costCenterName,
+                        branch_code: branchCode,
                         monthly_data: monthlyData,
                     });
                 });
@@ -1232,6 +1478,93 @@ const BudgetApp = (function() {
                     });
                 } else {
                     Swal.fire('ข้อผิดพลาด', 'ไม่สามารถบันทึกได้: ' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                if (error.message === SESSION_EXPIRED) return;
+                console.error(error);
+                Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
+            });
+        });
+    }
+
+    function approveGlDocument() {
+        Swal.fire({
+            title: 'ยืนยันการอนุมัติเอกสาร?',
+            text: 'เอกสารนี้จะถูกล็อกและไม่สามารถแก้ไขได้อีกหลังจากอนุมัติ',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#28a745',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: 'อนุมัติ',
+            cancelButtonText: 'ยกเลิก'
+        }).then((result) => {
+            if (!result.isConfirmed) return;
+            Swal.fire({ title: 'กำลังบันทึกข้อมูล...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); }});
+
+            const urlTemplate = window.APP_CONFIG.urls.apiDocumentApprove;
+            const url = urlTemplate.replace('TYPE', encodeURIComponent(currentGlDocType)).replace('DOCNO', encodeURIComponent(currentGlDocNo));
+
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.APP_CONFIG.csrfToken },
+                body: JSON.stringify({})
+            })
+            .then(handleApiResponse)
+            .then(data => {
+                if (data.status === 'success') {
+                    updateListRowStatus(currentGlDocNo, 'APPROVED');
+                    Swal.fire('สำเร็จ!', 'อนุมัติเอกสารเรียบร้อยแล้ว', 'success').then(() => {
+                        viewGeneralLedgerDocumentDetails(currentGlDocNo, currentGlDocType);
+                    });
+                } else {
+                    Swal.fire('ข้อผิดพลาด', 'ไม่สามารถอนุมัติได้: ' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                if (error.message === SESSION_EXPIRED) return;
+                console.error(error);
+                Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
+            });
+        });
+    }
+
+    function cancelGlDocument() {
+        Swal.fire({
+            title: 'ยืนยันการยกเลิกเอกสาร?',
+            input: 'textarea',
+            inputLabel: 'เหตุผลการยกเลิก',
+            inputPlaceholder: 'กรุณาระบุเหตุผล...',
+            inputValidator: (value) => (!value || !value.trim()) ? 'กรุณาระบุเหตุผลการยกเลิก' : undefined,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#dc3545',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: 'ยกเลิกเอกสาร',
+            cancelButtonText: 'ปิด',
+            didOpen: () => { glModalInstance?._focustrap?.deactivate?.(); },
+            didClose: () => { glModalInstance?._focustrap?.activate?.(); },
+        }).then((result) => {
+            if (!result.isConfirmed) return;
+            Swal.fire({ title: 'กำลังบันทึกข้อมูล...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); }});
+
+            const urlTemplate = window.APP_CONFIG.urls.apiDocumentCancel;
+            const url = urlTemplate.replace('TYPE', encodeURIComponent(currentGlDocType)).replace('DOCNO', encodeURIComponent(currentGlDocNo));
+
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.APP_CONFIG.csrfToken },
+                body: JSON.stringify({ cancel_reason: result.value.trim() })
+            })
+            .then(handleApiResponse)
+            .then(data => {
+                if (data.status === 'success') {
+                    updateListRowStatus(currentGlDocNo, 'CANCELLED');
+                    Swal.fire('สำเร็จ!', 'ยกเลิกเอกสารเรียบร้อยแล้ว', 'success').then(() => {
+                        viewGeneralLedgerDocumentDetails(currentGlDocNo, currentGlDocType);
+                    });
+                } else {
+                    Swal.fire('ข้อผิดพลาด', 'ไม่สามารถยกเลิกได้: ' + data.message, 'error');
                 }
             })
             .catch(error => {
@@ -1285,11 +1618,16 @@ const BudgetApp = (function() {
                 if (result.status === 'success') {
                     document.getElementById('adjModalDocNo').innerText = result.doc_info.document_no;
                     document.getElementById('adjModalDocBranch').innerText = result.doc_info.base_branch_id;
+                    currentAdjBranchCode = result.doc_info.base_branch_id || '';
                     currentAdjCostCenterName = result.doc_info.cost_center_name || '';
                     document.getElementById('adjModalDocCostCenter').innerText = result.doc_info.cost_center_name || '-';
                     document.getElementById('adjModalDocBudgetYear').innerText = result.doc_info.budget_year;
                     document.getElementById('adjModalDocCreator').innerText = result.doc_info.create_eid;
-                    applyEditButtonVisibility(document.getElementById('btnAdjEditMode'), result.doc_info.create_eid);
+                    applyEditButtonVisibility(document.getElementById('btnAdjEditMode'), result.doc_info.create_eid, result.doc_info.status);
+                    applyApproveButtonVisibility(document.getElementById('btnAdjApproveDocument'), result.doc_info.status);
+                    applyCancelButtonVisibility(document.getElementById('btnAdjCancelDocument'), result.doc_info.create_eid, result.doc_info.status);
+                    document.getElementById('adjModalDocStatus').innerHTML = statusBadge(result.doc_info.status);
+                    if (typeof feather !== 'undefined') feather.replace();
                     document.getElementById('adjModalDocDate').innerText = result.doc_info.create_date;
 
                     // See viewDocumentDetails for why: laid out but not
@@ -1574,8 +1912,8 @@ const BudgetApp = (function() {
             btnSave.style.display = 'inline-block';
             if (btnClose) btnClose.style.display = 'none';
 
-            // Cost Center is locked — it's never editable, in any document
-            // type's edit mode, so it stays as plain text throughout.
+            buildCostCenterSelect('adjModalDocCostCenter', currentAdjCostCenterName, (value) => { currentAdjCostCenterName = value; });
+            buildBranchSelect('adjModalDocBranch', currentAdjBranchCode, (value) => { currentAdjBranchCode = value; });
 
             const cols1 = [
                 { type: 'dropdown', title: 'ตำแหน่งเดิม', width: 200, source: allAdjItems, autocomplete: true },
@@ -1657,6 +1995,7 @@ const BudgetApp = (function() {
             Swal.fire('แจ้งเตือน', 'กรุณาเลือก Cost Center', 'warning');
             return;
         }
+        const branchCode = currentAdjBranchCode;
 
         const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
         let rows = adjTable1.getData();
@@ -1700,6 +2039,7 @@ const BudgetApp = (function() {
                     'new_salary': newSal,
                     'new_allowance': newAllow,
                     'cost_center_name': costCenterName,
+                    'branch_code': branchCode,
                     'monthly_data': monthlyData
                 });
             }
@@ -1750,6 +2090,93 @@ const BudgetApp = (function() {
         });
     }
 
+    function approveAdjDocument() {
+        Swal.fire({
+            title: 'ยืนยันการอนุมัติเอกสาร?',
+            text: 'เอกสารนี้จะถูกล็อกและไม่สามารถแก้ไขได้อีกหลังจากอนุมัติ',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#28a745',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: 'อนุมัติ',
+            cancelButtonText: 'ยกเลิก'
+        }).then((result) => {
+            if (!result.isConfirmed) return;
+            Swal.fire({ title: 'กำลังบันทึกข้อมูล...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); }});
+
+            const urlTemplate = window.APP_CONFIG.urls.apiAdjustmentApprove;
+            const url = urlTemplate.replace('DOCNO', encodeURIComponent(currentAdjDocNo));
+
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.APP_CONFIG.csrfToken },
+                body: JSON.stringify({})
+            })
+            .then(handleApiResponse)
+            .then(data => {
+                if (data.status === 'success') {
+                    updateListRowStatus(currentAdjDocNo, 'APPROVED');
+                    Swal.fire('สำเร็จ!', 'อนุมัติเอกสารเรียบร้อยแล้ว', 'success').then(() => {
+                        viewAdjustmentDetails(currentAdjDocNo);
+                    });
+                } else {
+                    Swal.fire('ข้อผิดพลาด', 'ไม่สามารถอนุมัติได้: ' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                if (error.message === SESSION_EXPIRED) return;
+                console.error(error);
+                Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
+            });
+        });
+    }
+
+    function cancelAdjDocument() {
+        Swal.fire({
+            title: 'ยืนยันการยกเลิกเอกสาร?',
+            input: 'textarea',
+            inputLabel: 'เหตุผลการยกเลิก',
+            inputPlaceholder: 'กรุณาระบุเหตุผล...',
+            inputValidator: (value) => (!value || !value.trim()) ? 'กรุณาระบุเหตุผลการยกเลิก' : undefined,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#dc3545',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: 'ยกเลิกเอกสาร',
+            cancelButtonText: 'ปิด',
+            didOpen: () => { adjModalInstance?._focustrap?.deactivate?.(); },
+            didClose: () => { adjModalInstance?._focustrap?.activate?.(); },
+        }).then((result) => {
+            if (!result.isConfirmed) return;
+            Swal.fire({ title: 'กำลังบันทึกข้อมูล...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); }});
+
+            const urlTemplate = window.APP_CONFIG.urls.apiAdjustmentCancel;
+            const url = urlTemplate.replace('DOCNO', encodeURIComponent(currentAdjDocNo));
+
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.APP_CONFIG.csrfToken },
+                body: JSON.stringify({ cancel_reason: result.value.trim() })
+            })
+            .then(handleApiResponse)
+            .then(data => {
+                if (data.status === 'success') {
+                    updateListRowStatus(currentAdjDocNo, 'CANCELLED');
+                    Swal.fire('สำเร็จ!', 'ยกเลิกเอกสารเรียบร้อยแล้ว', 'success').then(() => {
+                        viewAdjustmentDetails(currentAdjDocNo);
+                    });
+                } else {
+                    Swal.fire('ข้อผิดพลาด', 'ไม่สามารถยกเลิกได้: ' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                if (error.message === SESSION_EXPIRED) return;
+                console.error(error);
+                Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
+            });
+        });
+    }
+
     // ---- Public API ----
     return {
         fetchDocuments: fetchDocuments,
@@ -1759,13 +2186,19 @@ const BudgetApp = (function() {
         toggleGlEditMode: toggleGlEditMode,
         addGlSpreadsheetRow: addGlSpreadsheetRow,
         saveGlDocument: saveGlDocument,
+        approveGlDocument: approveGlDocument,
+        cancelGlDocument: cancelGlDocument,
         toggleEditMode: toggleEditMode,
         addSpreadsheetRow: addSpreadsheetRow,
         saveDocument: saveDocument,
+        approveDocument: approveDocument,
+        cancelDocument: cancelDocument,
         viewAdjustmentDetails: viewAdjustmentDetails,
         toggleAdjEditMode: toggleAdjEditMode,
         addAdjSpreadsheetRow: addAdjSpreadsheetRow,
-        saveAdjDocument: saveAdjDocument
+        saveAdjDocument: saveAdjDocument,
+        approveAdjDocument: approveAdjDocument,
+        cancelAdjDocument: cancelAdjDocument
     };
 })();
 
@@ -1777,10 +2210,16 @@ window.viewGeneralLedgerDocumentDetails = BudgetApp.viewGeneralLedgerDocumentDet
 window.toggleGlEditMode = BudgetApp.toggleGlEditMode;
 window.addGlSpreadsheetRow = BudgetApp.addGlSpreadsheetRow;
 window.saveGlDocument = BudgetApp.saveGlDocument;
+window.approveGlDocument = BudgetApp.approveGlDocument;
+window.cancelGlDocument = BudgetApp.cancelGlDocument;
 window.toggleEditMode = BudgetApp.toggleEditMode;
 window.addSpreadsheetRow = BudgetApp.addSpreadsheetRow;
 window.saveDocument = BudgetApp.saveDocument;
+window.approveDocument = BudgetApp.approveDocument;
+window.cancelDocument = BudgetApp.cancelDocument;
 window.viewAdjustmentDetails = BudgetApp.viewAdjustmentDetails;
 window.toggleAdjEditMode = BudgetApp.toggleAdjEditMode;
 window.addAdjSpreadsheetRow = BudgetApp.addAdjSpreadsheetRow;
 window.saveAdjDocument = BudgetApp.saveAdjDocument;
+window.approveAdjDocument = BudgetApp.approveAdjDocument;
+window.cancelAdjDocument = BudgetApp.cancelAdjDocument;

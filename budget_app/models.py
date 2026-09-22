@@ -2,7 +2,7 @@ from datetime import datetime
 from django.core.cache import cache
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
-from budget_app.constants import DEFAULT_FROZEN_MESSAGE
+from budget_app.constants import DEFAULT_FROZEN_MESSAGE, DOCUMENT_STATUS_CHOICES, STATUS_PENDING
 
 class Timestamp0Field(models.DateTimeField):
     def db_type(self, connection):
@@ -68,7 +68,9 @@ class ebudget_vet_manpower(models.Model):
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
     general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
     budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
-    
+    status = models.CharField(max_length=10, choices=DOCUMENT_STATUS_CHOICES, default=STATUS_PENDING, verbose_name="สถานะ")
+    cancel_reason = models.TextField(null=True, blank=True, verbose_name="เหตุผลการยกเลิก")
+
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
     modify_date = Timestamp0Field(verbose_name="วันที่แก้ไขล่าสุด", null=True, blank=True)
@@ -122,7 +124,9 @@ class ebudget_non_vet_manpower(models.Model):
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
     general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
     budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
-    
+    status = models.CharField(max_length=10, choices=DOCUMENT_STATUS_CHOICES, default=STATUS_PENDING, verbose_name="สถานะ")
+    cancel_reason = models.TextField(null=True, blank=True, verbose_name="เหตุผลการยกเลิก")
+
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
     modify_date = Timestamp0Field(verbose_name="วันที่แก้ไขล่าสุด", null=True, blank=True)
@@ -178,7 +182,9 @@ class ebudget_position_adjustment(models.Model):
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
     general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
     budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
-    
+    status = models.CharField(max_length=10, choices=DOCUMENT_STATUS_CHOICES, default=STATUS_PENDING, verbose_name="สถานะ")
+    cancel_reason = models.TextField(null=True, blank=True, verbose_name="เหตุผลการยกเลิก")
+
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
     modify_date = Timestamp0Field(verbose_name="วันที่แก้ไขล่าสุด", null=True, blank=True)
@@ -230,7 +236,9 @@ class ebudget_medical_equipment(models.Model):
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
     general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
     budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
-    
+    status = models.CharField(max_length=10, choices=DOCUMENT_STATUS_CHOICES, default=STATUS_PENDING, verbose_name="สถานะ")
+    cancel_reason = models.TextField(null=True, blank=True, verbose_name="เหตุผลการยกเลิก")
+
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
     modify_date = Timestamp0Field(verbose_name="วันที่แก้ไขล่าสุด", null=True, blank=True)
@@ -282,7 +290,9 @@ class ebudget_computer_equipment(models.Model):
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
     general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
     budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
-    
+    status = models.CharField(max_length=10, choices=DOCUMENT_STATUS_CHOICES, default=STATUS_PENDING, verbose_name="สถานะ")
+    cancel_reason = models.TextField(null=True, blank=True, verbose_name="เหตุผลการยกเลิก")
+
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
     modify_date = Timestamp0Field(verbose_name="วันที่แก้ไขล่าสุด", null=True, blank=True)
@@ -334,6 +344,8 @@ class ebudget_furniture(models.Model):
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
     general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
     budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
+    status = models.CharField(max_length=10, choices=DOCUMENT_STATUS_CHOICES, default=STATUS_PENDING, verbose_name="สถานะ")
+    cancel_reason = models.TextField(null=True, blank=True, verbose_name="เหตุผลการยกเลิก")
 
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
@@ -386,6 +398,8 @@ class ebudget_tools_equipment(models.Model):
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
     general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
     budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
+    status = models.CharField(max_length=10, choices=DOCUMENT_STATUS_CHOICES, default=STATUS_PENDING, verbose_name="สถานะ")
+    cancel_reason = models.TextField(null=True, blank=True, verbose_name="เหตุผลการยกเลิก")
 
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
@@ -474,6 +488,8 @@ class ebudget_gl_entry(models.Model):
     department_id = models.CharField(max_length=50, verbose_name="รหัสแผนก", null=True, blank=True)
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
+    status = models.CharField(max_length=10, choices=DOCUMENT_STATUS_CHOICES, default=STATUS_PENDING, verbose_name="สถานะ")
+    cancel_reason = models.TextField(null=True, blank=True, verbose_name="เหตุผลการยกเลิก")
 
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
@@ -552,6 +568,8 @@ class ebudget_budget_plan_item(models.Model):
     department_id = models.CharField(max_length=50, verbose_name="รหัสแผนก", null=True, blank=True)
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
+    status = models.CharField(max_length=10, choices=DOCUMENT_STATUS_CHOICES, default=STATUS_PENDING, verbose_name="สถานะ")
+    cancel_reason = models.TextField(null=True, blank=True, verbose_name="เหตุผลการยกเลิก")
 
     create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
     create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")

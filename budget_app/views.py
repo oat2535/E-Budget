@@ -12,7 +12,7 @@ from master_data.models import ebudget_budget_item_master, ebudget_budget_catego
 from django.core.cache import cache
 from budget_app.models import ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment, ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_gl_entry, ebudget_budget_plan_item, SystemSettings, SYSTEM_SETTINGS_CACHE_KEY
 from budget_app.services import BudgetService
-from budget_app.constants import ALL_BRANCH_USERNAMES
+from budget_app.constants import ALL_BRANCH_USERNAMES, STATUS_PENDING, STATUS_APPROVED, STATUS_CANCELLED
 from budget_app.decorators import require_not_frozen
 
 def login_required_json(view_func):
@@ -81,6 +81,22 @@ def resolve_branch_for_create(request, data):
             raise ValueError('กรุณาเลือกสาขาให้ถูกต้อง')
         return chosen, info['department_id']
     return branches[0], info['department_id']
+
+def resolve_branch_for_update(request, data, current_branch_id):
+    """Determines the base_branch_id to stamp on a document being edited.
+    Single-branch users (and back-office/BACK- users) have nothing to pick
+    from, so the branch just stays whatever it already was — same as
+    before this dropdown existed. Multi-branch users may now change it via
+    the same branch_code convention resolve_branch_for_create uses,
+    validated the same way (their own branch list only, so a crafted
+    request can't move a document to a branch they don't belong to)."""
+    info = get_branch_info(request)
+    if not info['needs_selection']:
+        return current_branch_id
+    chosen = data[0].get('branch_code') if data else None
+    if chosen not in info['branches']:
+        raise ValueError('กรุณาเลือกสาขาให้ถูกต้อง')
+    return chosen
 
 def get_cost_centers_json():
     """Autocomplete source for the cost-center input on every add-budget
@@ -204,6 +220,8 @@ def budget_list_view(request):
         'items_comp_json': comp_items_list,
         'items_furniture_json': furniture_items_list,
         'items_tools_json': tools_items_list,
+        'cost_centers_json': get_cost_centers_json(),
+        **get_branch_selection_context(request),
     })
 
 @login_required
@@ -321,7 +339,8 @@ def get_budget_documents_api(request, category_code):
             total_positions=Count('id'),
             create_date=Max('create_date'),
             create_eid=Max('create_eid'),
-            budget_year=Max('budget_year')
+            budget_year=Max('budget_year'),
+            status=Max('status')
         )
 
         # Fetch NON VET
@@ -329,7 +348,8 @@ def get_budget_documents_api(request, category_code):
             total_positions=Count('id'),
             create_date=Max('create_date'),
             create_eid=Max('create_eid'),
-            budget_year=Max('budget_year')
+            budget_year=Max('budget_year'),
+            status=Max('status')
         )
 
         # Fetch Position Adjustment
@@ -337,9 +357,10 @@ def get_budget_documents_api(request, category_code):
             total_positions=Count('id'),
             create_date=Max('create_date'),
             create_eid=Max('create_eid'),
-            budget_year=Max('budget_year')
+            budget_year=Max('budget_year'),
+            status=Max('status')
         )
-        
+
         results = []
         for doc in vet_docs:
             results.append({
@@ -349,9 +370,10 @@ def get_budget_documents_api(request, category_code):
                 'create_eid': doc['create_eid'] or '-',
                 'total_positions': doc['total_positions'],
                 'budget_year': doc['budget_year'] or '-',
+                'status': doc['status'] or STATUS_PENDING,
                 'type': 'VET'
             })
-            
+
         for doc in non_vet_docs:
             results.append({
                 'document_no': doc['document_no'] or '-',
@@ -360,9 +382,10 @@ def get_budget_documents_api(request, category_code):
                 'create_eid': doc['create_eid'] or '-',
                 'total_positions': doc['total_positions'],
                 'budget_year': doc['budget_year'] or '-',
+                'status': doc['status'] or STATUS_PENDING,
                 'type': 'NON VET'
             })
-            
+
         for doc in adj_docs:
             results.append({
                 'document_no': doc['document_no'] or '-',
@@ -371,6 +394,7 @@ def get_budget_documents_api(request, category_code):
                 'create_eid': doc['create_eid'] or '-',
                 'total_positions': doc['total_positions'],
                 'budget_year': doc['budget_year'] or '-',
+                'status': doc['status'] or STATUS_PENDING,
                 'type': 'Position Adjustment'
             })
             
@@ -383,28 +407,32 @@ def get_budget_documents_api(request, category_code):
             total_positions=Count('id'),
             create_date=Max('create_date'),
             create_eid=Max('create_eid'),
-            budget_year=Max('budget_year')
+            budget_year=Max('budget_year'),
+            status=Max('status')
         )
 
         comp_docs = ebudget_computer_equipment.objects.filter(**branch_filter).values('document_no').annotate(
             total_positions=Count('id'),
             create_date=Max('create_date'),
             create_eid=Max('create_eid'),
-            budget_year=Max('budget_year')
+            budget_year=Max('budget_year'),
+            status=Max('status')
         )
 
         furniture_docs = ebudget_furniture.objects.filter(**branch_filter).values('document_no').annotate(
             total_positions=Count('id'),
             create_date=Max('create_date'),
             create_eid=Max('create_eid'),
-            budget_year=Max('budget_year')
+            budget_year=Max('budget_year'),
+            status=Max('status')
         )
 
         tools_docs = ebudget_tools_equipment.objects.filter(**branch_filter).values('document_no').annotate(
             total_positions=Count('id'),
             create_date=Max('create_date'),
             create_eid=Max('create_eid'),
-            budget_year=Max('budget_year')
+            budget_year=Max('budget_year'),
+            status=Max('status')
         )
 
         results = []
@@ -416,9 +444,10 @@ def get_budget_documents_api(request, category_code):
                 'create_eid': doc['create_eid'] or '-',
                 'total_positions': doc['total_positions'],
                 'budget_year': doc['budget_year'] or '-',
+                'status': doc['status'] or STATUS_PENDING,
                 'type': 'Medical Equipment'
             })
-            
+
         for doc in comp_docs:
             results.append({
                 'document_no': doc['document_no'] or '-',
@@ -427,6 +456,7 @@ def get_budget_documents_api(request, category_code):
                 'create_eid': doc['create_eid'] or '-',
                 'total_positions': doc['total_positions'],
                 'budget_year': doc['budget_year'] or '-',
+                'status': doc['status'] or STATUS_PENDING,
                 'type': 'Computer Equipment'
             })
 
@@ -438,6 +468,7 @@ def get_budget_documents_api(request, category_code):
                 'create_eid': doc['create_eid'] or '-',
                 'total_positions': doc['total_positions'],
                 'budget_year': doc['budget_year'] or '-',
+                'status': doc['status'] or STATUS_PENDING,
                 'type': 'Furniture'
             })
 
@@ -449,6 +480,7 @@ def get_budget_documents_api(request, category_code):
                 'create_eid': doc['create_eid'] or '-',
                 'total_positions': doc['total_positions'],
                 'budget_year': doc['budget_year'] or '-',
+                'status': doc['status'] or STATUS_PENDING,
                 'type': 'Tools & Equipment'
             })
 
@@ -461,7 +493,8 @@ def get_budget_documents_api(request, category_code):
             total_positions=Count('id'),
             create_date=Max('create_date'),
             create_eid=Max('create_eid'),
-            budget_year=Max('budget_year')
+            budget_year=Max('budget_year'),
+            status=Max('status')
         )
 
         # Fetch Budget Plan
@@ -469,7 +502,8 @@ def get_budget_documents_api(request, category_code):
             total_positions=Count('id'),
             create_date=Max('create_date'),
             create_eid=Max('create_eid'),
-            budget_year=Max('budget_year')
+            budget_year=Max('budget_year'),
+            status=Max('status')
         )
 
         results = []
@@ -481,6 +515,7 @@ def get_budget_documents_api(request, category_code):
                 'create_eid': doc['create_eid'] or '-',
                 'total_positions': doc['total_positions'],
                 'budget_year': doc['budget_year'] or '-',
+                'status': doc['status'] or STATUS_PENDING,
                 'type': 'GL Entry'
             })
 
@@ -492,6 +527,7 @@ def get_budget_documents_api(request, category_code):
                 'create_eid': doc['create_eid'] or '-',
                 'total_positions': doc['total_positions'],
                 'budget_year': doc['budget_year'] or '-',
+                'status': doc['status'] or STATUS_PENDING,
                 'type': 'Budget Plan'
             })
 
@@ -499,6 +535,23 @@ def get_budget_documents_api(request, category_code):
         return JsonResponse({'status': 'success', 'data': results})
 
     return JsonResponse({'status': 'error', 'message': 'ไม่มีข้อมูลสำหรับหมวดหมู่นี้'})
+
+def _resolve_model_class(doc_type):
+    """doc_type -> model class, for the write endpoints that don't already
+    have their own dispatch chain (approve_document_api/cancel_document_api
+    share this one; update_document_api and get_document_detail_api predate
+    it and keep their own inline chains)."""
+    return {
+        'VET': ebudget_vet_manpower,
+        'NON VET': ebudget_non_vet_manpower,
+        'Position Adjustment': ebudget_position_adjustment,
+        'Medical Equipment': ebudget_medical_equipment,
+        'Computer Equipment': ebudget_computer_equipment,
+        'Furniture': ebudget_furniture,
+        'Tools & Equipment': ebudget_tools_equipment,
+        'GL Entry': ebudget_gl_entry,
+        'Budget Plan': ebudget_budget_plan_item,
+    }.get(doc_type)
 
 @login_required_json
 def get_document_detail_api(request, doc_type, doc_no):
@@ -535,7 +588,9 @@ def get_document_detail_api(request, doc_type, doc_no):
         'type': doc_type,
         'base_branch_id': first_item.base_branch_id or '-',
         'cost_center_name': first_item.cost_center_name or '',
-        'budget_year': first_item.budget_year or '-'
+        'budget_year': first_item.budget_year or '-',
+        'status': first_item.status,
+        'cancel_reason': first_item.cancel_reason or ''
     }
 
     # Only GL Entry/Budget Plan rows need a gl_code -> gl_name lookup, so
@@ -647,14 +702,26 @@ def update_document_api(request, doc_type, doc_no):
         first_item = existing_items.first()
         create_date = first_item.create_date
         create_eid = first_item.create_eid
-        base_branch_id = first_item.base_branch_id
         department_id = first_item.department_id
+
+        # Approval lock: applies to everyone, including privileged users —
+        # there's no un-approve, and no resubmitting a cancelled document —
+        # both are terminal states. Must run before the ownership check
+        # below, not folded into it.
+        if first_item.status == STATUS_APPROVED:
+            return JsonResponse({'status': 'error', 'message': 'เอกสารนี้ได้รับการอนุมัติแล้ว ไม่สามารถแก้ไขได้'})
+        if first_item.status == STATUS_CANCELLED:
+            return JsonResponse({'status': 'error', 'message': 'เอกสารนี้ถูกยกเลิกแล้ว ไม่สามารถแก้ไขได้ กรุณาสร้างเอกสารใหม่แทน'})
 
         # A MANAGER-tier (non-privileged) user passed the fast-path check
         # above only because they're a manager somewhere — that doesn't
         # mean this particular document is theirs to edit.
         if not is_privileged and create_eid != request.user.username:
             return JsonResponse({'status': 'error', 'message': 'คุณแก้ไขได้เฉพาะเอกสารที่ตัวเองสร้างเท่านั้น'})
+        # Only multi-branch users can actually change this (see
+        # resolve_branch_for_update) — everyone else keeps the branch
+        # they already had, same as before this was editable at all.
+        base_branch_id = resolve_branch_for_update(request, data, first_item.base_branch_id)
         # Preserve the document's original budget year across an edit — an
         # edit doesn't reclassify which budget year the document belongs to,
         # even if the site-wide active year has since moved on.
@@ -787,6 +854,100 @@ def update_document_api(request, doc_type, doc_no):
                     )
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
                 
+        return JsonResponse({'status': 'success'})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)})
+
+@login_required_json
+@require_not_frozen
+def approve_document_api(request, doc_type, doc_no):
+    """Locks a document in as final. Privileged (ALL_BRANCH_USERNAMES) only —
+    no manager exception, and no un-approve: this is the one irreversible
+    step in the workflow, matching a real approval sign-off."""
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
+
+    if request.user.username not in ALL_BRANCH_USERNAMES:
+        return JsonResponse({'status': 'error', 'message': 'ไม่มีสิทธิ์ในการอนุมัติเอกสาร'})
+
+    try:
+        model_class = _resolve_model_class(doc_type)
+        if model_class is None:
+            return JsonResponse({'status': 'error', 'message': 'ประเภทเอกสารไม่ถูกต้อง'})
+
+        existing_items = model_class.objects.filter(document_no=doc_no)
+        first_item = existing_items.first()
+        if first_item is None:
+            return JsonResponse({'status': 'error', 'message': 'ไม่พบเอกสาร'})
+
+        # Only a PENDING document can be approved — also doubles as an
+        # idempotency guard against a double-click/race re-approving (or
+        # approving an already-cancelled) document.
+        if first_item.status != STATUS_PENDING:
+            return JsonResponse({'status': 'error', 'message': 'สามารถอนุมัติได้เฉพาะเอกสารที่รออนุมัติเท่านั้น'})
+
+        with transaction.atomic():
+            existing_items.update(
+                status=STATUS_APPROVED,
+                modify_eid=request.user.username,
+                modify_date=datetime.now().replace(microsecond=0),
+            )
+        return JsonResponse({'status': 'success'})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)})
+
+@login_required_json
+@require_not_frozen
+def cancel_document_api(request, doc_type, doc_no):
+    """Sends a document back for correction. ALL_BRANCH_USERNAMES may cancel
+    any document; a MANAGER-tier employee may only cancel a document they
+    created themselves — mirrors update_document_api's own edit-ownership
+    rule exactly, so a manager can't cancel a colleague's or another
+    branch's document via a direct API call. Requires a reason, stored on
+    every row of the document (cancel_reason is cleared again automatically
+    the next time the document is edited and resubmitted — see
+    update_document_api)."""
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
+
+    try:
+        data = json.loads(request.body)
+    except (json.JSONDecodeError, TypeError):
+        data = {}
+    reason = (data.get('cancel_reason') or '').strip()
+    if not reason:
+        return JsonResponse({'status': 'error', 'message': 'กรุณาระบุเหตุผลการยกเลิก'})
+
+    is_privileged = request.user.username in ALL_BRANCH_USERNAMES
+    if not is_privileged and not get_branch_info(request)['is_manager']:
+        return JsonResponse({'status': 'error', 'message': 'ไม่มีสิทธิ์ในการยกเลิกเอกสาร'})
+
+    try:
+        model_class = _resolve_model_class(doc_type)
+        if model_class is None:
+            return JsonResponse({'status': 'error', 'message': 'ประเภทเอกสารไม่ถูกต้อง'})
+
+        existing_items = model_class.objects.filter(document_no=doc_no)
+        first_item = existing_items.first()
+        if first_item is None:
+            return JsonResponse({'status': 'error', 'message': 'ไม่พบเอกสาร'})
+
+        if not is_privileged and first_item.create_eid != request.user.username:
+            return JsonResponse({'status': 'error', 'message': 'คุณยกเลิกได้เฉพาะเอกสารที่ตัวเองสร้างเท่านั้น'})
+
+        # Only a PENDING document can be cancelled — an APPROVED one is
+        # locked (nothing to cancel through this endpoint), and an
+        # already-CANCELLED one is a no-op double-submit.
+        if first_item.status != STATUS_PENDING:
+            return JsonResponse({'status': 'error', 'message': 'สามารถยกเลิกได้เฉพาะเอกสารที่รออนุมัติเท่านั้น'})
+
+        with transaction.atomic():
+            existing_items.update(
+                status=STATUS_CANCELLED,
+                cancel_reason=reason,
+                modify_eid=request.user.username,
+                modify_date=datetime.now().replace(microsecond=0),
+            )
         return JsonResponse({'status': 'success'})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})

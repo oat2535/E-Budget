@@ -5,6 +5,7 @@
 <link href="https://cdn.jsdelivr.net/npm/simple-datatables@7.1.2/dist/style.min.css" rel="stylesheet" type="text/css">
 <link rel="stylesheet" href="{% static 'budget_app/vendor/jexcel/jexcel.css' %}" type="text/css" />
 <link rel="stylesheet" href="{% static 'budget_app/vendor/jsuites/jsuites.css' %}" type="text/css" />
+<link rel="stylesheet" href="{% static 'budget_app/vendor/tom-select/tom-select.bootstrap5.min.css' %}">
 <style>
     .jexcel_container {
         width: 100%;
@@ -20,6 +21,30 @@
     }
     .jexcel tbody tr td {
         vertical-align: middle;
+    }
+    /* Distinct from btn-success/bg-success (used by the Medical Equipment
+       badge elsewhere in this page) so the approve action never reads as
+       the same color as an unrelated document-type label. */
+    .btn-approve-doc {
+        background-color: #047857 !important;
+        border-color: #047857 !important;
+        color: #fff !important;
+    }
+    .btn-approve-doc:hover {
+        background-color: #036450 !important;
+        border-color: #036450 !important;
+        color: #fff !important;
+    }
+    /* buildCostCenterSelect/buildBranchSelect (budget_list.js) set
+       dropdownParent: document.body so the panel escapes .table-responsive's
+       forced overflow clipping — but that makes it a sibling of the
+       Bootstrap modal in the DOM, not a descendant, so plain DOM order no
+       longer puts it on top. TomSelect's default z-index (1000) loses to
+       both Bootstrap's modal (1055) and its backdrop (1050), rendering the
+       panel completely invisible behind them (not clipped, not empty —
+       genuinely covered). 1075 clears both with room to spare.  */
+    .ts-dropdown {
+        z-index: 1075;
     }
 </style>
 {% endblock %}
@@ -107,6 +132,7 @@
                             <th>Budget Year</th>
                             <th>Date Created</th>
                             <th>Created By</th>
+                            <th>สถานะ</th>
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -144,6 +170,7 @@
                                         <th>ปีงบประมาณ</th>
                                         <th>ผู้สร้าง</th>
                                         <th>วันที่สร้าง</th>
+                                        <th>สถานะ</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -155,6 +182,7 @@
                                         <td id="modalDocBudgetYear"></td>
                                         <td id="modalDocCreator"></td>
                                         <td id="modalDocDate"></td>
+                                        <td id="modalDocStatus"></td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -181,6 +209,18 @@
                     </div>
                 </div>
                 <div class="modal-footer">
+                    <div class="me-auto d-flex gap-2">
+                        {% if can_edit_own_documents %}
+                        <button type="button" class="btn btn-outline-danger" id="btnCancelDocument" onclick="cancelDocument()">
+                            <i data-feather="x-circle" class="me-1"></i> ยกเลิกเอกสาร
+                        </button>
+                        {% endif %}
+                        {% if is_privileged_user %}
+                        <button type="button" class="btn btn-approve-doc" id="btnApproveDocument" onclick="approveDocument()">
+                            <i data-feather="check-circle" class="me-1"></i> อนุมัติเอกสาร
+                        </button>
+                        {% endif %}
+                    </div>
                     {% if can_edit_own_documents %}
                     <button type="button" class="btn btn-primary" id="btnEditMode" onclick="toggleEditMode()">
                         <i data-feather="edit-2" class="me-1"></i> แก้ไขข้อมูล
@@ -223,6 +263,7 @@
                                         <th>ปีงบประมาณ</th>
                                         <th>ผู้สร้าง</th>
                                         <th>วันที่สร้าง</th>
+                                        <th>สถานะ</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -234,6 +275,7 @@
                                         <td id="adjModalDocBudgetYear"></td>
                                         <td id="adjModalDocCreator"></td>
                                         <td id="adjModalDocDate"></td>
+                                        <td id="adjModalDocStatus"></td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -271,6 +313,18 @@
                     </div>
                 </div>
                 <div class="modal-footer">
+                    <div class="me-auto d-flex gap-2">
+                        {% if can_edit_own_documents %}
+                        <button type="button" class="btn btn-outline-danger" id="btnAdjCancelDocument" onclick="cancelAdjDocument()">
+                            <i data-feather="x-circle" class="me-1"></i> ยกเลิกเอกสาร
+                        </button>
+                        {% endif %}
+                        {% if is_privileged_user %}
+                        <button type="button" class="btn btn-approve-doc" id="btnAdjApproveDocument" onclick="approveAdjDocument()">
+                            <i data-feather="check-circle" class="me-1"></i> อนุมัติเอกสาร
+                        </button>
+                        {% endif %}
+                    </div>
                     {% if can_edit_own_documents %}
                     <button type="button" class="btn btn-primary text-white" id="btnAdjEditMode" onclick="toggleAdjEditMode()">
                         <i data-feather="edit-2" class="me-1"></i> แก้ไขข้อมูล
@@ -313,6 +367,7 @@
                                         <th>ปีงบประมาณ</th>
                                         <th>ผู้สร้าง</th>
                                         <th>วันที่สร้าง</th>
+                                        <th>สถานะ</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -324,6 +379,7 @@
                                         <td id="glModalDocBudgetYear"></td>
                                         <td id="glModalDocCreator"></td>
                                         <td id="glModalDocDate"></td>
+                                        <td id="glModalDocStatus"></td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -344,6 +400,18 @@
                     </div>
                 </div>
                 <div class="modal-footer">
+                    <div class="me-auto d-flex gap-2">
+                        {% if can_edit_own_documents %}
+                        <button type="button" class="btn btn-outline-danger" id="btnGlCancelDocument" onclick="cancelGlDocument()">
+                            <i data-feather="x-circle" class="me-1"></i> ยกเลิกเอกสาร
+                        </button>
+                        {% endif %}
+                        {% if is_privileged_user %}
+                        <button type="button" class="btn btn-approve-doc" id="btnGlApproveDocument" onclick="approveGlDocument()">
+                            <i data-feather="check-circle" class="me-1"></i> อนุมัติเอกสาร
+                        </button>
+                        {% endif %}
+                    </div>
                     {% if can_edit_own_documents %}
                     <button type="button" class="btn btn-primary" id="btnGlEditMode" onclick="toggleGlEditMode()">
                         <i data-feather="edit-2" class="me-1"></i> แก้ไขข้อมูล
@@ -364,6 +432,7 @@
 <script src="https://cdn.jsdelivr.net/npm/simple-datatables@7.1.2/dist/umd/simple-datatables.min.js" crossorigin="anonymous"></script>
 <script src="{% static 'budget_app/vendor/jexcel/jexcel.js' %}"></script>
 <script src="{% static 'budget_app/vendor/jsuites/jsuites.js' %}"></script>
+<script defer src="{% static 'budget_app/vendor/tom-select/tom-select.complete.min.js' %}"></script>
 
 {{ items_vet_json|json_script:"vet-items-data" }}
 {{ items_non_vet_json|json_script:"nonvet-items-data" }}
@@ -371,6 +440,8 @@
 {{ items_comp_json|json_script:"comp-items-data" }}
 {{ items_furniture_json|json_script:"furniture-items-data" }}
 {{ items_tools_json|json_script:"tools-items-data" }}
+{{ cost_centers_json|json_script:"cost-centers-data" }}
+{{ branch_options_json|json_script:"branch-options-data" }}
 
 <script>
     window.APP_CONFIG = {
@@ -378,11 +449,16 @@
             apiGetDocuments: "{% url 'api_get_documents' 'DUMMY' %}",
             apiDocumentDetail: "{% url 'api_document_detail' 'TYPE' 'DOCNO' %}",
             apiDocumentUpdate: "{% url 'api_document_update' 'TYPE' 'DOCNO' %}",
+            apiDocumentApprove: "{% url 'api_document_approve' 'TYPE' 'DOCNO' %}",
+            apiDocumentCancel: "{% url 'api_document_cancel' 'TYPE' 'DOCNO' %}",
             apiAdjustmentDetail: "{% url 'api_document_detail' 'Position Adjustment' 'DOCNO' %}",
             apiAdjustmentUpdate: "{% url 'api_document_update' 'Position Adjustment' 'DOCNO' %}",
+            apiAdjustmentApprove: "{% url 'api_document_approve' 'Position Adjustment' 'DOCNO' %}",
+            apiAdjustmentCancel: "{% url 'api_document_cancel' 'Position Adjustment' 'DOCNO' %}",
             apiGeneralLedgers: "{% url 'api_general_ledgers' %}"
         },
-        csrfToken: '{{ csrf_token }}'
+        csrfToken: '{{ csrf_token }}',
+        needsBranchSelection: {{ needs_branch_selection|yesno:'true,false' }}
     };
 </script>
 <script src="{% static 'budget_app/js/budget_list.js' %}"></script>
