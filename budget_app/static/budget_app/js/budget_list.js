@@ -55,6 +55,7 @@ const BudgetApp = (function() {
     const compItems = document.getElementById('comp-items-data') ? JSON.parse(document.getElementById('comp-items-data').textContent) : [];
     const furnitureItems = document.getElementById('furniture-items-data') ? JSON.parse(document.getElementById('furniture-items-data').textContent) : [];
     const toolsItems = document.getElementById('tools-items-data') ? JSON.parse(document.getElementById('tools-items-data').textContent) : [];
+    const carItems = document.getElementById('car-items-data') ? JSON.parse(document.getElementById('car-items-data').textContent) : [];
 
     // Cost Center / branch dropdown sources for edit mode — same data the
     // add-budget pages use (get_cost_centers_json / get_branch_selection_context
@@ -153,6 +154,22 @@ const BudgetApp = (function() {
     };
 
     const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
+
+    // Carry-forward budget: every month's cost is the running headcount/diff
+    // total (everything entered so far this year) times the rate, not just
+    // that month's own entry — headcount (or a position change) keeps
+    // costing money in every month after it takes effect, including the
+    // month it started in. Copied verbatim from budget_add.html /
+    // budget_add_non_vet.html / budget_add_adjustment.html so the add and
+    // edit flows compute identically — used by onSpreadsheetChange (VET/NON
+    // VET only) and onAdjSpreadsheetChange below.
+    const computeMonthlyBudget = (monthCounts, rate) => {
+        let cumulative = 0;
+        return monthCounts.map((count) => {
+            cumulative += count;
+            return { count, cost: cumulative * rate };
+        });
+    };
 
     // Set server-side on <body> (see base.html) — the edit button for a
     // document-detail modal only exists in the DOM at all for users who
@@ -280,13 +297,15 @@ const BudgetApp = (function() {
             const isComp = currentDocType === 'Computer Equipment';
             const isFurniture = currentDocType === 'Furniture';
             const isTools = currentDocType === 'Tools & Equipment';
-            const isEquipment = isMed || isComp || isFurniture || isTools;
+            const isCar = currentDocType === 'CAR';
+            const isEquipment = isMed || isComp || isFurniture || isTools || isCar;
             let itemsList = vetItems;
             if (isNonVet) itemsList = nonVetItems;
             if (isMed) itemsList = medItems;
             else if (isComp) itemsList = compItems;
             else if (isFurniture) itemsList = furnitureItems;
             else if (isTools) itemsList = toolsItems;
+            else if (isCar) itemsList = carItems;
 
             // If position changed, update salary
             if (x === 0) {
@@ -326,11 +345,25 @@ const BudgetApp = (function() {
             }
 
             let sum2 = 0;
-            for(let i = startCol; i <= endCol; i++) {
-                const count = getNum(rowData1[i]);
-                const cost = count * total_sal;
-                modalTable2.setValueFromCoords(i, y, cost, true);
-                sum2 += cost;
+            if (isEquipment) {
+                // Equipment is a one-off purchase per month, not a
+                // recurring cost — stays a plain per-month multiply,
+                // matching budget_add_medical_equipment.html etc.
+                for(let i = startCol; i <= endCol; i++) {
+                    const count = getNum(rowData1[i]);
+                    const cost = count * total_sal;
+                    modalTable2.setValueFromCoords(i, y, cost, true);
+                    sum2 += cost;
+                }
+            } else {
+                const monthCounts = [];
+                for(let i = startCol; i <= endCol; i++) {
+                    monthCounts.push(getNum(rowData1[i]));
+                }
+                computeMonthlyBudget(monthCounts, total_sal).forEach((m, idx) => {
+                    modalTable2.setValueFromCoords(startCol + idx, y, m.cost, true);
+                    sum2 += m.cost;
+                });
             }
             modalTable2.setValueFromCoords(endCol + 1, y, sum2, true);
         } finally {
@@ -360,7 +393,9 @@ const BudgetApp = (function() {
                     <tr>
                         <th>Document No</th>
                         <th>Type</th>
+                        <th>Branch</th>
                         <th>Budget Year</th>
+                        <th>Total Budget</th>
                         <th>Date Created</th>
                         <th>Created By</th>
                         <th>สถานะ</th>
@@ -382,6 +417,7 @@ const BudgetApp = (function() {
                     doc.type === 'Computer Equipment' ? '<span class="badge bg-warning text-dark">Computer Equipment</span>' :
                     doc.type === 'Furniture' ? '<span class="badge bg-secondary">Furniture</span>' :
                     doc.type === 'Tools & Equipment' ? '<span class="badge bg-dark">Tools & Equipment</span>' :
+                    doc.type === 'CAR' ? '<span class="badge" style="background-color: #fd7e14;">CAR</span>' :
                     doc.type === 'GL Entry' ? '<span class="badge" style="background-color: #0dcaf0;">GL Entry</span>' :
                     doc.type === 'Budget Plan' ? '<span class="badge" style="background-color: #20c997;">Budget Plan</span>' :
                     '<span class="badge" style="background-color: #6610f2;">NON VET</span>';
@@ -398,7 +434,9 @@ const BudgetApp = (function() {
                     <tr>
                         <td>${doc.document_no}</td>
                         <td>${catBadge}</td>
+                        <td>${doc.base_branch_id || '-'}</td>
                         <td>${doc.budget_year}</td>
+                        <td>${Number(doc.total_budget || 0).toLocaleString('en-US', {maximumFractionDigits: 0})}</td>
                         <td>${doc.create_date}</td>
                         <td>${doc.create_eid}</td>
                         <td>${statusBadge(doc.status)}</td>
@@ -441,7 +479,7 @@ const BudgetApp = (function() {
                 const triggerClear = function() {
                     if (searchInput.value === '') {
                         // Force a complete UI refresh to guarantee stability
-                        applyTypeFilter();
+                        applyFilters();
                     }
                 };
                 searchInput.addEventListener('search', triggerClear);
@@ -451,26 +489,60 @@ const BudgetApp = (function() {
         }, 100);
     }
 
-    function applyTypeFilter() {
+    // filterCreateName/filterBranch/filterCostCenter only exist in the DOM
+    // for is_privileged_user (see budget_list.html) — getElementById returns
+    // null for everyone else, so each read below falls back to 'ALL' (no
+    // constraint) rather than throwing.
+    function applyFilters() {
         const selectedType = document.getElementById('docTypeFilter').value;
-        if (selectedType === 'ALL') {
-            renderDataTable(currentCategoryData);
-        } else {
-            const filteredData = currentCategoryData.filter(doc => doc.type === selectedType);
-            renderDataTable(filteredData);
-        }
+        const createNameEl = document.getElementById('filterCreateName');
+        const branchEl = document.getElementById('filterBranch');
+        const costCenterEl = document.getElementById('filterCostCenter');
+        const selectedCreateName = createNameEl ? createNameEl.value : 'ALL';
+        const selectedBranch = branchEl ? branchEl.value : 'ALL';
+        const selectedCostCenter = costCenterEl ? costCenterEl.value : 'ALL';
+
+        const filteredData = currentCategoryData.filter(doc => {
+            if (selectedType !== 'ALL' && doc.type !== selectedType) return false;
+            if (selectedCreateName !== 'ALL' && doc.create_eid !== selectedCreateName) return false;
+            if (selectedBranch !== 'ALL' && doc.base_branch_id !== selectedBranch) return false;
+            if (selectedCostCenter !== 'ALL' && doc.cost_center_name !== selectedCostCenter) return false;
+            return true;
+        });
+        renderDataTable(filteredData);
+    }
+
+    // Rebuilds the 3 privileged-only filter dropdowns' options from whatever
+    // values actually appear in this category's freshly-fetched data (same
+    // "derive from loaded data" convention docTypeFilter's C01/C02 options
+    // already use) — skipped entirely when the elements aren't in the DOM.
+    function populateExtraFilters(data) {
+        const createNameEl = document.getElementById('filterCreateName');
+        const branchEl = document.getElementById('filterBranch');
+        const costCenterEl = document.getElementById('filterCostCenter');
+        if (!createNameEl && !branchEl && !costCenterEl) return;
+
+        const buildOptions = (el, values, allLabel) => {
+            if (!el) return;
+            const unique = [...new Set(values.filter(v => v && v !== '-'))].sort((a, b) => a.localeCompare(b, 'th'));
+            el.innerHTML = `<option value="ALL">${allLabel}</option>` + unique.map(v => `<option value="${v}">${v}</option>`).join('');
+            el.value = 'ALL';
+        };
+        buildOptions(createNameEl, data.map(d => d.create_eid), 'ผู้สร้างทั้งหมด');
+        buildOptions(branchEl, data.map(d => d.base_branch_id), 'ทุกสาขา');
+        buildOptions(costCenterEl, data.map(d => d.cost_center_name), 'ทุก Cost Center');
     }
 
     // Patches the one row's status in the already-fetched list data and
-    // re-renders locally (via applyTypeFilter, which respects whatever type
-    // filter is currently selected) — cheaper than re-fetching the whole
-    // category, and doesn't reset the user's filter back to "ALL" the way
+    // re-renders locally (via applyFilters, which respects whatever filters
+    // are currently selected) — cheaper than re-fetching the whole
+    // category, and doesn't reset the user's filters back to "ALL" the way
     // calling fetchDocuments() again would.
     function updateListRowStatus(docNo, newStatus) {
         const doc = currentCategoryData.find(d => d.document_no === docNo);
         if (doc) {
             doc.status = newStatus;
-            applyTypeFilter();
+            applyFilters();
         }
     }
 
@@ -494,26 +566,39 @@ const BudgetApp = (function() {
                 <option value="Computer Equipment">Computer Equipment</option>
                 <option value="Furniture">Furniture</option>
                 <option value="Tools & Equipment">Tools & Equipment</option>
+                <option value="CAR">CAR</option>
             `;
         }
         
         const urlTemplate = window.APP_CONFIG.urls.apiGetDocuments;
         const url = urlTemplate.replace('DUMMY', categoryCode);
-        
+
+        // filterCreateName/filterBranch/filterCostCenter only exist for
+        // is_privileged_user — each toggle is a no-op (skipped) otherwise.
+        const setExtraFiltersDisplay = (value) => {
+            ['filterCreateName', 'filterBranch', 'filterCostCenter'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = value;
+            });
+        };
+
         document.getElementById('placeholderText').style.display = 'none';
         document.getElementById('tableContainer').style.display = 'none';
         document.getElementById('loadingSpinner').style.display = 'block';
         document.getElementById('docTypeFilter').style.display = 'none';
+        setExtraFiltersDisplay('none');
 
         fetch(url, { signal: fetchController.signal })
             .then(handleApiResponse)
             .then(result => {
                 document.getElementById('loadingSpinner').style.display = 'none';
-                
+
                 if (result.status === 'success' && result.data && result.data.length > 0) {
                     currentCategoryData = result.data;
                     document.getElementById('docTypeFilter').style.display = 'inline-block';
                     document.getElementById('docTypeFilter').value = 'ALL';
+                    populateExtraFilters(currentCategoryData);
+                    setExtraFiltersDisplay('inline-block');
                     renderDataTable(currentCategoryData);
                 } else {
                     currentCategoryData = [];
@@ -532,6 +617,7 @@ const BudgetApp = (function() {
                 document.getElementById('loadingSpinner').style.display = 'none';
                 document.getElementById('tableContainer').style.display = 'none';
                 document.getElementById('docTypeFilter').style.display = 'none';
+                setExtraFiltersDisplay('none');
                 document.getElementById('placeholderText').style.display = 'block';
                 document.getElementById('placeholderText').innerText = 'ยังไม่มีรายการเอกสารสำหรับหมวดหมู่นี้ หรือเซิร์ฟเวอร์ไม่สามารถตอบสนองได้';
                 document.getElementById('placeholderText').className = 'text-muted'; // Remove text-danger if previously added
@@ -631,7 +717,8 @@ const BudgetApp = (function() {
                     const isComp = result.doc_info.type === 'Computer Equipment';
                     const isFurniture = result.doc_info.type === 'Furniture';
                     const isTools = result.doc_info.type === 'Tools & Equipment';
-                    const isEquipment = isMed || isComp || isFurniture || isTools;
+                    const isCar = result.doc_info.type === 'CAR';
+                    const isEquipment = isMed || isComp || isFurniture || isTools || isCar;
 
                     // Columns setup
                     const columns = [
@@ -755,13 +842,15 @@ const BudgetApp = (function() {
         const isComp = currentDocType === 'Computer Equipment';
         const isFurniture = currentDocType === 'Furniture';
         const isTools = currentDocType === 'Tools & Equipment';
-        const isEquipment = isMed || isComp || isFurniture || isTools;
+        const isCar = currentDocType === 'CAR';
+        const isEquipment = isMed || isComp || isFurniture || isTools || isCar;
         let itemsList = vetItems;
         if (isNonVet) itemsList = nonVetItems;
         if (isMed) itemsList = medItems;
         else if (isComp) itemsList = compItems;
         else if (isFurniture) itemsList = furnitureItems;
         else if (isTools) itemsList = toolsItems;
+        else if (isCar) itemsList = carItems;
         // Sorted once here (not inside the dropdown's per-click rebuild,
         // which jspreadsheet/jSuites always re-sorts internally regardless —
         // pre-sorting lets that repeated internal sort do less work).
@@ -853,7 +942,8 @@ const BudgetApp = (function() {
         const isComp = currentDocType === 'Computer Equipment';
         const isFurniture = currentDocType === 'Furniture';
         const isTools = currentDocType === 'Tools & Equipment';
-        const isEquipment = isMed || isComp || isFurniture || isTools;
+        const isCar = currentDocType === 'CAR';
+        const isEquipment = isMed || isComp || isFurniture || isTools || isCar;
         const startCol = isNonVet ? 3 : 2;
         
         let rows = modalTable1.getData();
@@ -1731,20 +1821,22 @@ const BudgetApp = (function() {
                         ];
                         let r2 = [item.old_position_name, item.new_position_name, diffSal];
                         let r3 = [item.old_position_name, item.new_position_name, diffAllow];
-                        
-                        let sumHC = 0, sumSalCost = 0, sumAllowCost = 0;
+
                         const mKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-                        mKeys.forEach(k => {
-                            let hc = parseFloat((m[k] || {}).headcount) || 0;
-                            r1.push(hc);
-                            r2.push(hc * diffSal);
-                            r3.push(hc * diffAllow);
-                            sumHC += hc;
-                            sumSalCost += hc * diffSal;
-                            sumAllowCost += hc * diffAllow;
-                        });
+                        const monthHeadcounts = mKeys.map(k => parseFloat((m[k] || {}).headcount) || 0);
+                        let sumHC = 0;
+                        monthHeadcounts.forEach(hc => { r1.push(hc); sumHC += hc; });
                         r1.push(sumHC);
+
+                        // Carry-forward, same as onAdjSpreadsheetChange/budget_add_adjustment.html
+                        // — a position change's cost keeps applying to every month after it
+                        // takes effect, not just the month it was entered in.
+                        let sumSalCost = 0;
+                        computeMonthlyBudget(monthHeadcounts, diffSal).forEach(m => { r2.push(m.cost); sumSalCost += m.cost; });
                         r2.push(sumSalCost);
+
+                        let sumAllowCost = 0;
+                        computeMonthlyBudget(monthHeadcounts, diffAllow).forEach(m => { r3.push(m.cost); sumAllowCost += m.cost; });
                         r3.push(sumAllowCost);
                         
                         data1.push(r1);
@@ -1857,13 +1949,16 @@ const BudgetApp = (function() {
             adjTable2.setValueFromCoords(1, y, newPos, true);
             adjTable2.setValueFromCoords(2, y, diffSal, true);
 
-            let sumSalCost = 0;
+            const monthHeadcounts = [];
             for(let i = 10; i <= 21; i++) {
-                const count = getNum(rowData1[i]);
-                const cost = count * diffSal;
-                adjTable2.setValueFromCoords(i - 7, y, cost, true);
-                sumSalCost += cost;
+                monthHeadcounts.push(getNum(rowData1[i]));
             }
+
+            let sumSalCost = 0;
+            computeMonthlyBudget(monthHeadcounts, diffSal).forEach((m, idx) => {
+                adjTable2.setValueFromCoords(10 - 7 + idx, y, m.cost, true);
+                sumSalCost += m.cost;
+            });
             adjTable2.setValueFromCoords(15, y, sumSalCost, true);
 
             adjTable3.setValueFromCoords(0, y, oldPos, true);
@@ -1871,12 +1966,10 @@ const BudgetApp = (function() {
             adjTable3.setValueFromCoords(2, y, diffAllow, true);
 
             let sumAllowCost = 0;
-            for(let i = 10; i <= 21; i++) {
-                const count = getNum(rowData1[i]);
-                const cost = count * diffAllow;
-                adjTable3.setValueFromCoords(i - 7, y, cost, true);
-                sumAllowCost += cost;
-            }
+            computeMonthlyBudget(monthHeadcounts, diffAllow).forEach((m, idx) => {
+                adjTable3.setValueFromCoords(10 - 7 + idx, y, m.cost, true);
+                sumAllowCost += m.cost;
+            });
             adjTable3.setValueFromCoords(15, y, sumAllowCost, true);
         } finally {
             // Always clear the guard, even if something above throws —
@@ -2180,7 +2273,7 @@ const BudgetApp = (function() {
     // ---- Public API ----
     return {
         fetchDocuments: fetchDocuments,
-        applyTypeFilter: applyTypeFilter,
+        applyFilters: applyFilters,
         viewDocumentDetails: viewDocumentDetails,
         viewGeneralLedgerDocumentDetails: viewGeneralLedgerDocumentDetails,
         toggleGlEditMode: toggleGlEditMode,
@@ -2204,7 +2297,7 @@ const BudgetApp = (function() {
 
 // Expose to window for inline onclick handlers
 window.fetchDocuments = BudgetApp.fetchDocuments;
-window.applyTypeFilter = BudgetApp.applyTypeFilter;
+window.applyFilters = BudgetApp.applyFilters;
 window.viewDocumentDetails = BudgetApp.viewDocumentDetails;
 window.viewGeneralLedgerDocumentDetails = BudgetApp.viewGeneralLedgerDocumentDetails;
 window.toggleGlEditMode = BudgetApp.toggleGlEditMode;

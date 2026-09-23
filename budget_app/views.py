@@ -7,10 +7,10 @@ from django.db import transaction
 from django.contrib.auth import authenticate, login
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Sum
 from master_data.models import ebudget_budget_item_master, ebudget_budget_category_master, ebudget_cost_center_master, ebudget_general_ledger_master
 from django.core.cache import cache
-from budget_app.models import ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment, ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_gl_entry, ebudget_budget_plan_item, SystemSettings, SYSTEM_SETTINGS_CACHE_KEY
+from budget_app.models import ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment, ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_car, ebudget_gl_entry, ebudget_budget_plan_item, SystemSettings, SYSTEM_SETTINGS_CACHE_KEY
 from budget_app.services import BudgetService
 from budget_app.constants import ALL_BRANCH_USERNAMES, STATUS_PENDING, STATUS_APPROVED, STATUS_CANCELLED
 from budget_app.decorators import require_not_frozen
@@ -39,15 +39,17 @@ def get_branch_info(request):
         request.session['branch_info'] = BudgetService.get_branch_info_from_imedx(request.user.username)
     return request.session['branch_info']
 
-def get_branch_filter_kwargs(request):
-    """Filter kwargs scoping budget-document queries to every branch the
-    current user belongs to (plural now — an employee can be assigned more
-    than one). Empty dict for ALL_BRANCH_USERNAMES (no scoping). Fails
-    closed: no resolved branch filters to base_branch_id__in=[], matching
-    no real records, instead of showing everything."""
+def get_document_visibility_filter_kwargs(request):
+    """Filter kwargs scoping which budget documents a user can see (list +
+    detail). ALL_BRANCH_USERNAMES sees everything (empty dict). Everyone
+    else sees only documents they personally created — matched by
+    create_eid, the same field/comparison cancel_document_api's ownership
+    check already uses (request.user.username), so a document keeps
+    showing to its creator even if its branch is later reassigned via the
+    edit-mode branch dropdown."""
     if request.user.username in ALL_BRANCH_USERNAMES:
         return {}
-    return {'base_branch_id__in': get_branch_info(request)['branches']}
+    return {'create_eid': request.user.username}
 
 def get_branch_selection_context(request):
     """Extra template context for the add-budget branch-picker dropdown —
@@ -212,6 +214,14 @@ def budget_list_view(request):
             'purchase_price': float(item.get('purchase_price') or 0)
         })
 
+    car_items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=8).values('item_name', 'purchase_price'))
+    car_items_list = []
+    for item in car_items:
+        car_items_list.append({
+            'name': item['item_name'],
+            'purchase_price': float(item.get('purchase_price') or 0)
+        })
+
     return render(request, 'budget_app/budget_list.html', {
         'categories': categories,
         'items_vet_json': vet_items_list,
@@ -220,6 +230,7 @@ def budget_list_view(request):
         'items_comp_json': comp_items_list,
         'items_furniture_json': furniture_items_list,
         'items_tools_json': tools_items_list,
+        'items_car_json': car_items_list,
         'cost_centers_json': get_cost_centers_json(),
         **get_branch_selection_context(request),
     })
@@ -332,33 +343,42 @@ def budget_add_non_vet_view(request):
 
 @login_required_json
 def get_budget_documents_api(request, category_code):
-    branch_filter = get_branch_filter_kwargs(request)
+    visibility_filter = get_document_visibility_filter_kwargs(request)
     if category_code == 'C01':
         # Fetch VET — Group by document_no only to avoid row-per-row timestamps splitting documents
-        vet_docs = ebudget_vet_manpower.objects.filter(**branch_filter).values('document_no').annotate(
-            total_positions=Count('id'),
+        vet_docs = ebudget_vet_manpower.objects.filter(**visibility_filter).values('document_no').annotate(
+            total_budget=Sum('monthly_details__cost'),
+            total_positions=Count('id', distinct=True),
             create_date=Max('create_date'),
             create_eid=Max('create_eid'),
             budget_year=Max('budget_year'),
-            status=Max('status')
+            status=Max('status'),
+            base_branch_id=Max('base_branch_id'),
+            cost_center_name=Max('cost_center_name')
         )
 
         # Fetch NON VET
-        non_vet_docs = ebudget_non_vet_manpower.objects.filter(**branch_filter).values('document_no').annotate(
-            total_positions=Count('id'),
+        non_vet_docs = ebudget_non_vet_manpower.objects.filter(**visibility_filter).values('document_no').annotate(
+            total_budget=Sum('monthly_details__cost'),
+            total_positions=Count('id', distinct=True),
             create_date=Max('create_date'),
             create_eid=Max('create_eid'),
             budget_year=Max('budget_year'),
-            status=Max('status')
+            status=Max('status'),
+            base_branch_id=Max('base_branch_id'),
+            cost_center_name=Max('cost_center_name')
         )
 
         # Fetch Position Adjustment
-        adj_docs = ebudget_position_adjustment.objects.filter(**branch_filter).values('document_no').annotate(
-            total_positions=Count('id'),
+        adj_docs = ebudget_position_adjustment.objects.filter(**visibility_filter).values('document_no').annotate(
+            total_budget=Sum('monthly_details__cost'),
+            total_positions=Count('id', distinct=True),
             create_date=Max('create_date'),
             create_eid=Max('create_eid'),
             budget_year=Max('budget_year'),
-            status=Max('status')
+            status=Max('status'),
+            base_branch_id=Max('base_branch_id'),
+            cost_center_name=Max('cost_center_name')
         )
 
         results = []
@@ -371,6 +391,9 @@ def get_budget_documents_api(request, category_code):
                 'total_positions': doc['total_positions'],
                 'budget_year': doc['budget_year'] or '-',
                 'status': doc['status'] or STATUS_PENDING,
+                'base_branch_id': doc['base_branch_id'] or '-',
+                'cost_center_name': doc['cost_center_name'] or '-',
+                'total_budget': float(doc['total_budget'] or 0),
                 'type': 'VET'
             })
 
@@ -383,6 +406,9 @@ def get_budget_documents_api(request, category_code):
                 'total_positions': doc['total_positions'],
                 'budget_year': doc['budget_year'] or '-',
                 'status': doc['status'] or STATUS_PENDING,
+                'base_branch_id': doc['base_branch_id'] or '-',
+                'cost_center_name': doc['cost_center_name'] or '-',
+                'total_budget': float(doc['total_budget'] or 0),
                 'type': 'NON VET'
             })
 
@@ -395,6 +421,9 @@ def get_budget_documents_api(request, category_code):
                 'total_positions': doc['total_positions'],
                 'budget_year': doc['budget_year'] or '-',
                 'status': doc['status'] or STATUS_PENDING,
+                'base_branch_id': doc['base_branch_id'] or '-',
+                'cost_center_name': doc['cost_center_name'] or '-',
+                'total_budget': float(doc['total_budget'] or 0),
                 'type': 'Position Adjustment'
             })
             
@@ -403,36 +432,59 @@ def get_budget_documents_api(request, category_code):
     
     elif category_code == 'C02':
         # Fetch Medical Equipment — Group by document_no only
-        med_docs = ebudget_medical_equipment.objects.filter(**branch_filter).values('document_no').annotate(
-            total_positions=Count('id'),
+        med_docs = ebudget_medical_equipment.objects.filter(**visibility_filter).values('document_no').annotate(
+            total_budget=Sum('monthly_details__cost'),
+            total_positions=Count('id', distinct=True),
             create_date=Max('create_date'),
             create_eid=Max('create_eid'),
             budget_year=Max('budget_year'),
-            status=Max('status')
+            status=Max('status'),
+            base_branch_id=Max('base_branch_id'),
+            cost_center_name=Max('cost_center_name')
         )
 
-        comp_docs = ebudget_computer_equipment.objects.filter(**branch_filter).values('document_no').annotate(
-            total_positions=Count('id'),
+        comp_docs = ebudget_computer_equipment.objects.filter(**visibility_filter).values('document_no').annotate(
+            total_budget=Sum('monthly_details__cost'),
+            total_positions=Count('id', distinct=True),
             create_date=Max('create_date'),
             create_eid=Max('create_eid'),
             budget_year=Max('budget_year'),
-            status=Max('status')
+            status=Max('status'),
+            base_branch_id=Max('base_branch_id'),
+            cost_center_name=Max('cost_center_name')
         )
 
-        furniture_docs = ebudget_furniture.objects.filter(**branch_filter).values('document_no').annotate(
-            total_positions=Count('id'),
+        furniture_docs = ebudget_furniture.objects.filter(**visibility_filter).values('document_no').annotate(
+            total_budget=Sum('monthly_details__cost'),
+            total_positions=Count('id', distinct=True),
             create_date=Max('create_date'),
             create_eid=Max('create_eid'),
             budget_year=Max('budget_year'),
-            status=Max('status')
+            status=Max('status'),
+            base_branch_id=Max('base_branch_id'),
+            cost_center_name=Max('cost_center_name')
         )
 
-        tools_docs = ebudget_tools_equipment.objects.filter(**branch_filter).values('document_no').annotate(
-            total_positions=Count('id'),
+        tools_docs = ebudget_tools_equipment.objects.filter(**visibility_filter).values('document_no').annotate(
+            total_budget=Sum('monthly_details__cost'),
+            total_positions=Count('id', distinct=True),
             create_date=Max('create_date'),
             create_eid=Max('create_eid'),
             budget_year=Max('budget_year'),
-            status=Max('status')
+            status=Max('status'),
+            base_branch_id=Max('base_branch_id'),
+            cost_center_name=Max('cost_center_name')
+        )
+
+        car_docs = ebudget_car.objects.filter(**visibility_filter).values('document_no').annotate(
+            total_budget=Sum('monthly_details__cost'),
+            total_positions=Count('id', distinct=True),
+            create_date=Max('create_date'),
+            create_eid=Max('create_eid'),
+            budget_year=Max('budget_year'),
+            status=Max('status'),
+            base_branch_id=Max('base_branch_id'),
+            cost_center_name=Max('cost_center_name')
         )
 
         results = []
@@ -445,6 +497,9 @@ def get_budget_documents_api(request, category_code):
                 'total_positions': doc['total_positions'],
                 'budget_year': doc['budget_year'] or '-',
                 'status': doc['status'] or STATUS_PENDING,
+                'base_branch_id': doc['base_branch_id'] or '-',
+                'cost_center_name': doc['cost_center_name'] or '-',
+                'total_budget': float(doc['total_budget'] or 0),
                 'type': 'Medical Equipment'
             })
 
@@ -457,6 +512,9 @@ def get_budget_documents_api(request, category_code):
                 'total_positions': doc['total_positions'],
                 'budget_year': doc['budget_year'] or '-',
                 'status': doc['status'] or STATUS_PENDING,
+                'base_branch_id': doc['base_branch_id'] or '-',
+                'cost_center_name': doc['cost_center_name'] or '-',
+                'total_budget': float(doc['total_budget'] or 0),
                 'type': 'Computer Equipment'
             })
 
@@ -469,6 +527,9 @@ def get_budget_documents_api(request, category_code):
                 'total_positions': doc['total_positions'],
                 'budget_year': doc['budget_year'] or '-',
                 'status': doc['status'] or STATUS_PENDING,
+                'base_branch_id': doc['base_branch_id'] or '-',
+                'cost_center_name': doc['cost_center_name'] or '-',
+                'total_budget': float(doc['total_budget'] or 0),
                 'type': 'Furniture'
             })
 
@@ -481,7 +542,25 @@ def get_budget_documents_api(request, category_code):
                 'total_positions': doc['total_positions'],
                 'budget_year': doc['budget_year'] or '-',
                 'status': doc['status'] or STATUS_PENDING,
+                'base_branch_id': doc['base_branch_id'] or '-',
+                'cost_center_name': doc['cost_center_name'] or '-',
+                'total_budget': float(doc['total_budget'] or 0),
                 'type': 'Tools & Equipment'
+            })
+
+        for doc in car_docs:
+            results.append({
+                'document_no': doc['document_no'] or '-',
+                'create_date_raw': doc['create_date'].isoformat() if doc['create_date'] else '',
+                'create_date': doc['create_date'].strftime('%d/%m/%Y %H:%M') if doc['create_date'] else '-',
+                'create_eid': doc['create_eid'] or '-',
+                'total_positions': doc['total_positions'],
+                'budget_year': doc['budget_year'] or '-',
+                'status': doc['status'] or STATUS_PENDING,
+                'base_branch_id': doc['base_branch_id'] or '-',
+                'cost_center_name': doc['cost_center_name'] or '-',
+                'total_budget': float(doc['total_budget'] or 0),
+                'type': 'CAR'
             })
 
         results.sort(key=lambda x: x['create_date_raw'], reverse=True)
@@ -489,21 +568,27 @@ def get_budget_documents_api(request, category_code):
 
     elif category_code == 'C03':
         # Fetch GL Entry
-        gl_docs = ebudget_gl_entry.objects.filter(**branch_filter).values('document_no').annotate(
-            total_positions=Count('id'),
+        gl_docs = ebudget_gl_entry.objects.filter(**visibility_filter).values('document_no').annotate(
+            total_budget=Sum('monthly_details__amount'),
+            total_positions=Count('id', distinct=True),
             create_date=Max('create_date'),
             create_eid=Max('create_eid'),
             budget_year=Max('budget_year'),
-            status=Max('status')
+            status=Max('status'),
+            base_branch_id=Max('base_branch_id'),
+            cost_center_name=Max('cost_center_name')
         )
 
         # Fetch Budget Plan
-        plan_docs = ebudget_budget_plan_item.objects.filter(**branch_filter).values('document_no').annotate(
-            total_positions=Count('id'),
+        plan_docs = ebudget_budget_plan_item.objects.filter(**visibility_filter).values('document_no').annotate(
+            total_budget=Sum('monthly_details__amount'),
+            total_positions=Count('id', distinct=True),
             create_date=Max('create_date'),
             create_eid=Max('create_eid'),
             budget_year=Max('budget_year'),
-            status=Max('status')
+            status=Max('status'),
+            base_branch_id=Max('base_branch_id'),
+            cost_center_name=Max('cost_center_name')
         )
 
         results = []
@@ -516,6 +601,9 @@ def get_budget_documents_api(request, category_code):
                 'total_positions': doc['total_positions'],
                 'budget_year': doc['budget_year'] or '-',
                 'status': doc['status'] or STATUS_PENDING,
+                'base_branch_id': doc['base_branch_id'] or '-',
+                'cost_center_name': doc['cost_center_name'] or '-',
+                'total_budget': float(doc['total_budget'] or 0),
                 'type': 'GL Entry'
             })
 
@@ -528,6 +616,9 @@ def get_budget_documents_api(request, category_code):
                 'total_positions': doc['total_positions'],
                 'budget_year': doc['budget_year'] or '-',
                 'status': doc['status'] or STATUS_PENDING,
+                'base_branch_id': doc['base_branch_id'] or '-',
+                'cost_center_name': doc['cost_center_name'] or '-',
+                'total_budget': float(doc['total_budget'] or 0),
                 'type': 'Budget Plan'
             })
 
@@ -549,31 +640,34 @@ def _resolve_model_class(doc_type):
         'Computer Equipment': ebudget_computer_equipment,
         'Furniture': ebudget_furniture,
         'Tools & Equipment': ebudget_tools_equipment,
+        'CAR': ebudget_car,
         'GL Entry': ebudget_gl_entry,
         'Budget Plan': ebudget_budget_plan_item,
     }.get(doc_type)
 
 @login_required_json
 def get_document_detail_api(request, doc_type, doc_no):
-    branch_filter = get_branch_filter_kwargs(request)
+    visibility_filter = get_document_visibility_filter_kwargs(request)
     if doc_type == 'VET':
-        items = ebudget_vet_manpower.objects.filter(document_no=doc_no, **branch_filter)
+        items = ebudget_vet_manpower.objects.filter(document_no=doc_no, **visibility_filter)
     elif doc_type == 'NON VET':
-        items = ebudget_non_vet_manpower.objects.filter(document_no=doc_no, **branch_filter)
+        items = ebudget_non_vet_manpower.objects.filter(document_no=doc_no, **visibility_filter)
     elif doc_type == 'Position Adjustment':
-        items = ebudget_position_adjustment.objects.filter(document_no=doc_no, **branch_filter)
+        items = ebudget_position_adjustment.objects.filter(document_no=doc_no, **visibility_filter)
     elif doc_type == 'Medical Equipment':
-        items = ebudget_medical_equipment.objects.filter(document_no=doc_no, **branch_filter)
+        items = ebudget_medical_equipment.objects.filter(document_no=doc_no, **visibility_filter)
     elif doc_type == 'Computer Equipment':
-        items = ebudget_computer_equipment.objects.filter(document_no=doc_no, **branch_filter)
+        items = ebudget_computer_equipment.objects.filter(document_no=doc_no, **visibility_filter)
     elif doc_type == 'Furniture':
-        items = ebudget_furniture.objects.filter(document_no=doc_no, **branch_filter)
+        items = ebudget_furniture.objects.filter(document_no=doc_no, **visibility_filter)
     elif doc_type == 'Tools & Equipment':
-        items = ebudget_tools_equipment.objects.filter(document_no=doc_no, **branch_filter)
+        items = ebudget_tools_equipment.objects.filter(document_no=doc_no, **visibility_filter)
+    elif doc_type == 'CAR':
+        items = ebudget_car.objects.filter(document_no=doc_no, **visibility_filter)
     elif doc_type == 'GL Entry':
-        items = ebudget_gl_entry.objects.filter(document_no=doc_no, **branch_filter)
+        items = ebudget_gl_entry.objects.filter(document_no=doc_no, **visibility_filter)
     elif doc_type == 'Budget Plan':
-        items = ebudget_budget_plan_item.objects.filter(document_no=doc_no, **branch_filter)
+        items = ebudget_budget_plan_item.objects.filter(document_no=doc_no, **visibility_filter)
     else:
         return JsonResponse({'status': 'error', 'message': 'ประเภทเอกสารไม่ถูกต้อง'})
 
@@ -611,7 +705,7 @@ def get_document_detail_api(request, doc_type, doc_no):
                 'new_allowance': float(item.new_allowance),
                 'monthly_data': item.monthly_data_dict
             }
-        elif doc_type == 'Medical Equipment' or doc_type == 'Computer Equipment' or doc_type == 'Furniture' or doc_type == 'Tools & Equipment':
+        elif doc_type == 'Medical Equipment' or doc_type == 'Computer Equipment' or doc_type == 'Furniture' or doc_type == 'Tools & Equipment' or doc_type == 'CAR':
             data = {
                 'item_name': item.item_name,
                 'purchase_price': float(item.purchase_price),
@@ -688,6 +782,8 @@ def update_document_api(request, doc_type, doc_no):
             model_class = ebudget_furniture
         elif doc_type == 'Tools & Equipment':
             model_class = ebudget_tools_equipment
+        elif doc_type == 'CAR':
+            model_class = ebudget_car
         elif doc_type == 'GL Entry':
             model_class = ebudget_gl_entry
         elif doc_type == 'Budget Plan':
@@ -731,7 +827,7 @@ def update_document_api(request, doc_type, doc_no):
         # doc_type; GL Entry/Budget Plan don't resolve a master item at all.
         if doc_type == 'Position Adjustment':
             lookup_field = 'new_position_name'
-        elif doc_type in ('Medical Equipment', 'Computer Equipment', 'Furniture', 'Tools & Equipment'):
+        elif doc_type in ('Medical Equipment', 'Computer Equipment', 'Furniture', 'Tools & Equipment', 'CAR'):
             lookup_field = 'item_name'
         elif doc_type in ('GL Entry', 'Budget Plan'):
             lookup_field = None
@@ -784,7 +880,7 @@ def update_document_api(request, doc_type, doc_no):
                     )
 
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
-                elif doc_type == 'Medical Equipment' or doc_type == 'Computer Equipment' or doc_type == 'Furniture' or doc_type == 'Tools & Equipment':
+                elif doc_type == 'Medical Equipment' or doc_type == 'Computer Equipment' or doc_type == 'Furniture' or doc_type == 'Tools & Equipment' or doc_type == 'CAR':
                     master_obj, gl_code = master_fks.get(item['item_name'], (None, None))
                     obj = model_class.objects.create(
                         item_name=item['item_name'],
@@ -1091,6 +1187,11 @@ def budget_add_furniture_view(request):
 @require_not_frozen
 def budget_add_tools_equipment_view(request):
     return _budget_add_equipment_view(request, ebudget_tools_equipment, 'Tools & Equipment', 'budget_app/budget_add_tools_equipment.html', 7)
+
+@login_required
+@require_not_frozen
+def budget_add_car_view(request):
+    return _budget_add_equipment_view(request, ebudget_car, 'CAR', 'budget_app/budget_add_car.html', 8)
 
 @login_required
 @require_not_frozen

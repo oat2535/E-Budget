@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from budget_app.models import (
     ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment,
-    ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, BudgetMonthlyDetail,
+    ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_car, BudgetMonthlyDetail,
     ebudget_gl_entry, ebudget_gl_entry_monthly_detail,
     ebudget_budget_plan_item, ebudget_budget_plan_monthly_detail
 )
@@ -166,6 +166,7 @@ class BudgetService:
             'Computer Equipment': 'COM',
             'Furniture': 'FUR',
             'Tools & Equipment': 'TEQ',
+            'CAR': 'CAR',
             'GL Entry': 'GLE',
             'Budget Plan': 'PLAN'
         }
@@ -177,6 +178,7 @@ class BudgetService:
             'Computer Equipment': ebudget_computer_equipment,
             'Furniture': ebudget_furniture,
             'Tools & Equipment': ebudget_tools_equipment,
+            'CAR': ebudget_car,
             'GL Entry': ebudget_gl_entry,
             'Budget Plan': ebudget_budget_plan_item
         }
@@ -211,7 +213,8 @@ class BudgetService:
             'Medical Equipment': 'med_equip',
             'Computer Equipment': 'comp_equip',
             'Furniture': 'furniture_equip',
-            'Tools & Equipment': 'tools_equip'
+            'Tools & Equipment': 'tools_equip',
+            'CAR': 'car_equip'
         }
         fk_field = fk_field_map.get(doc_type)
         if not fk_field:

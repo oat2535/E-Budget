@@ -439,6 +439,57 @@ class ebudget_tools_equipment(models.Model):
     def __str__(self):
         return f"{self.item_name} - {self.purchase_price}"
 
+class ebudget_car(models.Model):
+    item_name = models.CharField(max_length=255, verbose_name="รถยนต์")
+    purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="ราคาซื้อ")
+    base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
+    department_id = models.CharField(max_length=50, verbose_name="รหัสแผนก", null=True, blank=True)
+    cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
+    document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
+    item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
+    general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
+    budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
+    status = models.CharField(max_length=10, choices=DOCUMENT_STATUS_CHOICES, default=STATUS_PENDING, verbose_name="สถานะ")
+    cancel_reason = models.TextField(null=True, blank=True, verbose_name="เหตุผลการยกเลิก")
+
+    create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
+    create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
+    modify_date = Timestamp0Field(verbose_name="วันที่แก้ไขล่าสุด", null=True, blank=True)
+    modify_eid = models.CharField(max_length=50, verbose_name="ผู้แก้ไข (Employee ID)", null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        from datetime import datetime
+        now = datetime.now().replace(microsecond=0)
+        if not self.id and not self.create_date:
+            self.create_date = now
+        self.modify_date = now
+        super().save(*args, **kwargs)
+
+    @property
+    def monthly_data_dict(self):
+        month_map_rev = {
+            1: 'jan', 2: 'feb', 3: 'mar', 4: 'apr',
+            5: 'may', 6: 'jun', 7: 'jul', 8: 'aug',
+            9: 'sep', 10: 'oct', 11: 'nov', 12: 'dec'
+        }
+        res = {}
+        for detail in self.monthly_details.all():
+            m_str = month_map_rev.get(detail.month)
+            if m_str:
+                res[m_str] = {
+                    'headcount': float(detail.headcount),
+                    'cost': float(detail.cost)
+                }
+        return res
+
+    class Meta:
+        db_table = 'ebudget_car'
+        verbose_name = "CAR Budget"
+        verbose_name_plural = "CAR Budgets"
+
+    def __str__(self):
+        return f"{self.item_name} - {self.purchase_price}"
+
 class BudgetMonthlyDetail(models.Model):
     MONTH_CHOICES = [(i, str(i)) for i in range(1, 13)]
     
@@ -453,6 +504,7 @@ class BudgetMonthlyDetail(models.Model):
     comp_equip = models.ForeignKey(ebudget_computer_equipment, on_delete=models.CASCADE, null=True, blank=True, related_name='monthly_details')
     furniture_equip = models.ForeignKey(ebudget_furniture, on_delete=models.CASCADE, null=True, blank=True, related_name='monthly_details')
     tools_equip = models.ForeignKey(ebudget_tools_equipment, on_delete=models.CASCADE, null=True, blank=True, related_name='monthly_details')
+    car_equip = models.ForeignKey(ebudget_car, on_delete=models.CASCADE, null=True, blank=True, related_name='monthly_details')
 
     class Meta:
         db_table = 'ebudget_monthly_detail'
