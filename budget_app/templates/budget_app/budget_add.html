@@ -33,6 +33,16 @@
     .jexcel tbody tr td {
         vertical-align: middle;
     }
+    /* Text/dropdown columns are set to align:'left' on their column
+       definition (see budget_list.js / this page's inline <script>) so
+       their cell content reads left-aligned — but jexcel ties a column's
+       header alignment to the same `align` property, so without this the
+       header text would also shift left. jexcel sets header alignment as
+       a plain (non-!important) inline style, so this cheaply overrides it
+       back to centered without touching the data cells below. */
+    .jexcel > thead > tr > td {
+        text-align: center !important;
+    }
 </style>
 {% endblock %}
 
@@ -147,7 +157,7 @@
 
         // Columns definition
         const columns = [
-            { type: 'dropdown', title: 'ตำแหน่ง', width: 150, source: itemNames, autocomplete: true },
+            { type: 'dropdown', align: 'left', title: 'ตำแหน่ง', width: 150, source: itemNames, autocomplete: true },
             { type: 'numeric', title: 'เงินเดือน', width: 100, mask: '#,##0' },
             { type: 'numeric', title: 'Jan', width: 85 },
             { type: 'numeric', title: 'Feb', width: 85 },
@@ -165,7 +175,7 @@
         ];
 
         const calcColumns = [
-            { type: 'text', title: 'ตำแหน่ง', width: 150, readOnly: true },
+            { type: 'text', align: 'left', title: 'ตำแหน่ง', width: 150, readOnly: true },
             { type: 'numeric', title: 'เงินเดือน', width: 100, readOnly: true, mask: '#,##0' },
             { type: 'numeric', title: 'Jan', width: 85, readOnly: true, mask: '#,##0' },
             { type: 'numeric', title: 'Feb', width: 85, readOnly: true, mask: '#,##0' },

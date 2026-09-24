@@ -39,6 +39,16 @@
         z-index: 2;
         background-color: #f5f5f5;
     }
+    /* Text/dropdown columns are set to align:'left' on their column
+       definition (see budget_list.js / this page's inline <script>) so
+       their cell content reads left-aligned — but jexcel ties a column's
+       header alignment to the same `align` property, so without this the
+       header text would also shift left. jexcel sets header alignment as
+       a plain (non-!important) inline style, so this cheaply overrides it
+       back to centered without touching the data cells below. */
+    .jexcel > thead > tr > td {
+        text-align: center !important;
+    }
 </style>
 {% endblock %}
 
@@ -161,8 +171,8 @@
         const totalCol = 2 + 12; // 14
 
         const columns = [
-            { type: 'dropdown', title: 'GL', width: 220, source: glNames, autocomplete: true },
-            { type: 'text', title: 'รายละเอียด', width: 150 },
+            { type: 'dropdown', align: 'left', title: 'GL', width: 220, source: glNames, autocomplete: true },
+            { type: 'text', align: 'left', title: 'รายละเอียด', width: 150 },
         ];
         monthTitles.forEach(m => {
             columns.push({ type: 'numeric', title: m, width: 100, mask: '#,##0' });

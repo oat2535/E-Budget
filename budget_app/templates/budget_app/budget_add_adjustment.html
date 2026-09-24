@@ -37,6 +37,16 @@
         background-color: #f8f9fa;
         color: #6c757d;
     }
+    /* Text/dropdown columns are set to align:'left' on their column
+       definition (see budget_list.js / this page's inline <script>) so
+       their cell content reads left-aligned — but jexcel ties a column's
+       header alignment to the same `align` property, so without this the
+       header text would also shift left. jexcel sets header alignment as
+       a plain (non-!important) inline style, so this cheaply overrides it
+       back to centered without touching the data cells below. */
+    .jexcel > thead > tr > td {
+        text-align: center !important;
+    }
 </style>
 {% endblock %}
 
@@ -183,8 +193,8 @@
 
         // Table 1 Config
         const cols1 = [
-            { type: 'dropdown', title: 'ตำแหน่งเดิม', width: 200, source: items, autocomplete: true },
-            { type: 'dropdown', title: 'ตำแหน่งใหม่', width: 200, source: items, autocomplete: true },
+            { type: 'dropdown', align: 'left', title: 'ตำแหน่งเดิม', width: 200, source: items, autocomplete: true },
+            { type: 'dropdown', align: 'left', title: 'ตำแหน่งใหม่', width: 200, source: items, autocomplete: true },
             { type: 'numeric', title: 'เงินเดือนเดิม', width: 100, mask: '#,##0' },
             { type: 'numeric', title: 'ค่าตำแหน่งเดิม', width: 120, mask: '#,##0' },
             { type: 'numeric', title: 'รวมรายได้เดิม', width: 110, readOnly: true, mask: '#,##0' },
@@ -210,8 +220,8 @@
 
         // Table 2 Config
         const cols2 = [
-            { type: 'text', title: 'ตำแหน่งเดิม', width: 200, readOnly: true },
-            { type: 'text', title: 'ตำแหน่งใหม่', width: 200, readOnly: true },
+            { type: 'text', align: 'left', title: 'ตำแหน่งเดิม', width: 200, readOnly: true },
+            { type: 'text', align: 'left', title: 'ตำแหน่งใหม่', width: 200, readOnly: true },
             { type: 'numeric', title: 'ผลต่างเงินเดือน', width: 110, readOnly: true, mask: '#,##0' },
             { type: 'numeric', title: 'Jan', width: 80, readOnly: true, mask: '#,##0' },
             { type: 'numeric', title: 'Feb', width: 80, readOnly: true, mask: '#,##0' },
@@ -230,8 +240,8 @@
 
         // Table 3 Config
         const cols3 = [
-            { type: 'text', title: 'ตำแหน่งเดิม', width: 200, readOnly: true },
-            { type: 'text', title: 'ตำแหน่งใหม่', width: 200, readOnly: true },
+            { type: 'text', align: 'left', title: 'ตำแหน่งเดิม', width: 200, readOnly: true },
+            { type: 'text', align: 'left', title: 'ตำแหน่งใหม่', width: 200, readOnly: true },
             { type: 'numeric', title: 'ผลต่างค่าตำแหน่ง', width: 120, readOnly: true, mask: '#,##0' },
             { type: 'numeric', title: 'Jan', width: 80, readOnly: true, mask: '#,##0' },
             { type: 'numeric', title: 'Feb', width: 80, readOnly: true, mask: '#,##0' },

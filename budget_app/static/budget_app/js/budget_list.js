@@ -755,10 +755,10 @@ const BudgetApp = (function() {
 
                     // Columns setup
                     const columns = [
-                        { type: 'text', title: isEquipment ? 'เครื่องมือ' : 'ตำแหน่ง', width: 250, readOnly: true }
+                        { type: 'text', align: 'left', title: isEquipment ? 'เครื่องมือ' : 'ตำแหน่ง', width: 250, readOnly: true }
                     ];
                     if (isEquipment) {
-                        columns.push({ type: 'text', title: 'รายละเอียด', width: 200, readOnly: true });
+                        columns.push({ type: 'text', align: 'left', title: 'รายละเอียด', width: 200, readOnly: true });
                     }
                     columns.push({ type: 'numeric', title: isEquipment ? 'ราคาซื้อ' : 'เงินเดือน', width: 100, readOnly: true, mask: '#,##0' });
                     if (isNonVet) {
@@ -913,10 +913,10 @@ const BudgetApp = (function() {
 
             // Re-create Table 1 for Edit
             let columns = [
-                { type: 'dropdown', title: isEquipment ? 'เครื่องมือ' : 'ตำแหน่ง', width: 250, source: itemNames, autocomplete: true }
+                { type: 'dropdown', align: 'left', title: isEquipment ? 'เครื่องมือ' : 'ตำแหน่ง', width: 250, source: itemNames, autocomplete: true }
             ];
             if (isEquipment) {
-                columns.push({ type: 'text', title: 'รายละเอียด', width: 200 });
+                columns.push({ type: 'text', align: 'left', title: 'รายละเอียด', width: 200 });
             }
             columns.push({ type: 'numeric', title: isEquipment ? 'ราคาซื้อ' : 'เงินเดือน', width: 100, mask: '#,##0' });
             if (isNonVet) {
@@ -1261,9 +1261,9 @@ const BudgetApp = (function() {
         const monthColumns = monthTitlesShort.map(m => ({ type: 'numeric', title: m, width: 100, readOnly: !editable, mask: '#,##0' }));
         return [
             editable
-                ? { type: 'dropdown', title: 'GL', width: 220, source: glNames, autocomplete: true }
-                : { type: 'text', title: 'GL', width: 220, readOnly: true },
-            { type: 'text', title: 'รายละเอียด', width: 150, readOnly: !editable },
+                ? { type: 'dropdown', align: 'left', title: 'GL', width: 220, source: glNames, autocomplete: true }
+                : { type: 'text', align: 'left', title: 'GL', width: 220, readOnly: true },
+            { type: 'text', align: 'left', title: 'รายละเอียด', width: 150, readOnly: !editable },
             ...monthColumns,
             { type: 'numeric', title: 'รวม', width: 110, readOnly: true, mask: '#,##0' },
         ];
@@ -1280,10 +1280,10 @@ const BudgetApp = (function() {
         const monthColumns = monthTitlesShort.map(m => ({ type: 'numeric', title: m, width: 100, readOnly: !editable, mask: '#,##0' }));
         return [
             editable
-                ? { type: 'dropdown', title: '1. การลงงบ', width: 220, source: glNames, autocomplete: true }
-                : { type: 'text', title: '1. การลงงบ', width: 220, readOnly: true },
-            { type: 'text', title: '#', width: 90, readOnly: !editable },
-            { type: 'text', title: columnLabel, width: 260, readOnly: !editable },
+                ? { type: 'dropdown', align: 'left', title: '1. การลงงบ', width: 220, source: glNames, autocomplete: true }
+                : { type: 'text', align: 'left', title: '1. การลงงบ', width: 220, readOnly: true },
+            { type: 'text', align: 'left', title: '#', width: 90, readOnly: !editable },
+            { type: 'text', align: 'left', title: columnLabel, width: 260, readOnly: !editable },
             ...monthColumns,
             { type: 'numeric', title: 'รวม', width: 110, readOnly: true, mask: '#,##0' },
         ];
@@ -1802,8 +1802,8 @@ const BudgetApp = (function() {
                     const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
                     
                     const cols1 = [
-                        { type: 'text', title: 'ตำแหน่งเดิม', width: 200, readOnly: true },
-                        { type: 'text', title: 'ตำแหน่งใหม่', width: 200, readOnly: true },
+                        { type: 'text', align: 'left', title: 'ตำแหน่งเดิม', width: 200, readOnly: true },
+                        { type: 'text', align: 'left', title: 'ตำแหน่งใหม่', width: 200, readOnly: true },
                         { type: 'numeric', title: 'เงินเดือนเดิม', width: 100, readOnly: true, mask: '#,##0' },
                         { type: 'numeric', title: 'ค่าตำแหน่งเดิม', width: 120, readOnly: true, mask: '#,##0' },
                         { type: 'numeric', title: 'รวมรายได้เดิม', width: 110, readOnly: true, mask: '#,##0' },
@@ -1828,8 +1828,8 @@ const BudgetApp = (function() {
                     ];
 
                     const cols2 = [
-                        { type: 'text', title: 'ตำแหน่งเดิม', width: 200, readOnly: true },
-                        { type: 'text', title: 'ตำแหน่งใหม่', width: 200, readOnly: true },
+                        { type: 'text', align: 'left', title: 'ตำแหน่งเดิม', width: 200, readOnly: true },
+                        { type: 'text', align: 'left', title: 'ตำแหน่งใหม่', width: 200, readOnly: true },
                         { type: 'numeric', title: 'ผลต่างเงินเดือน', width: 110, readOnly: true, mask: '#,##0' },
                         { type: 'numeric', title: 'Jan', width: 80, readOnly: true, mask: '#,##0' },
                         { type: 'numeric', title: 'Feb', width: 80, readOnly: true, mask: '#,##0' },
@@ -1847,8 +1847,8 @@ const BudgetApp = (function() {
                     ];
 
                     const cols3 = [
-                        { type: 'text', title: 'ตำแหน่งเดิม', width: 200, readOnly: true },
-                        { type: 'text', title: 'ตำแหน่งใหม่', width: 200, readOnly: true },
+                        { type: 'text', align: 'left', title: 'ตำแหน่งเดิม', width: 200, readOnly: true },
+                        { type: 'text', align: 'left', title: 'ตำแหน่งใหม่', width: 200, readOnly: true },
                         { type: 'numeric', title: 'ผลต่างค่าตำแหน่ง', width: 120, readOnly: true, mask: '#,##0' },
                         { type: 'numeric', title: 'Jan', width: 80, readOnly: true, mask: '#,##0' },
                         { type: 'numeric', title: 'Feb', width: 80, readOnly: true, mask: '#,##0' },
@@ -2070,8 +2070,8 @@ const BudgetApp = (function() {
             buildBranchSelect('adjModalDocBranch', currentAdjBranchCode, (value) => { currentAdjBranchCode = value; });
 
             const cols1 = [
-                { type: 'dropdown', title: 'ตำแหน่งเดิม', width: 200, source: allAdjItems, autocomplete: true },
-                { type: 'dropdown', title: 'ตำแหน่งใหม่', width: 200, source: allAdjItems, autocomplete: true },
+                { type: 'dropdown', align: 'left', title: 'ตำแหน่งเดิม', width: 200, source: allAdjItems, autocomplete: true },
+                { type: 'dropdown', align: 'left', title: 'ตำแหน่งใหม่', width: 200, source: allAdjItems, autocomplete: true },
                 { type: 'numeric', title: 'เงินเดือนเดิม', width: 100, mask: '#,##0' },
                 { type: 'numeric', title: 'ค่าตำแหน่งเดิม', width: 120, mask: '#,##0' },
                 { type: 'numeric', title: 'รวมรายได้เดิม', width: 110, readOnly: true, mask: '#,##0' },
