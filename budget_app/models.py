@@ -225,6 +225,7 @@ class ebudget_position_adjustment(models.Model):
 
 class ebudget_medical_equipment(models.Model):
     item_name = models.CharField(max_length=255, verbose_name="เครื่องมือ")
+    description = models.CharField(max_length=255, null=True, blank=True, verbose_name="รายละเอียด")
     purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="ราคาซื้อ")
     base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
     # Only set for back-office staff (bank_account_note containing "BACK-<dept>"
@@ -279,6 +280,7 @@ class ebudget_medical_equipment(models.Model):
 
 class ebudget_computer_equipment(models.Model):
     item_name = models.CharField(max_length=255, verbose_name="เครื่องมือ")
+    description = models.CharField(max_length=255, null=True, blank=True, verbose_name="รายละเอียด")
     purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="ราคาซื้อ")
     base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
     # Only set for back-office staff (bank_account_note containing "BACK-<dept>"
@@ -333,6 +335,7 @@ class ebudget_computer_equipment(models.Model):
 
 class ebudget_furniture(models.Model):
     item_name = models.CharField(max_length=255, verbose_name="เครื่องมือ")
+    description = models.CharField(max_length=255, null=True, blank=True, verbose_name="รายละเอียด")
     purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="ราคาซื้อ")
     base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
     # Only set for back-office staff (bank_account_note containing "BACK-<dept>"
@@ -387,6 +390,7 @@ class ebudget_furniture(models.Model):
 
 class ebudget_tools_equipment(models.Model):
     item_name = models.CharField(max_length=255, verbose_name="เครื่องมือ")
+    description = models.CharField(max_length=255, null=True, blank=True, verbose_name="รายละเอียด")
     purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="ราคาซื้อ")
     base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
     # Only set for back-office staff (bank_account_note containing "BACK-<dept>"
@@ -441,6 +445,7 @@ class ebudget_tools_equipment(models.Model):
 
 class ebudget_car(models.Model):
     item_name = models.CharField(max_length=255, verbose_name="รถยนต์")
+    description = models.CharField(max_length=255, null=True, blank=True, verbose_name="รายละเอียด")
     purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="ราคาซื้อ")
     base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
     department_id = models.CharField(max_length=50, verbose_name="รหัสแผนก", null=True, blank=True)

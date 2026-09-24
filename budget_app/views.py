@@ -708,6 +708,7 @@ def get_document_detail_api(request, doc_type, doc_no):
         elif doc_type == 'Medical Equipment' or doc_type == 'Computer Equipment' or doc_type == 'Furniture' or doc_type == 'Tools & Equipment' or doc_type == 'CAR':
             data = {
                 'item_name': item.item_name,
+                'description': item.description or '',
                 'purchase_price': float(item.purchase_price),
                 'monthly_data': item.monthly_data_dict
             }
@@ -884,6 +885,7 @@ def update_document_api(request, doc_type, doc_no):
                     master_obj, gl_code = master_fks.get(item['item_name'], (None, None))
                     obj = model_class.objects.create(
                         item_name=item['item_name'],
+                        description=item.get('description') or None,
                         purchase_price=item['purchase_price'],
                         base_branch_id=base_branch_id,
                         department_id=department_id,
@@ -1139,6 +1141,7 @@ def _budget_add_equipment_view(request, model_class, doc_type, template_name, su
                     master_obj, gl_code = master_fks.get(item['item_name'], (None, None))
                     obj = model_class.objects.create(
                         item_name=item['item_name'],
+                        description=item.get('description') or None,
                         purchase_price=item['purchase_price'],
                         create_eid=username,
                         base_branch_id=branch_id,

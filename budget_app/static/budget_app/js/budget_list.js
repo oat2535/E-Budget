@@ -306,12 +306,16 @@ const BudgetApp = (function() {
             else if (isFurniture) itemsList = furnitureItems;
             else if (isTools) itemsList = toolsItems;
             else if (isCar) itemsList = carItems;
+            // Equipment inserts a "รายละเอียด" text column right after the
+            // item dropdown (col 0), pushing price/months/total each +1 —
+            // priceCol/startCol/endCol below account for that shift.
+            const priceCol = isEquipment ? 2 : 1;
 
             // If position changed, update salary
             if (x === 0) {
                 const match = itemsList.find(i => i.name === value);
                 const salary = match ? (isEquipment ? match.purchase_price : match.salary) : 0;
-                modalTable1.setValueFromCoords(1, y, salary, true);
+                modalTable1.setValueFromCoords(priceCol, y, salary, true);
 
                 if (isNonVet) {
                     const allowance = match ? match.position_allowance : 0;
@@ -322,8 +326,8 @@ const BudgetApp = (function() {
             // Calculate total for this row in table1
             const rowData1 = modalTable1.getRowData(y);
             let sum1 = 0;
-            const startCol = isNonVet ? 3 : 2;
-            const endCol = isNonVet ? 14 : 13;
+            const startCol = (isNonVet || isEquipment) ? 3 : 2;
+            const endCol = (isNonVet || isEquipment) ? 14 : 13;
 
             for(let i = startCol; i <= endCol; i++) {
                 sum1 += getNum(rowData1[i]);
@@ -332,10 +336,14 @@ const BudgetApp = (function() {
 
             // Sync with table2
             const pos = rowData1[0];
-            const sal = getNum(rowData1[1]);
+            const desc = isEquipment ? rowData1[1] : undefined;
+            const sal = getNum(rowData1[priceCol]);
 
             modalTable2.setValueFromCoords(0, y, pos, true);
-            modalTable2.setValueFromCoords(1, y, sal, true);
+            if (isEquipment) {
+                modalTable2.setValueFromCoords(1, y, desc, true);
+            }
+            modalTable2.setValueFromCoords(priceCol, y, sal, true);
 
             let total_sal = sal;
             if (isNonVet) {
@@ -546,6 +554,31 @@ const BudgetApp = (function() {
         }
     }
 
+    // Sums a save payload's monthly costs — costKey is 'cost' for
+    // VET/NON VET/equipment/Position Adjustment or 'amount' for GL
+    // Entry/Budget Plan (see get_budget_documents_api's same split in
+    // views.py). Computed from the payload that's actually being POSTed,
+    // not re-derived some other way, so it can never drift from what
+    // actually gets persisted.
+    function sumMonthlyDataTotal(dataToSave, costKey) {
+        let total = 0;
+        dataToSave.forEach(row => {
+            Object.values(row.monthly_data || {}).forEach(m => { total += Number(m[costKey]) || 0; });
+        });
+        return total;
+    }
+
+    // Same idea as updateListRowStatus, for the Total Budget column — keeps
+    // the background list in sync after an edit-save without waiting for
+    // the user to reopen the category.
+    function updateListRowTotalBudget(docNo, newTotal) {
+        const doc = currentCategoryData.find(d => d.document_no === docNo);
+        if (doc) {
+            doc.total_budget = newTotal;
+            applyFilters();
+        }
+    }
+
     function fetchDocuments(categoryCode) {
         if (fetchController) {
             fetchController.abort(); // Cancel previous request if user clicks quickly
@@ -722,9 +755,12 @@ const BudgetApp = (function() {
 
                     // Columns setup
                     const columns = [
-                        { type: 'text', title: isEquipment ? 'เครื่องมือ' : 'ตำแหน่ง', width: 250, readOnly: true },
-                        { type: 'numeric', title: isEquipment ? 'ราคาซื้อ' : 'เงินเดือน', width: 100, readOnly: true, mask: '#,##0' }
+                        { type: 'text', title: isEquipment ? 'เครื่องมือ' : 'ตำแหน่ง', width: 250, readOnly: true }
                     ];
+                    if (isEquipment) {
+                        columns.push({ type: 'text', title: 'รายละเอียด', width: 200, readOnly: true });
+                    }
+                    columns.push({ type: 'numeric', title: isEquipment ? 'ราคาซื้อ' : 'เงินเดือน', width: 100, readOnly: true, mask: '#,##0' });
                     if (isNonVet) {
                         columns.push({ type: 'numeric', title: 'ค่าวัดระดับ/ตำแหน่ง', width: 150, readOnly: true, mask: '#,##0' });
                     }
@@ -739,14 +775,20 @@ const BudgetApp = (function() {
 
                     result.manpower_list.forEach(item => {
                         let m = item.monthly_data || {};
-                        let row1 = [item.position_name || item.item_name, item.salary || item.purchase_price];
-                        let row2 = [item.position_name || item.item_name, item.salary || item.purchase_price];
-                        
+                        let row1 = [item.position_name || item.item_name];
+                        let row2 = [item.position_name || item.item_name];
+                        if (isEquipment) {
+                            row1.push(item.description || '');
+                            row2.push(item.description || '');
+                        }
+                        row1.push(item.salary || item.purchase_price);
+                        row2.push(item.salary || item.purchase_price);
+
                         if (isNonVet) {
                             row1.push(item.position_allowance || 0);
                             row2.push(item.position_allowance || 0);
                         }
-                        
+
                         let sumCount = 0;
                         let sumCost = 0;
                         const mKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
@@ -761,13 +803,15 @@ const BudgetApp = (function() {
                         });
                         row1.push(sumCount);
                         row2.push(sumCost);
-                        
+
                         data1.push(row1);
                         data2.push(row2);
                     });
-                    
+
                     if (data1.length === 0) {
-                        let emptyRow = isNonVet ? ['','',0,0,0,0,0,0,0,0,0,0,0,0,0,0] : ['','',0,0,0,0,0,0,0,0,0,0,0,0,0];
+                        let emptyRow = new Array(columns.length).fill(0);
+                        emptyRow[0] = '';
+                        if (isEquipment) emptyRow[1] = '';
                         data1.push([...emptyRow]);
                         data2.push([...emptyRow]);
                     }
@@ -869,9 +913,12 @@ const BudgetApp = (function() {
 
             // Re-create Table 1 for Edit
             let columns = [
-                { type: 'dropdown', title: isEquipment ? 'เครื่องมือ' : 'ตำแหน่ง', width: 250, source: itemNames, autocomplete: true },
-                { type: 'numeric', title: isEquipment ? 'ราคาซื้อ' : 'เงินเดือน', width: 100, mask: '#,##0' }
+                { type: 'dropdown', title: isEquipment ? 'เครื่องมือ' : 'ตำแหน่ง', width: 250, source: itemNames, autocomplete: true }
             ];
+            if (isEquipment) {
+                columns.push({ type: 'text', title: 'รายละเอียด', width: 200 });
+            }
+            columns.push({ type: 'numeric', title: isEquipment ? 'ราคาซื้อ' : 'เงินเดือน', width: 100, mask: '#,##0' });
             if (isNonVet) {
                 columns.push({ type: 'numeric', title: 'ค่าวัดระดับ/ตำแหน่ง', width: 150, mask: '#,##0' });
             }
@@ -944,37 +991,49 @@ const BudgetApp = (function() {
         const isTools = currentDocType === 'Tools & Equipment';
         const isCar = currentDocType === 'CAR';
         const isEquipment = isMed || isComp || isFurniture || isTools || isCar;
-        const startCol = isNonVet ? 3 : 2;
-        
+        const priceCol = isEquipment ? 2 : 1;
+        const startCol = (isNonVet || isEquipment) ? 3 : 2;
+
         let rows = modalTable1.getData();
         let dataToSave = [];
-        
+
         for (let i = 0; i < rows.length; i++) {
             let row = rows[i];
             let position = row[0];
-            let salary = getNum(row[1]);
+            let description = isEquipment ? row[1] : undefined;
+            let salary = getNum(row[priceCol]);
             let allowance = isNonVet ? getNum(row[2]) : 0;
-            
+
             if (position && (salary > 0 || allowance > 0)) {
-                let monthlyData = {
-                    'jan': { 'headcount': getNum(row[startCol]), 'cost': getNum(row[startCol]) * (salary + allowance) },
-                    'feb': { 'headcount': getNum(row[startCol+1]), 'cost': getNum(row[startCol+1]) * (salary + allowance) },
-                    'mar': { 'headcount': getNum(row[startCol+2]), 'cost': getNum(row[startCol+2]) * (salary + allowance) },
-                    'apr': { 'headcount': getNum(row[startCol+3]), 'cost': getNum(row[startCol+3]) * (salary + allowance) },
-                    'may': { 'headcount': getNum(row[startCol+4]), 'cost': getNum(row[startCol+4]) * (salary + allowance) },
-                    'jun': { 'headcount': getNum(row[startCol+5]), 'cost': getNum(row[startCol+5]) * (salary + allowance) },
-                    'jul': { 'headcount': getNum(row[startCol+6]), 'cost': getNum(row[startCol+6]) * (salary + allowance) },
-                    'aug': { 'headcount': getNum(row[startCol+7]), 'cost': getNum(row[startCol+7]) * (salary + allowance) },
-                    'sep': { 'headcount': getNum(row[startCol+8]), 'cost': getNum(row[startCol+8]) * (salary + allowance) },
-                    'oct': { 'headcount': getNum(row[startCol+9]), 'cost': getNum(row[startCol+9]) * (salary + allowance) },
-                    'nov': { 'headcount': getNum(row[startCol+10]), 'cost': getNum(row[startCol+10]) * (salary + allowance) },
-                    'dec': { 'headcount': getNum(row[startCol+11]), 'cost': getNum(row[startCol+11]) * (salary + allowance) }
-                };
-                
+                const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+                const monthCounts = [];
+                for (let c = startCol; c <= startCol + 11; c++) monthCounts.push(getNum(row[c]));
+
+                // Cost must match whatever modalTable2 showed the user before
+                // they hit Save — equipment is a flat one-off purchase per
+                // month, but VET/NON VET accumulate ("ขั้นบันได") via the same
+                // computeMonthlyBudget() the create/edit-preview paths use.
+                // (Previously this recomputed cost as a flat count*rate here
+                // regardless of type, silently saving the wrong — non-cumulative
+                // — numbers for VET/NON VET even though the on-screen preview
+                // was correct.)
+                let monthlyData = {};
+                if (isEquipment) {
+                    monthKeys.forEach((key, idx) => {
+                        monthlyData[key] = { headcount: monthCounts[idx], cost: monthCounts[idx] * salary };
+                    });
+                } else {
+                    const monthlyBudget = computeMonthlyBudget(monthCounts, salary + allowance);
+                    monthKeys.forEach((key, idx) => {
+                        monthlyData[key] = { headcount: monthCounts[idx], cost: monthlyBudget[idx].cost };
+                    });
+                }
+
                 let rowData = {};
                 if (isEquipment) {
                     rowData = {
                         'item_name': position,
+                        'description': description,
                         'purchase_price': salary,
                         'cost_center_name': costCenterName,
                         'branch_code': branchCode,
@@ -1028,6 +1087,7 @@ const BudgetApp = (function() {
                 .then(handleApiResponse)
                 .then(data => {
                     if (data.status === 'success') {
+                        updateListRowTotalBudget(currentDocNo, sumMonthlyDataTotal(dataToSave, 'cost'));
                         Swal.fire('สำเร็จ!', 'อัปเดตข้อมูลเรียบร้อยแล้ว', 'success').then(() => {
                             viewDocumentDetails(currentDocNo, currentDocType);
                         });
@@ -1562,6 +1622,7 @@ const BudgetApp = (function() {
             .then(handleApiResponse)
             .then(data => {
                 if (data.status === 'success') {
+                    updateListRowTotalBudget(currentGlDocNo, sumMonthlyDataTotal(dataToSave, 'amount'));
                     Swal.fire('สำเร็จ!', 'บันทึกข้อมูลเรียบร้อยแล้ว', 'success').then(() => {
                         isGlEditMode = false;
                         viewGeneralLedgerDocumentDetails(currentGlDocNo, currentGlDocType);
@@ -2107,20 +2168,28 @@ const BudgetApp = (function() {
                 let diffSal = newSal - oldSal;
                 let diffAllow = newAllow - oldAllow;
                 const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+                const monthCounts = [];
+                for (let c = 10; c <= 21; c++) monthCounts.push(getNum(row[c]));
+                // Cost must accumulate ("ขั้นบันได") the same way the
+                // on-screen preview (adjTable2/adjTable3, via
+                // onAdjSpreadsheetChange) and the create-flow save handler
+                // (budget_add_adjustment.html) already do — this previously
+                // recomputed cost as a flat headcount*diff per month here,
+                // silently saving non-cumulative numbers that didn't match
+                // what was shown before Save.
+                const salaryBudget = computeMonthlyBudget(monthCounts, diffSal);
+                const allowanceBudget = computeMonthlyBudget(monthCounts, diffAllow);
                 let monthlyData = {};
                 monthKeys.forEach((key, idx) => {
-                    const headcount = getNum(row[10 + idx]);
-                    const salaryCost = headcount * diffSal;
-                    const allowanceCost = headcount * diffAllow;
                     monthlyData[key] = {
-                        headcount: headcount,
+                        headcount: monthCounts[idx],
                         // BudgetMonthlyDetail only has one 'cost' column, so the
                         // two per-month budgets shown on screen are combined
                         // here into the single total that actually gets persisted
                         // (see budget_add_adjustment.html for the same fix on create).
-                        cost: salaryCost + allowanceCost,
-                        salary_diff_cost: salaryCost,
-                        allowance_diff_cost: allowanceCost,
+                        cost: salaryBudget[idx].cost + allowanceBudget[idx].cost,
+                        salary_diff_cost: salaryBudget[idx].cost,
+                        allowance_diff_cost: allowanceBudget[idx].cost,
                     };
                 });
 
@@ -2167,6 +2236,7 @@ const BudgetApp = (function() {
                 .then(handleApiResponse)
                 .then(data => {
                     if (data.status === 'success') {
+                        updateListRowTotalBudget(currentAdjDocNo, sumMonthlyDataTotal(dataToSave, 'cost'));
                         Swal.fire('สำเร็จ!', 'อัปเดตข้อมูลเรียบร้อยแล้ว', 'success').then(() => {
                             viewAdjustmentDetails(currentAdjDocNo);
                         });
