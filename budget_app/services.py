@@ -3,8 +3,9 @@ import logging
 from datetime import datetime
 from budget_app.models import (
     ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment,
-    ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_car, BudgetMonthlyDetail,
+    ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_car, ebudget_renovate, ebudget_software, BudgetMonthlyDetail,
     ebudget_gl_entry, ebudget_gl_entry_monthly_detail,
+    ebudget_revenue, ebudget_revenue_monthly_detail,
     ebudget_budget_plan_item, ebudget_budget_plan_monthly_detail
 )
 from master_data.models import ebudget_budget_item_master, ebudget_general_ledger_master
@@ -167,7 +168,10 @@ class BudgetService:
             'Furniture': 'FUR',
             'Tools & Equipment': 'TEQ',
             'CAR': 'CAR',
+            'Renovate': 'REN',
+            'Software': 'SW',
             'GL Entry': 'GLE',
+            'Revenue': 'REV',
             'Budget Plan': 'PLAN'
         }
         model_map = {
@@ -179,7 +183,10 @@ class BudgetService:
             'Furniture': ebudget_furniture,
             'Tools & Equipment': ebudget_tools_equipment,
             'CAR': ebudget_car,
+            'Renovate': ebudget_renovate,
+            'Software': ebudget_software,
             'GL Entry': ebudget_gl_entry,
+            'Revenue': ebudget_revenue,
             'Budget Plan': ebudget_budget_plan_item
         }
         
@@ -214,7 +221,9 @@ class BudgetService:
             'Computer Equipment': 'comp_equip',
             'Furniture': 'furniture_equip',
             'Tools & Equipment': 'tools_equip',
-            'CAR': 'car_equip'
+            'CAR': 'car_equip',
+            'Renovate': 'renovate_equip',
+            'Software': 'software_equip'
         }
         fk_field = fk_field_map.get(doc_type)
         if not fk_field:
@@ -257,6 +266,29 @@ class BudgetService:
                 amount=data.get('amount') or 0,
                 cumulative_amount=data.get('cumulative_amount') or 0,
                 gl_entry=parent_obj
+            )
+
+    @staticmethod
+    @transaction.atomic
+    def save_revenue_monthly_data(parent_obj, monthly_data_dict):
+        """Same shape/pattern as save_gl_entry_monthly_data, for Revenue's
+        own ebudget_revenue_monthly_detail table — kept as a separate child
+        table (not reusing ebudget_gl_entry_monthly_detail) so Revenue and
+        EXPENSE documents never share rows despite having identical column
+        shapes."""
+        ebudget_revenue_monthly_detail.objects.filter(revenue_entry=parent_obj).delete()
+
+        for month_str, data in monthly_data_dict.items():
+            month_int = MONTH_MAP.get(month_str.lower())
+            if not month_int:
+                continue
+
+            ebudget_revenue_monthly_detail.objects.create(
+                month=month_int,
+                detail_note=data.get('detail_note') or None,
+                amount=data.get('amount') or 0,
+                cumulative_amount=data.get('cumulative_amount') or 0,
+                revenue_entry=parent_obj
             )
 
     @staticmethod

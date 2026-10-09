@@ -123,6 +123,8 @@
                 <option value="Furniture">Furniture</option>
                 <option value="Tools & Equipment">Tools & Equipment</option>
                 <option value="CAR">CAR</option>
+                <option value="Renovate">Renovate</option>
+                <option value="Software">Software</option>
             </select>
             {% if is_privileged_user %}
             <select id="filterCreateName" class="form-select form-select-sm w-auto ms-2" style="display: none; cursor: pointer;" onchange="applyFilters()">
@@ -467,6 +469,8 @@
 {{ items_furniture_json|json_script:"furniture-items-data" }}
 {{ items_tools_json|json_script:"tools-items-data" }}
 {{ items_car_json|json_script:"car-items-data" }}
+{{ items_renovate_json|json_script:"renovate-items-data" }}
+{{ items_software_json|json_script:"software-items-data" }}
 {{ cost_centers_json|json_script:"cost-centers-data" }}
 {{ branch_options_json|json_script:"branch-options-data" }}
 

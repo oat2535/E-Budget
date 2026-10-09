@@ -10,9 +10,9 @@ from django.contrib import messages
 from django.db.models import Count, Max, Sum
 from master_data.models import ebudget_budget_item_master, ebudget_budget_category_master, ebudget_cost_center_master, ebudget_general_ledger_master
 from django.core.cache import cache
-from budget_app.models import ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment, ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_car, ebudget_gl_entry, ebudget_budget_plan_item, SystemSettings, SYSTEM_SETTINGS_CACHE_KEY
+from budget_app.models import ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment, ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_car, ebudget_renovate, ebudget_software, ebudget_gl_entry, ebudget_revenue, ebudget_budget_plan_item, SystemSettings, SYSTEM_SETTINGS_CACHE_KEY
 from budget_app.services import BudgetService
-from budget_app.constants import ALL_BRANCH_USERNAMES, STATUS_PENDING, STATUS_APPROVED, STATUS_CANCELLED
+from budget_app.constants import ALL_BRANCH_USERNAMES, STATUS_PENDING, STATUS_APPROVED, STATUS_CANCELLED, EXPENSE_PAGE_EXCLUDED_GL_CODES
 from budget_app.decorators import require_not_frozen
 
 def login_required_json(view_func):
@@ -109,16 +109,27 @@ def get_cost_centers_json():
         ebudget_cost_center_master.objects.values('id', 'cost_center_code', 'cost_center_name').order_by('cost_center_code')
     )
 
-def get_general_ledgers_json():
-    """Dropdown source for the GL selector on the GL Entry add page. Empty
-    until someone populates ebudget_general_ledger_master via admin — the
-    page/logic works regardless, same as cost centers did before seeding.
-    proportion/depreciation aren't included: they're never shown to the
-    user, only computed server-side at save time (see
-    BudgetService.get_gl_master_fields_bulk)."""
-    return list(
-        ebudget_general_ledger_master.objects.values('id', 'gl_code', 'gl_name').order_by('gl_code')
-    )
+def get_general_ledgers_json(exclude_codes=None, name_startswith=None):
+    """Dropdown source for the GL selector on the GL Entry/EXPENSE, Revenue
+    and Budget Plan add pages. Empty until someone populates
+    ebudget_general_ledger_master via admin — the page/logic works
+    regardless, same as cost centers did before seeding. proportion/
+    depreciation aren't included: they're never shown to the user, only
+    computed server-side at save time (see
+    BudgetService.get_gl_master_fields_bulk).
+
+    exclude_codes optionally narrows the list by gl_code (see
+    EXPENSE_PAGE_EXCLUDED_GL_CODES); name_startswith optionally narrows it
+    to gl_name values starting with a given prefix (see the Revenue add
+    page, which only offers gl_name starting with "รายได้") — the master
+    rows themselves are never touched, this only affects what a given
+    caller offers to pick from."""
+    qs = ebudget_general_ledger_master.objects.values('id', 'gl_code', 'gl_name').order_by('gl_code')
+    if exclude_codes:
+        qs = qs.exclude(gl_code__in=exclude_codes)
+    if name_startswith:
+        qs = qs.filter(gl_name__startswith=name_startswith)
+    return list(qs)
 
 @login_required_json
 def get_general_ledgers_api(request):
@@ -222,6 +233,22 @@ def budget_list_view(request):
             'purchase_price': float(item.get('purchase_price') or 0)
         })
 
+    renovate_items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=9).values('item_name', 'purchase_price'))
+    renovate_items_list = []
+    for item in renovate_items:
+        renovate_items_list.append({
+            'name': item['item_name'],
+            'purchase_price': float(item.get('purchase_price') or 0)
+        })
+
+    software_items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=10).values('item_name', 'purchase_price'))
+    software_items_list = []
+    for item in software_items:
+        software_items_list.append({
+            'name': item['item_name'],
+            'purchase_price': float(item.get('purchase_price') or 0)
+        })
+
     return render(request, 'budget_app/budget_list.html', {
         'categories': categories,
         'items_vet_json': vet_items_list,
@@ -231,6 +258,8 @@ def budget_list_view(request):
         'items_furniture_json': furniture_items_list,
         'items_tools_json': tools_items_list,
         'items_car_json': car_items_list,
+        'items_renovate_json': renovate_items_list,
+        'items_software_json': software_items_list,
         'cost_centers_json': get_cost_centers_json(),
         **get_branch_selection_context(request),
     })
@@ -487,6 +516,28 @@ def get_budget_documents_api(request, category_code):
             cost_center_name=Max('cost_center_name')
         )
 
+        renovate_docs = ebudget_renovate.objects.filter(**visibility_filter).values('document_no').annotate(
+            total_budget=Sum('monthly_details__cost'),
+            total_positions=Count('id', distinct=True),
+            create_date=Max('create_date'),
+            create_eid=Max('create_eid'),
+            budget_year=Max('budget_year'),
+            status=Max('status'),
+            base_branch_id=Max('base_branch_id'),
+            cost_center_name=Max('cost_center_name')
+        )
+
+        software_docs = ebudget_software.objects.filter(**visibility_filter).values('document_no').annotate(
+            total_budget=Sum('monthly_details__cost'),
+            total_positions=Count('id', distinct=True),
+            create_date=Max('create_date'),
+            create_eid=Max('create_eid'),
+            budget_year=Max('budget_year'),
+            status=Max('status'),
+            base_branch_id=Max('base_branch_id'),
+            cost_center_name=Max('cost_center_name')
+        )
+
         results = []
         for doc in med_docs:
             results.append({
@@ -563,12 +614,53 @@ def get_budget_documents_api(request, category_code):
                 'type': 'CAR'
             })
 
+        for doc in renovate_docs:
+            results.append({
+                'document_no': doc['document_no'] or '-',
+                'create_date_raw': doc['create_date'].isoformat() if doc['create_date'] else '',
+                'create_date': doc['create_date'].strftime('%d/%m/%Y %H:%M') if doc['create_date'] else '-',
+                'create_eid': doc['create_eid'] or '-',
+                'total_positions': doc['total_positions'],
+                'budget_year': doc['budget_year'] or '-',
+                'status': doc['status'] or STATUS_PENDING,
+                'base_branch_id': doc['base_branch_id'] or '-',
+                'cost_center_name': doc['cost_center_name'] or '-',
+                'total_budget': float(doc['total_budget'] or 0),
+                'type': 'Renovate'
+            })
+
+        for doc in software_docs:
+            results.append({
+                'document_no': doc['document_no'] or '-',
+                'create_date_raw': doc['create_date'].isoformat() if doc['create_date'] else '',
+                'create_date': doc['create_date'].strftime('%d/%m/%Y %H:%M') if doc['create_date'] else '-',
+                'create_eid': doc['create_eid'] or '-',
+                'total_positions': doc['total_positions'],
+                'budget_year': doc['budget_year'] or '-',
+                'status': doc['status'] or STATUS_PENDING,
+                'base_branch_id': doc['base_branch_id'] or '-',
+                'cost_center_name': doc['cost_center_name'] or '-',
+                'total_budget': float(doc['total_budget'] or 0),
+                'type': 'Software'
+            })
+
         results.sort(key=lambda x: x['create_date_raw'], reverse=True)
         return JsonResponse({'status': 'success', 'data': results})
 
     elif category_code == 'C03':
         # Fetch GL Entry
         gl_docs = ebudget_gl_entry.objects.filter(**visibility_filter).values('document_no').annotate(
+            total_budget=Sum('monthly_details__amount'),
+            total_positions=Count('id', distinct=True),
+            create_date=Max('create_date'),
+            create_eid=Max('create_eid'),
+            budget_year=Max('budget_year'),
+            status=Max('status'),
+            base_branch_id=Max('base_branch_id'),
+            cost_center_name=Max('cost_center_name')
+        )
+
+        revenue_docs = ebudget_revenue.objects.filter(**visibility_filter).values('document_no').annotate(
             total_budget=Sum('monthly_details__amount'),
             total_positions=Count('id', distinct=True),
             create_date=Max('create_date'),
@@ -607,6 +699,21 @@ def get_budget_documents_api(request, category_code):
                 'type': 'GL Entry'
             })
 
+        for doc in revenue_docs:
+            results.append({
+                'document_no': doc['document_no'] or '-',
+                'create_date_raw': doc['create_date'].isoformat() if doc['create_date'] else '',
+                'create_date': doc['create_date'].strftime('%d/%m/%Y %H:%M') if doc['create_date'] else '-',
+                'create_eid': doc['create_eid'] or '-',
+                'total_positions': doc['total_positions'],
+                'budget_year': doc['budget_year'] or '-',
+                'status': doc['status'] or STATUS_PENDING,
+                'base_branch_id': doc['base_branch_id'] or '-',
+                'cost_center_name': doc['cost_center_name'] or '-',
+                'total_budget': float(doc['total_budget'] or 0),
+                'type': 'Revenue'
+            })
+
         for doc in plan_docs:
             results.append({
                 'document_no': doc['document_no'] or '-',
@@ -641,7 +748,10 @@ def _resolve_model_class(doc_type):
         'Furniture': ebudget_furniture,
         'Tools & Equipment': ebudget_tools_equipment,
         'CAR': ebudget_car,
+        'Renovate': ebudget_renovate,
+        'Software': ebudget_software,
         'GL Entry': ebudget_gl_entry,
+        'Revenue': ebudget_revenue,
         'Budget Plan': ebudget_budget_plan_item,
     }.get(doc_type)
 
@@ -664,8 +774,14 @@ def get_document_detail_api(request, doc_type, doc_no):
         items = ebudget_tools_equipment.objects.filter(document_no=doc_no, **visibility_filter)
     elif doc_type == 'CAR':
         items = ebudget_car.objects.filter(document_no=doc_no, **visibility_filter)
+    elif doc_type == 'Renovate':
+        items = ebudget_renovate.objects.filter(document_no=doc_no, **visibility_filter)
+    elif doc_type == 'Software':
+        items = ebudget_software.objects.filter(document_no=doc_no, **visibility_filter)
     elif doc_type == 'GL Entry':
         items = ebudget_gl_entry.objects.filter(document_no=doc_no, **visibility_filter)
+    elif doc_type == 'Revenue':
+        items = ebudget_revenue.objects.filter(document_no=doc_no, **visibility_filter)
     elif doc_type == 'Budget Plan':
         items = ebudget_budget_plan_item.objects.filter(document_no=doc_no, **visibility_filter)
     else:
@@ -687,10 +803,11 @@ def get_document_detail_api(request, doc_type, doc_no):
         'cancel_reason': first_item.cancel_reason or ''
     }
 
-    # Only GL Entry/Budget Plan rows need a gl_code -> gl_name lookup, so
-    # build it lazily to avoid an extra query for every other doc_type.
+    # Only GL Entry/Revenue/Budget Plan rows need a gl_code -> gl_name
+    # lookup, so build it lazily to avoid an extra query for every other
+    # doc_type.
     gl_name_by_code = {}
-    if doc_type in ('GL Entry', 'Budget Plan'):
+    if doc_type in ('GL Entry', 'Revenue', 'Budget Plan'):
         gl_name_by_code = dict(ebudget_general_ledger_master.objects.values_list('gl_code', 'gl_name'))
 
     manpower_list = []
@@ -705,14 +822,14 @@ def get_document_detail_api(request, doc_type, doc_no):
                 'new_allowance': float(item.new_allowance),
                 'monthly_data': item.monthly_data_dict
             }
-        elif doc_type == 'Medical Equipment' or doc_type == 'Computer Equipment' or doc_type == 'Furniture' or doc_type == 'Tools & Equipment' or doc_type == 'CAR':
+        elif doc_type == 'Medical Equipment' or doc_type == 'Computer Equipment' or doc_type == 'Furniture' or doc_type == 'Tools & Equipment' or doc_type == 'CAR' or doc_type == 'Renovate' or doc_type == 'Software':
             data = {
                 'item_name': item.item_name,
                 'description': item.description or '',
                 'purchase_price': float(item.purchase_price),
                 'monthly_data': item.monthly_data_dict
             }
-        elif doc_type == 'GL Entry':
+        elif doc_type == 'GL Entry' or doc_type == 'Revenue':
             data = {
                 'general_ledger_code': item.general_ledger_code,
                 'general_ledger_name': gl_name_by_code.get(item.general_ledger_code, item.general_ledger_code),
@@ -785,8 +902,14 @@ def update_document_api(request, doc_type, doc_no):
             model_class = ebudget_tools_equipment
         elif doc_type == 'CAR':
             model_class = ebudget_car
+        elif doc_type == 'Renovate':
+            model_class = ebudget_renovate
+        elif doc_type == 'Software':
+            model_class = ebudget_software
         elif doc_type == 'GL Entry':
             model_class = ebudget_gl_entry
+        elif doc_type == 'Revenue':
+            model_class = ebudget_revenue
         elif doc_type == 'Budget Plan':
             model_class = ebudget_budget_plan_item
         else:
@@ -825,17 +948,18 @@ def update_document_api(request, doc_type, doc_no):
         budget_year = first_item.budget_year
 
         # Which submitted field identifies the master-data item depends on
-        # doc_type; GL Entry/Budget Plan don't resolve a master item at all.
+        # doc_type; GL Entry/Revenue/Budget Plan don't resolve a master item
+        # at all.
         if doc_type == 'Position Adjustment':
             lookup_field = 'new_position_name'
-        elif doc_type in ('Medical Equipment', 'Computer Equipment', 'Furniture', 'Tools & Equipment', 'CAR'):
+        elif doc_type in ('Medical Equipment', 'Computer Equipment', 'Furniture', 'Tools & Equipment', 'CAR', 'Renovate', 'Software'):
             lookup_field = 'item_name'
-        elif doc_type in ('GL Entry', 'Budget Plan'):
+        elif doc_type in ('GL Entry', 'Revenue', 'Budget Plan'):
             lookup_field = None
         else:
             lookup_field = 'position_name'
         master_fks = BudgetService.get_master_fks_bulk([item[lookup_field] for item in data]) if lookup_field else {}
-        gl_master_fields = BudgetService.get_gl_master_fields_bulk([item.get('general_ledger_code') for item in data]) if doc_type == 'GL Entry' else {}
+        gl_master_fields = BudgetService.get_gl_master_fields_bulk([item.get('general_ledger_code') for item in data]) if doc_type in ('GL Entry', 'Revenue') else {}
 
         with transaction.atomic():
             existing_items.delete()
@@ -881,7 +1005,7 @@ def update_document_api(request, doc_type, doc_no):
                     )
 
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
-                elif doc_type == 'Medical Equipment' or doc_type == 'Computer Equipment' or doc_type == 'Furniture' or doc_type == 'Tools & Equipment' or doc_type == 'CAR':
+                elif doc_type == 'Medical Equipment' or doc_type == 'Computer Equipment' or doc_type == 'Furniture' or doc_type == 'Tools & Equipment' or doc_type == 'CAR' or doc_type == 'Renovate' or doc_type == 'Software':
                     master_obj, gl_code = master_fks.get(item['item_name'], (None, None))
                     obj = model_class.objects.create(
                         item_name=item['item_name'],
@@ -900,7 +1024,7 @@ def update_document_api(request, doc_type, doc_no):
                     )
 
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
-                elif doc_type == 'GL Entry':
+                elif doc_type == 'GL Entry' or doc_type == 'Revenue':
                     proportion, depreciation = gl_master_fields.get(item.get('general_ledger_code'), (0, 0))
                     obj = model_class.objects.create(
                         general_ledger_code=item.get('general_ledger_code'),
@@ -916,7 +1040,14 @@ def update_document_api(request, doc_type, doc_no):
                         modify_eid=username,
                         budget_year=budget_year
                     )
-                    BudgetService.save_gl_entry_monthly_data(obj, item['monthly_data'])
+                    # Identical create() fields, but a different child table
+                    # per type (ebudget_gl_entry_monthly_detail vs
+                    # ebudget_revenue_monthly_detail) — see
+                    # BudgetService.save_revenue_monthly_data.
+                    if doc_type == 'GL Entry':
+                        BudgetService.save_gl_entry_monthly_data(obj, item['monthly_data'])
+                    else:
+                        BudgetService.save_revenue_monthly_data(obj, item['monthly_data'])
                 elif doc_type == 'Budget Plan':
                     obj = model_class.objects.create(
                         budget_category=item.get('budget_category'),
@@ -1198,6 +1329,16 @@ def budget_add_car_view(request):
 
 @login_required
 @require_not_frozen
+def budget_add_renovate_view(request):
+    return _budget_add_equipment_view(request, ebudget_renovate, 'Renovate', 'budget_app/budget_add_renovate.html', 9)
+
+@login_required
+@require_not_frozen
+def budget_add_software_view(request):
+    return _budget_add_equipment_view(request, ebudget_software, 'Software', 'budget_app/budget_add_software.html', 10)
+
+@login_required
+@require_not_frozen
 def budget_add_gl_entry_view(request):
     if request.method == 'POST':
         try:
@@ -1231,7 +1372,47 @@ def budget_add_gl_entry_view(request):
             return JsonResponse({'status': 'error', 'message': str(e)})
 
     return render(request, 'budget_app/budget_add_gl_entry.html', {
-        'general_ledgers_json': get_general_ledgers_json(),
+        'general_ledgers_json': get_general_ledgers_json(exclude_codes=EXPENSE_PAGE_EXCLUDED_GL_CODES),
+        'cost_centers_json': get_cost_centers_json(),
+        **get_branch_selection_context(request),
+    })
+
+@login_required
+@require_not_frozen
+def budget_add_revenue_view(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            if not data or not data[0].get('cost_center_name'):
+                return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
+            username = request.user.username
+            branch_id, department_id = resolve_branch_for_create(request, data)
+            doc_no = BudgetService.generate_document_no('Revenue')
+            budget_year = SystemSettings.load().active_budget_year
+            gl_master_fields = BudgetService.get_gl_master_fields_bulk([item.get('general_ledger_code') for item in data])
+
+            with transaction.atomic():
+                for item in data:
+                    proportion, depreciation = gl_master_fields.get(item.get('general_ledger_code'), (0, 0))
+                    obj = ebudget_revenue.objects.create(
+                        general_ledger_code=item.get('general_ledger_code'),
+                        proportion=proportion,
+                        depreciation=depreciation,
+                        detail_note=item.get('detail_note') or None,
+                        create_eid=username,
+                        base_branch_id=branch_id,
+                        department_id=department_id,
+                        cost_center_name=item.get('cost_center_name'),
+                        document_no=doc_no,
+                        budget_year=budget_year
+                    )
+                    BudgetService.save_revenue_monthly_data(obj, item['monthly_data'])
+            return JsonResponse({'status': 'success'})
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'message': str(e)})
+
+    return render(request, 'budget_app/budget_add_revenue.html', {
+        'general_ledgers_json': get_general_ledgers_json(name_startswith='รายได้'),
         'cost_centers_json': get_cost_centers_json(),
         **get_branch_selection_context(request),
     })

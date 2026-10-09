@@ -495,6 +495,110 @@ class ebudget_car(models.Model):
     def __str__(self):
         return f"{self.item_name} - {self.purchase_price}"
 
+class ebudget_renovate(models.Model):
+    item_name = models.CharField(max_length=255, verbose_name="ปรับปรุง")
+    description = models.CharField(max_length=255, null=True, blank=True, verbose_name="รายละเอียด")
+    purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="ราคาซื้อ")
+    base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
+    department_id = models.CharField(max_length=50, verbose_name="รหัสแผนก", null=True, blank=True)
+    cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
+    document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
+    item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
+    general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
+    budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
+    status = models.CharField(max_length=10, choices=DOCUMENT_STATUS_CHOICES, default=STATUS_PENDING, verbose_name="สถานะ")
+    cancel_reason = models.TextField(null=True, blank=True, verbose_name="เหตุผลการยกเลิก")
+
+    create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
+    create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
+    modify_date = Timestamp0Field(verbose_name="วันที่แก้ไขล่าสุด", null=True, blank=True)
+    modify_eid = models.CharField(max_length=50, verbose_name="ผู้แก้ไข (Employee ID)", null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        from datetime import datetime
+        now = datetime.now().replace(microsecond=0)
+        if not self.id and not self.create_date:
+            self.create_date = now
+        self.modify_date = now
+        super().save(*args, **kwargs)
+
+    @property
+    def monthly_data_dict(self):
+        month_map_rev = {
+            1: 'jan', 2: 'feb', 3: 'mar', 4: 'apr',
+            5: 'may', 6: 'jun', 7: 'jul', 8: 'aug',
+            9: 'sep', 10: 'oct', 11: 'nov', 12: 'dec'
+        }
+        res = {}
+        for detail in self.monthly_details.all():
+            m_str = month_map_rev.get(detail.month)
+            if m_str:
+                res[m_str] = {
+                    'headcount': float(detail.headcount),
+                    'cost': float(detail.cost)
+                }
+        return res
+
+    class Meta:
+        db_table = 'ebudget_renovate'
+        verbose_name = "Renovate Budget"
+        verbose_name_plural = "Renovate Budgets"
+
+    def __str__(self):
+        return f"{self.item_name} - {self.purchase_price}"
+
+class ebudget_software(models.Model):
+    item_name = models.CharField(max_length=255, verbose_name="Software")
+    description = models.CharField(max_length=255, null=True, blank=True, verbose_name="รายละเอียด")
+    purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="ราคาซื้อ")
+    base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
+    department_id = models.CharField(max_length=50, verbose_name="รหัสแผนก", null=True, blank=True)
+    cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
+    document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
+    item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
+    general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
+    budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
+    status = models.CharField(max_length=10, choices=DOCUMENT_STATUS_CHOICES, default=STATUS_PENDING, verbose_name="สถานะ")
+    cancel_reason = models.TextField(null=True, blank=True, verbose_name="เหตุผลการยกเลิก")
+
+    create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
+    create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
+    modify_date = Timestamp0Field(verbose_name="วันที่แก้ไขล่าสุด", null=True, blank=True)
+    modify_eid = models.CharField(max_length=50, verbose_name="ผู้แก้ไข (Employee ID)", null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        from datetime import datetime
+        now = datetime.now().replace(microsecond=0)
+        if not self.id and not self.create_date:
+            self.create_date = now
+        self.modify_date = now
+        super().save(*args, **kwargs)
+
+    @property
+    def monthly_data_dict(self):
+        month_map_rev = {
+            1: 'jan', 2: 'feb', 3: 'mar', 4: 'apr',
+            5: 'may', 6: 'jun', 7: 'jul', 8: 'aug',
+            9: 'sep', 10: 'oct', 11: 'nov', 12: 'dec'
+        }
+        res = {}
+        for detail in self.monthly_details.all():
+            m_str = month_map_rev.get(detail.month)
+            if m_str:
+                res[m_str] = {
+                    'headcount': float(detail.headcount),
+                    'cost': float(detail.cost)
+                }
+        return res
+
+    class Meta:
+        db_table = 'ebudget_software'
+        verbose_name = "Software Budget"
+        verbose_name_plural = "Software Budgets"
+
+    def __str__(self):
+        return f"{self.item_name} - {self.purchase_price}"
+
 class BudgetMonthlyDetail(models.Model):
     MONTH_CHOICES = [(i, str(i)) for i in range(1, 13)]
     
@@ -510,6 +614,8 @@ class BudgetMonthlyDetail(models.Model):
     furniture_equip = models.ForeignKey(ebudget_furniture, on_delete=models.CASCADE, null=True, blank=True, related_name='monthly_details')
     tools_equip = models.ForeignKey(ebudget_tools_equipment, on_delete=models.CASCADE, null=True, blank=True, related_name='monthly_details')
     car_equip = models.ForeignKey(ebudget_car, on_delete=models.CASCADE, null=True, blank=True, related_name='monthly_details')
+    renovate_equip = models.ForeignKey(ebudget_renovate, on_delete=models.CASCADE, null=True, blank=True, related_name='monthly_details')
+    software_equip = models.ForeignKey(ebudget_software, on_delete=models.CASCADE, null=True, blank=True, related_name='monthly_details')
 
     class Meta:
         db_table = 'ebudget_monthly_detail'
@@ -601,6 +707,76 @@ class ebudget_gl_entry_monthly_detail(models.Model):
         db_table = 'ebudget_gl_entry_monthly_detail'
         verbose_name = "GL Entry Monthly Detail"
         verbose_name_plural = "GL Entry Monthly Details"
+
+class ebudget_revenue(models.Model):
+    general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
+    budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
+    # Snapshotted from master_data.ebudget_general_ledger_master (matched by
+    # general_ledger_code == gl_code) at create/update time, same as
+    # ebudget_gl_entry's own proportion/depreciation.
+    proportion = models.DecimalField(max_digits=5, decimal_places=2, default=0, validators=[MinValueValidator(0), MaxValueValidator(100)], verbose_name="สัดส่วน (%)")
+    depreciation = models.DecimalField(max_digits=5, decimal_places=2, default=0, validators=[MinValueValidator(0), MaxValueValidator(100)], verbose_name="ค่าเสื่อม (%)")
+    detail_note = models.CharField(max_length=255, null=True, blank=True, verbose_name="รายละเอียด")
+    base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
+    department_id = models.CharField(max_length=50, verbose_name="รหัสแผนก", null=True, blank=True)
+    cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
+    document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
+    status = models.CharField(max_length=10, choices=DOCUMENT_STATUS_CHOICES, default=STATUS_PENDING, verbose_name="สถานะ")
+    cancel_reason = models.TextField(null=True, blank=True, verbose_name="เหตุผลการยกเลิก")
+
+    create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
+    create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
+    modify_date = Timestamp0Field(verbose_name="วันที่แก้ไขล่าสุด", null=True, blank=True)
+    modify_eid = models.CharField(max_length=50, verbose_name="ผู้แก้ไข (Employee ID)", null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        from datetime import datetime
+        now = datetime.now().replace(microsecond=0)
+        if not self.id and not self.create_date:
+            self.create_date = now
+        self.modify_date = now
+        super().save(*args, **kwargs)
+
+    @property
+    def monthly_data_dict(self):
+        month_map_rev = {
+            1: 'jan', 2: 'feb', 3: 'mar', 4: 'apr',
+            5: 'may', 6: 'jun', 7: 'jul', 8: 'aug',
+            9: 'sep', 10: 'oct', 11: 'nov', 12: 'dec'
+        }
+        res = {}
+        for detail in self.monthly_details.all():
+            m_str = month_map_rev.get(detail.month)
+            if m_str:
+                res[m_str] = {
+                    'detail_note': detail.detail_note or '',
+                    'amount': float(detail.amount),
+                    'cumulative_amount': float(detail.cumulative_amount)
+                }
+        return res
+
+    class Meta:
+        db_table = 'ebudget_revenue'
+        verbose_name = "Revenue Monthly Entry"
+        verbose_name_plural = "Revenue Monthly Entries"
+
+    def __str__(self):
+        return f"{self.document_no} - {self.general_ledger_code}"
+
+class ebudget_revenue_monthly_detail(models.Model):
+    MONTH_CHOICES = [(i, str(i)) for i in range(1, 13)]
+
+    month = models.PositiveSmallIntegerField(choices=MONTH_CHOICES, verbose_name="เดือน (1-12)")
+    detail_note = models.CharField(max_length=255, null=True, blank=True, verbose_name="รายละเอียด")
+    amount = models.DecimalField(max_digits=14, decimal_places=2, default=0, verbose_name="งบประมาณที่ใช้ (เดือนนี้)")
+    cumulative_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0, verbose_name="ลงระหว่างเดือน (สะสม)")
+
+    revenue_entry = models.ForeignKey(ebudget_revenue, on_delete=models.CASCADE, related_name='monthly_details')
+
+    class Meta:
+        db_table = 'ebudget_revenue_monthly_detail'
+        verbose_name = "Revenue Monthly Detail"
+        verbose_name_plural = "Revenue Monthly Details"
 
     def __str__(self):
         return f"Month {self.month} - Amount: {self.amount}, Cumulative: {self.cumulative_amount}"

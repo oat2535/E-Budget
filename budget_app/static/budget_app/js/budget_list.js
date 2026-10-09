@@ -56,6 +56,8 @@ const BudgetApp = (function() {
     const furnitureItems = document.getElementById('furniture-items-data') ? JSON.parse(document.getElementById('furniture-items-data').textContent) : [];
     const toolsItems = document.getElementById('tools-items-data') ? JSON.parse(document.getElementById('tools-items-data').textContent) : [];
     const carItems = document.getElementById('car-items-data') ? JSON.parse(document.getElementById('car-items-data').textContent) : [];
+    const renovateItems = document.getElementById('renovate-items-data') ? JSON.parse(document.getElementById('renovate-items-data').textContent) : [];
+    const softwareItems = document.getElementById('software-items-data') ? JSON.parse(document.getElementById('software-items-data').textContent) : [];
 
     // Cost Center / branch dropdown sources for edit mode — same data the
     // add-budget pages use (get_cost_centers_json / get_branch_selection_context
@@ -298,7 +300,9 @@ const BudgetApp = (function() {
             const isFurniture = currentDocType === 'Furniture';
             const isTools = currentDocType === 'Tools & Equipment';
             const isCar = currentDocType === 'CAR';
-            const isEquipment = isMed || isComp || isFurniture || isTools || isCar;
+            const isRenovate = currentDocType === 'Renovate';
+            const isSoftware = currentDocType === 'Software';
+            const isEquipment = isMed || isComp || isFurniture || isTools || isCar || isRenovate || isSoftware;
             let itemsList = vetItems;
             if (isNonVet) itemsList = nonVetItems;
             if (isMed) itemsList = medItems;
@@ -306,6 +310,8 @@ const BudgetApp = (function() {
             else if (isFurniture) itemsList = furnitureItems;
             else if (isTools) itemsList = toolsItems;
             else if (isCar) itemsList = carItems;
+            else if (isRenovate) itemsList = renovateItems;
+            else if (isSoftware) itemsList = softwareItems;
             // Equipment inserts a "รายละเอียด" text column right after the
             // item dropdown (col 0), pushing price/months/total each +1 —
             // priceCol/startCol/endCol below account for that shift.
@@ -426,10 +432,13 @@ const BudgetApp = (function() {
                     doc.type === 'Furniture' ? '<span class="badge bg-secondary">Furniture</span>' :
                     doc.type === 'Tools & Equipment' ? '<span class="badge bg-dark">Tools & Equipment</span>' :
                     doc.type === 'CAR' ? '<span class="badge" style="background-color: #fd7e14;">CAR</span>' :
-                    doc.type === 'GL Entry' ? '<span class="badge" style="background-color: #0dcaf0;">GL Entry</span>' :
+                    doc.type === 'Renovate' ? '<span class="badge" style="background-color: #d63384;">Renovate</span>' :
+                    doc.type === 'Software' ? '<span class="badge" style="background-color: #0ea5e9;">Software</span>' :
+                    doc.type === 'GL Entry' ? '<span class="badge" style="background-color: #0dcaf0;">EXPENSE</span>' :
+                    doc.type === 'Revenue' ? '<span class="badge" style="background-color: #84cc16;">Revenue</span>' :
                     doc.type === 'Budget Plan' ? '<span class="badge" style="background-color: #20c997;">Budget Plan</span>' :
                     '<span class="badge" style="background-color: #6610f2;">NON VET</span>';
-                const isGeneralLedgerDoc = doc.type === 'GL Entry' || doc.type === 'Budget Plan';
+                const isGeneralLedgerDoc = doc.type === 'GL Entry' || doc.type === 'Revenue' || doc.type === 'Budget Plan';
                 const actionUrl = isGeneralLedgerDoc ?
                     `javascript:viewGeneralLedgerDocumentDetails('${doc.document_no}', '${doc.type}')` :
                     `javascript:viewDocumentDetails('${doc.document_no}', '${doc.type}')`;
@@ -600,6 +609,13 @@ const BudgetApp = (function() {
                 <option value="Furniture">Furniture</option>
                 <option value="Tools & Equipment">Tools & Equipment</option>
                 <option value="CAR">CAR</option>
+                <option value="Renovate">Renovate</option>
+                <option value="Software">Software</option>
+            `;
+        } else if (categoryCode === 'C03') {
+            filterSelect.innerHTML += `
+                <option value="GL Entry">EXPENSE</option>
+                <option value="Revenue">Revenue</option>
             `;
         }
         
@@ -751,7 +767,9 @@ const BudgetApp = (function() {
                     const isFurniture = result.doc_info.type === 'Furniture';
                     const isTools = result.doc_info.type === 'Tools & Equipment';
                     const isCar = result.doc_info.type === 'CAR';
-                    const isEquipment = isMed || isComp || isFurniture || isTools || isCar;
+                    const isRenovate = result.doc_info.type === 'Renovate';
+                    const isSoftware = result.doc_info.type === 'Software';
+                    const isEquipment = isMed || isComp || isFurniture || isTools || isCar || isRenovate || isSoftware;
 
                     // Columns setup
                     const columns = [
@@ -887,7 +905,9 @@ const BudgetApp = (function() {
         const isFurniture = currentDocType === 'Furniture';
         const isTools = currentDocType === 'Tools & Equipment';
         const isCar = currentDocType === 'CAR';
-        const isEquipment = isMed || isComp || isFurniture || isTools || isCar;
+        const isRenovate = currentDocType === 'Renovate';
+        const isSoftware = currentDocType === 'Software';
+        const isEquipment = isMed || isComp || isFurniture || isTools || isCar || isRenovate || isSoftware;
         let itemsList = vetItems;
         if (isNonVet) itemsList = nonVetItems;
         if (isMed) itemsList = medItems;
@@ -895,6 +915,8 @@ const BudgetApp = (function() {
         else if (isFurniture) itemsList = furnitureItems;
         else if (isTools) itemsList = toolsItems;
         else if (isCar) itemsList = carItems;
+        else if (isRenovate) itemsList = renovateItems;
+        else if (isSoftware) itemsList = softwareItems;
         // Sorted once here (not inside the dropdown's per-click rebuild,
         // which jspreadsheet/jSuites always re-sorts internally regardless —
         // pre-sorting lets that repeated internal sort do less work).
@@ -990,7 +1012,9 @@ const BudgetApp = (function() {
         const isFurniture = currentDocType === 'Furniture';
         const isTools = currentDocType === 'Tools & Equipment';
         const isCar = currentDocType === 'CAR';
-        const isEquipment = isMed || isComp || isFurniture || isTools || isCar;
+        const isRenovate = currentDocType === 'Renovate';
+        const isSoftware = currentDocType === 'Software';
+        const isEquipment = isMed || isComp || isFurniture || isTools || isCar || isRenovate || isSoftware;
         const priceCol = isEquipment ? 2 : 1;
         const startCol = (isNonVet || isEquipment) ? 3 : 2;
 
@@ -1345,7 +1369,9 @@ const BudgetApp = (function() {
             return;
         }
 
-        if (docType === 'GL Entry') {
+        // Revenue shares GL Entry's exact table shape (just a filtered GL
+        // list server-side) — only Budget Plan's 3-section layout differs.
+        if (docType !== 'Budget Plan') {
             const columns = glEntryColumns(editable);
             const data = (items && items.length > 0) ? items.map(glEntryRowData) : [Array(columns.length).fill('')];
 
@@ -1451,7 +1477,9 @@ const BudgetApp = (function() {
                 if (result.status === 'success') {
                     document.getElementById('glModalDocNo').innerText = result.doc_info.document_no;
                     document.getElementById('glModalDocType').innerHTML = result.doc_info.type === 'GL Entry' ?
-                        '<span class="badge" style="background-color: #0dcaf0;">GL Entry</span>' :
+                        '<span class="badge" style="background-color: #0dcaf0;">EXPENSE</span>' :
+                        result.doc_info.type === 'Revenue' ?
+                        '<span class="badge" style="background-color: #84cc16;">Revenue</span>' :
                         '<span class="badge" style="background-color: #20c997;">Budget Plan</span>';
                     document.getElementById('glModalDocBranch').innerText = result.doc_info.base_branch_id;
                     currentGlBranchCode = result.doc_info.base_branch_id || '';
@@ -1515,7 +1543,7 @@ const BudgetApp = (function() {
             // Rebuild from the data already on screen (no extra fetch),
             // same as toggleAdjEditMode's currentData = table.getData() step.
             let items;
-            if (currentGlDocType === 'GL Entry') {
+            if (currentGlDocType !== 'Budget Plan') {
                 const table = glDetailTables[0];
                 items = table ? table.getData().filter(row => row[0]).map(glEntryGridRowToItem) : [];
             } else {
@@ -1552,7 +1580,7 @@ const BudgetApp = (function() {
 
         const dataToSave = [];
 
-        if (currentGlDocType === 'GL Entry') {
+        if (currentGlDocType !== 'Budget Plan') {
             const table = glDetailTables[0];
             const rows = table ? table.getData() : [];
             rows.forEach(row => {
