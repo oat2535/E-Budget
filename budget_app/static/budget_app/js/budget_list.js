@@ -412,7 +412,7 @@ const BudgetApp = (function() {
                         <th>Total Budget</th>
                         <th>Date Created</th>
                         <th>Created By</th>
-                        <th>สถานะ</th>
+                        <!-- <th>สถานะ</th> -->
                         <th>Action</th>
                     </tr>
                 </thead>
@@ -456,7 +456,7 @@ const BudgetApp = (function() {
                         <td>${Number(doc.total_budget || 0).toLocaleString('en-US', {maximumFractionDigits: 0})}</td>
                         <td>${doc.create_date}</td>
                         <td>${doc.create_eid}</td>
-                        <td>${statusBadge(doc.status)}</td>
+                        <!-- <td>${statusBadge(doc.status)}</td> -->
                         <td>
                             <a class="btn btn-datatable btn-icon btn-transparent-dark me-2" href="${actionUrl}"><i data-feather="eye"></i></a>
                         </td>
@@ -730,7 +730,7 @@ const BudgetApp = (function() {
                     applyEditButtonVisibility(document.getElementById('btnEditMode'), result.doc_info.create_eid, result.doc_info.status);
                     applyApproveButtonVisibility(document.getElementById('btnApproveDocument'), result.doc_info.status);
                     applyCancelButtonVisibility(document.getElementById('btnCancelDocument'), result.doc_info.create_eid, result.doc_info.status);
-                    document.getElementById('modalDocStatus').innerHTML = statusBadge(result.doc_info.status);
+                    // document.getElementById('modalDocStatus').innerHTML = statusBadge(result.doc_info.status); — column hidden, see budget_list.html
                     if (typeof feather !== 'undefined') feather.replace();
                     document.getElementById('modalDocDate').innerText = result.doc_info.create_date;
 
@@ -1300,6 +1300,74 @@ const BudgetApp = (function() {
         return [glName, item.detail_note || '', ...monthValues, total];
     }
 
+    // ยอดรวมแต่ละเดือน (column sum ข้ามทุกแถว) สำหรับ popup รายละเอียดเอกสาร
+    // Revenue — มิเรอร์ updateMonthlyTotals()/injection logic ของ
+    // budget_add_revenue.html ทุกประการ (แถวนอก jexcel data model, ไม่หลุด
+    // เข้า getData()/saveGlDocument() เลย) ต่างแค่ต้อง inject ใหม่ทุกครั้งที่
+    // renderGlDetailSpreadsheet() ถูกเรียก เพราะตารางนี้ destroy+rebuild
+    // ทั้งก้อนทุกครั้ง (เปิดดูครั้งแรก และตอนเข้า/ออก edit mode)
+    function injectGlRevenueMonthlyTotalsRow(mountEl) {
+        const theadEl = mountEl.querySelector('table.jexcel thead');
+        if (!theadEl) return;
+        const headerRow = theadEl.querySelector('tr');
+        if (!headerRow) return;
+        const headerCells = Array.from(headerRow.children);
+
+        // หัวคอลัมน์จริงของตารางนี้ไม่เคย sticky มาก่อน (ต่างจากหน้า Add
+        // Revenue ที่ thead sticky เป็นทุนเดิม) — set ตรงๆ ผ่าน inline style
+        // เฉพาะ table instance นี้ ไม่ใช้ CSS selector กว้างๆ ที่จะกระทบ
+        // ตาราง GL Entry/Budget Plan ซึ่งใช้ modal เดียวกัน
+        headerCells.forEach(td => {
+            td.style.position = 'sticky';
+            td.style.top = '0';
+            td.style.zIndex = '2';
+            td.style.backgroundColor = '#f5f5f5';
+        });
+
+        const totalsRow = document.createElement('tr');
+        totalsRow.className = 'monthly-totals-row';
+
+        const cornerWidth = headerCells[0].getBoundingClientRect().width;
+        const cornerTd = document.createElement('td');
+        cornerTd.style.left = '0px';
+        cornerTd.style.top = `${headerRow.offsetHeight}px`;
+        totalsRow.appendChild(cornerTd);
+
+        const labelTd = document.createElement('td');
+        labelTd.colSpan = 2;
+        labelTd.textContent = 'ยอดรวมแต่ละเดือน';
+        labelTd.classList.add('monthly-totals-label');
+        labelTd.style.left = `${cornerWidth}px`;
+        labelTd.style.top = `${headerRow.offsetHeight}px`;
+        totalsRow.appendChild(labelTd);
+
+        for (let m = 0; m < 12; m++) {
+            const td = document.createElement('td');
+            td.id = `glRevenueMonthlyTotal-${m}`;
+            td.textContent = '0';
+            td.style.top = `${headerRow.offsetHeight}px`;
+            totalsRow.appendChild(td);
+        }
+
+        const fillerTd = document.createElement('td'); // คอลัมน์ "รวม" — เว้นว่าง
+        fillerTd.style.top = `${headerRow.offsetHeight}px`;
+        totalsRow.appendChild(fillerTd);
+
+        theadEl.appendChild(totalsRow);
+    }
+
+    function updateGlRevenueMonthlyTotals() {
+        const table = glDetailTables[0];
+        if (!table) return;
+        const rows = table.getData();
+        for (let m = 0; m < 12; m++) {
+            let sum = 0;
+            for (let i = 0; i < rows.length; i++) sum += getNum(rows[i][2 + m]);
+            const cell = document.getElementById(`glRevenueMonthlyTotal-${m}`);
+            if (cell) cell.textContent = sum.toLocaleString('en-US', { maximumFractionDigits: 2 });
+        }
+    }
+
     function buildBudgetPlanViewColumns(columnLabel, editable) {
         const monthColumns = monthTitlesShort.map(m => ({ type: 'numeric', title: m, width: 100, readOnly: !editable, mask: '#,##0' }));
         return [
@@ -1372,6 +1440,7 @@ const BudgetApp = (function() {
         // Revenue shares GL Entry's exact table shape (just a filtered GL
         // list server-side) — only Budget Plan's 3-section layout differs.
         if (docType !== 'Budget Plan') {
+            const isRevenueDoc = docType === 'Revenue';
             const columns = glEntryColumns(editable);
             const data = (items && items.length > 0) ? items.map(glEntryRowData) : [Array(columns.length).fill('')];
 
@@ -1379,12 +1448,30 @@ const BudgetApp = (function() {
             container.appendChild(mountEl);
 
             const extraOptions = editable ? { minDimensions: [columns.length, 1], onchange: makeGlOnchange(() => glDetailTables[0], 2, 14) } : {};
+            if (isRevenueDoc) {
+                // คง onchange เดิม (คำนวณ "รวม" ต่อแถว ตอน editable) ไว้ครบ
+                // แค่ compose เรียก updateGlRevenueMonthlyTotals() ต่อท้าย —
+                // view mode ไม่มี onchange เดิมอยู่แล้วจึงแค่ใส่ของเราเข้าไป.
+                // oninsertrow/ondeleterow ไม่เคยมีมาก่อนในตารางนี้เลย (ไม่เคย
+                // ต้องคำนวณอะไรตอนแถวเปลี่ยนจำนวน) เพิ่มใหม่เฉพาะที่นี่.
+                const baseOnchange = extraOptions.onchange;
+                extraOptions.onchange = baseOnchange
+                    ? function() { baseOnchange(); updateGlRevenueMonthlyTotals(); }
+                    : updateGlRevenueMonthlyTotals;
+                extraOptions.oninsertrow = updateGlRevenueMonthlyTotals;
+                extraOptions.ondeleterow = updateGlRevenueMonthlyTotals;
+            }
             const table = jspreadsheet(mountEl, Object.assign({}, glCommonTableOptions(editable), {
                 data: data,
                 columns: columns,
                 freezeColumns: 2,
             }, extraOptions));
             glDetailTables[0] = table;
+
+            if (isRevenueDoc) {
+                injectGlRevenueMonthlyTotalsRow(mountEl);
+                updateGlRevenueMonthlyTotals();
+            }
 
             // Fixed-position button in the card-header (#btnGlAddRow) —
             // matches every other add-budget table's "เพิ่มรายการ" button
@@ -1490,7 +1577,7 @@ const BudgetApp = (function() {
                     applyEditButtonVisibility(document.getElementById('btnGlEditMode'), result.doc_info.create_eid, result.doc_info.status);
                     applyApproveButtonVisibility(document.getElementById('btnGlApproveDocument'), result.doc_info.status);
                     applyCancelButtonVisibility(document.getElementById('btnGlCancelDocument'), result.doc_info.create_eid, result.doc_info.status);
-                    document.getElementById('glModalDocStatus').innerHTML = statusBadge(result.doc_info.status);
+                    // document.getElementById('glModalDocStatus').innerHTML = statusBadge(result.doc_info.status); — column hidden, see budget_list.html
                     if (typeof feather !== 'undefined') feather.replace();
                     document.getElementById('glModalDocDate').innerText = result.doc_info.create_date;
 
@@ -1805,7 +1892,7 @@ const BudgetApp = (function() {
                     applyEditButtonVisibility(document.getElementById('btnAdjEditMode'), result.doc_info.create_eid, result.doc_info.status);
                     applyApproveButtonVisibility(document.getElementById('btnAdjApproveDocument'), result.doc_info.status);
                     applyCancelButtonVisibility(document.getElementById('btnAdjCancelDocument'), result.doc_info.create_eid, result.doc_info.status);
-                    document.getElementById('adjModalDocStatus').innerHTML = statusBadge(result.doc_info.status);
+                    // document.getElementById('adjModalDocStatus').innerHTML = statusBadge(result.doc_info.status); — column hidden, see budget_list.html
                     if (typeof feather !== 'undefined') feather.replace();
                     document.getElementById('adjModalDocDate').innerText = result.doc_info.create_date;
 

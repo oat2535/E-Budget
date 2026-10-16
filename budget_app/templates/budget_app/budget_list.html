@@ -56,6 +56,24 @@
     .jexcel > thead > tr > td {
         text-align: center !important;
     }
+    /* แถว "ยอดรวมแต่ละเดือน" ที่ inject เข้า thead ของตาราง Revenue ใน popup
+       รายละเอียดเอกสาร (ดู injectGlRevenueMonthlyTotalsRow ใน budget_list.js)
+       — คัดลอกมาจาก budget_add_revenue.html ให้หน้าตาเหมือนกัน (top/left
+       ตั้ง inline จาก JS ตามขนาดจริงของหัวคอลัมน์/คอลัมน์ GL+รายละเอียด) */
+    .monthly-totals-row td {
+        position: sticky;
+        z-index: 2;
+        background-color: #eef6ff;
+        font-weight: 600;
+        text-align: center !important;
+        border-top: 2px solid #b6d4fe;
+    }
+    .monthly-totals-row td.monthly-totals-label {
+        z-index: 3;
+        text-align: left !important;
+        padding-left: 10px;
+        color: #0061f2;
+    }
 </style>
 {% endblock %}
 
@@ -160,7 +178,7 @@
                             <th>Total Budget</th>
                             <th>Date Created</th>
                             <th>Created By</th>
-                            <th>สถานะ</th>
+                            <!-- <th>สถานะ</th> -->
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -172,7 +190,7 @@
     </div>
     <!-- Document Detail Modal -->
     <div class="modal fade" id="documentDetailModal" tabindex="-1" aria-labelledby="documentDetailModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-dialog modal-fullscreen modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="documentDetailModalLabel">รายละเอียดเอกสาร</h5>
@@ -198,7 +216,7 @@
                                         <th>ปีงบประมาณ</th>
                                         <th>ผู้สร้าง</th>
                                         <th>วันที่สร้าง</th>
-                                        <th>สถานะ</th>
+                                        <!-- <th>สถานะ</th> -->
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -210,7 +228,7 @@
                                         <td id="modalDocBudgetYear"></td>
                                         <td id="modalDocCreator"></td>
                                         <td id="modalDocDate"></td>
-                                        <td id="modalDocStatus"></td>
+                                        <!-- <td id="modalDocStatus"></td> -->
                                     </tr>
                                 </tbody>
                             </table>
@@ -238,16 +256,20 @@
                 </div>
                 <div class="modal-footer">
                     <div class="me-auto d-flex gap-2">
+                        {% comment %}
                         {% if can_edit_own_documents %}
                         <button type="button" class="btn btn-outline-danger" id="btnCancelDocument" onclick="cancelDocument()">
                             <i data-feather="x-circle" class="me-1"></i> ยกเลิกเอกสาร
                         </button>
                         {% endif %}
+                        {% endcomment %}
+                        {% comment %}
                         {% if is_privileged_user %}
                         <button type="button" class="btn btn-approve-doc" id="btnApproveDocument" onclick="approveDocument()">
                             <i data-feather="check-circle" class="me-1"></i> อนุมัติเอกสาร
                         </button>
                         {% endif %}
+                        {% endcomment %}
                     </div>
                     {% if can_edit_own_documents %}
                     <button type="button" class="btn btn-primary" id="btnEditMode" onclick="toggleEditMode()">
@@ -265,7 +287,7 @@
 
     <!-- Position Adjustment Detail Modal -->
     <div class="modal fade" id="adjustmentDetailModal" tabindex="-1" aria-labelledby="adjustmentDetailModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-dialog modal-fullscreen modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="adjustmentDetailModalLabel">รายละเอียดเอกสาร (Position Adjustment)</h5>
@@ -291,7 +313,7 @@
                                         <th>ปีงบประมาณ</th>
                                         <th>ผู้สร้าง</th>
                                         <th>วันที่สร้าง</th>
-                                        <th>สถานะ</th>
+                                        <!-- <th>สถานะ</th> -->
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -303,7 +325,7 @@
                                         <td id="adjModalDocBudgetYear"></td>
                                         <td id="adjModalDocCreator"></td>
                                         <td id="adjModalDocDate"></td>
-                                        <td id="adjModalDocStatus"></td>
+                                        <!-- <td id="adjModalDocStatus"></td> -->
                                     </tr>
                                 </tbody>
                             </table>
@@ -342,16 +364,20 @@
                 </div>
                 <div class="modal-footer">
                     <div class="me-auto d-flex gap-2">
+                        {% comment %}
                         {% if can_edit_own_documents %}
                         <button type="button" class="btn btn-outline-danger" id="btnAdjCancelDocument" onclick="cancelAdjDocument()">
                             <i data-feather="x-circle" class="me-1"></i> ยกเลิกเอกสาร
                         </button>
                         {% endif %}
+                        {% endcomment %}
+                        {% comment %}
                         {% if is_privileged_user %}
                         <button type="button" class="btn btn-approve-doc" id="btnAdjApproveDocument" onclick="approveAdjDocument()">
                             <i data-feather="check-circle" class="me-1"></i> อนุมัติเอกสาร
                         </button>
                         {% endif %}
+                        {% endcomment %}
                     </div>
                     {% if can_edit_own_documents %}
                     <button type="button" class="btn btn-primary text-white" id="btnAdjEditMode" onclick="toggleAdjEditMode()">
@@ -369,7 +395,7 @@
 
     <!-- General Ledger Document Detail Modal (GL Entry / Budget Plan — read-only) -->
     <div class="modal fade" id="glDocumentDetailModal" tabindex="-1" aria-labelledby="glDocumentDetailModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-dialog modal-fullscreen modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="glDocumentDetailModalLabel">รายละเอียดเอกสาร</h5>
@@ -395,7 +421,7 @@
                                         <th>ปีงบประมาณ</th>
                                         <th>ผู้สร้าง</th>
                                         <th>วันที่สร้าง</th>
-                                        <th>สถานะ</th>
+                                        <!-- <th>สถานะ</th> -->
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -407,7 +433,7 @@
                                         <td id="glModalDocBudgetYear"></td>
                                         <td id="glModalDocCreator"></td>
                                         <td id="glModalDocDate"></td>
-                                        <td id="glModalDocStatus"></td>
+                                        <!-- <td id="glModalDocStatus"></td> -->
                                     </tr>
                                 </tbody>
                             </table>
@@ -429,16 +455,20 @@
                 </div>
                 <div class="modal-footer">
                     <div class="me-auto d-flex gap-2">
+                        {% comment %}
                         {% if can_edit_own_documents %}
                         <button type="button" class="btn btn-outline-danger" id="btnGlCancelDocument" onclick="cancelGlDocument()">
                             <i data-feather="x-circle" class="me-1"></i> ยกเลิกเอกสาร
                         </button>
                         {% endif %}
+                        {% endcomment %}
+                        {% comment %}
                         {% if is_privileged_user %}
                         <button type="button" class="btn btn-approve-doc" id="btnGlApproveDocument" onclick="approveGlDocument()">
                             <i data-feather="check-circle" class="me-1"></i> อนุมัติเอกสาร
                         </button>
                         {% endif %}
+                        {% endcomment %}
                     </div>
                     {% if can_edit_own_documents %}
                     <button type="button" class="btn btn-primary" id="btnGlEditMode" onclick="toggleGlEditMode()">
