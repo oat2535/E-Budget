@@ -972,6 +972,42 @@ const BudgetApp = (function() {
                 oninsertrow: function(el, rowNumber, numOfRows, rowRecords, insertBefore) {
                     if (modalTable2) modalTable2.insertRow(numOfRows, rowNumber, insertBefore);
                 },
+                // Mirrors modalTable1's own deletion (e.g. via its
+                // right-click context menu, enabled above) into
+                // modalTable2 — same reasoning as oninsertrow: without
+                // this, table2's row count drifts out of sync with
+                // table1's and onSpreadsheetChange's per-row cross-writes
+                // land on the wrong row.
+                ondeleterow: function(el, rowNumber, numOfRows) {
+                    if (modalTable2) modalTable2.deleteRow(rowNumber, numOfRows);
+                },
+            });
+
+            // modalTable2 was still stuck with allowInsertRow/allowDeleteRow
+            // false from viewDocumentDetails' read-only init — jexcel's
+            // insertRow()/deleteRow() are guarded no-ops (even called
+            // programmatically) when those flags are false, so
+            // modalTable1's oninsertrow hook above was silently failing to
+            // mirror new rows into table2. Rebuild table2 the same way as
+            // table1, reusing the identical `columns` shape (view-mode init
+            // already uses the same columns array for both tables — see
+            // viewDocumentDetails).
+            const currentData2 = modalTable2.getData();
+            modalTable2.destroy();
+
+            modalTable2 = jspreadsheet(document.getElementById('modalSpreadsheet2'), {
+                data: currentData2,
+                columns: columns,
+                allowInsertRow: true,
+                allowDeleteRow: true,
+                allowInsertColumn: false,
+                allowManualInsertColumn: false,
+                allowDeleteColumn: false,
+                tableOverflow: true,
+                // Still no direct editing of table2 itself — it must stay
+                // driven by table1 (via onSpreadsheetChange and the
+                // insert/delete mirrors above) to keep their rows 1:1.
+                contextMenu: function() { return false; },
             });
 
             // Brief highlight so switching into edit mode reads as a
@@ -1306,7 +1342,7 @@ const BudgetApp = (function() {
     // เข้า getData()/saveGlDocument() เลย) ต่างแค่ต้อง inject ใหม่ทุกครั้งที่
     // renderGlDetailSpreadsheet() ถูกเรียก เพราะตารางนี้ destroy+rebuild
     // ทั้งก้อนทุกครั้ง (เปิดดูครั้งแรก และตอนเข้า/ออก edit mode)
-    function injectGlRevenueMonthlyTotalsRow(mountEl) {
+    function injectGlRevenueMonthlyTotalsRow(mountEl, columns) {
         const theadEl = mountEl.querySelector('table.jexcel thead');
         if (!theadEl) return;
         const headerRow = theadEl.querySelector('tr');
@@ -1327,19 +1363,34 @@ const BudgetApp = (function() {
         const totalsRow = document.createElement('tr');
         totalsRow.className = 'monthly-totals-row';
 
-        const cornerWidth = headerCells[0].getBoundingClientRect().width;
+        // คอลัมน์เลขแถว (corner, headerCells[0]) ไม่ได้ freeze จริงใน jexcel
+        // เอง (updateFreezePosition ตั้ง left ให้แค่ obj.headers[t],
+        // t=0..freezeColumns-1 ซึ่งคือ GL/รายละเอียด ไม่รวม corner) — เลื่อน
+        // หายไปตามปกติเหมือนเนื้อหาอื่น จึงไม่ set left ให้ cell นี้เช่นกัน
         const cornerTd = document.createElement('td');
-        cornerTd.style.left = '0px';
         cornerTd.style.top = `${headerRow.offsetHeight}px`;
         totalsRow.appendChild(cornerTd);
 
-        const labelTd = document.createElement('td');
-        labelTd.colSpan = 2;
-        labelTd.textContent = 'ยอดรวมแต่ละเดือน';
-        labelTd.classList.add('monthly-totals-label');
-        labelTd.style.left = `${cornerWidth}px`;
-        labelTd.style.top = `${headerRow.offsetHeight}px`;
-        totalsRow.appendChild(labelTd);
+        // GL/รายละเอียด แต่ละตัว sticky left ของตัวเอง (0px / ความกว้าง GL)
+        // ตรงกับที่ updateFreezePosition ตั้งให้ obj.headers[0]/[1] จริง —
+        // ใช้ 2 cell เดี่ยวแทน cell เดียว colspan=2 เพราะ position:sticky
+        // บน <td colspan> มีพฤติกรรมไม่แน่นอนข้าม browser (sticky containing
+        // block คำนวณผิด ทำให้ตำแหน่งเพี้ยนและซ้อนทับแถวข้อมูลด้านล่าง) ส่วน
+        // เซลล์หัวคอลัมน์จริงของ jexcel เป็น <td> เดี่ยวไม่มี colspan เลย —
+        // ความกว้างใช้ค่าจาก columns config ตรงๆ (source of truth เดียวกับ
+        // ที่ jexcel เองใช้คำนวณ freeze) ไม่พึ่ง DOM measurement
+        const glSumTd = document.createElement('td');
+        glSumTd.textContent = 'ยอดรวมแต่ละเดือน';
+        glSumTd.classList.add('monthly-totals-label');
+        glSumTd.style.left = '0px';
+        glSumTd.style.top = `${headerRow.offsetHeight}px`;
+        totalsRow.appendChild(glSumTd);
+
+        const detailSumTd = document.createElement('td');
+        detailSumTd.classList.add('monthly-totals-label');
+        detailSumTd.style.left = `${columns[0].width}px`;
+        detailSumTd.style.top = `${headerRow.offsetHeight}px`;
+        totalsRow.appendChild(detailSumTd);
 
         for (let m = 0; m < 12; m++) {
             const td = document.createElement('td');
@@ -1469,7 +1520,7 @@ const BudgetApp = (function() {
             glDetailTables[0] = table;
 
             if (isRevenueDoc) {
-                injectGlRevenueMonthlyTotalsRow(mountEl);
+                injectGlRevenueMonthlyTotalsRow(mountEl, columns);
                 updateGlRevenueMonthlyTotals();
             }
 

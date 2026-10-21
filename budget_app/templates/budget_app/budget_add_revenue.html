@@ -63,7 +63,13 @@
         border-top: 2px solid #b6d4fe;
     }
     .monthly-totals-row td.monthly-totals-label {
-        z-index: 3;
+        /* !important จำเป็นจริง — ตรวจสอบด้วย headless browser จริงแล้วว่า
+           ถ้าไม่ใส่ z-index: 3 จะไม่ชนะ jexcel.css's blanket thead rule
+           (.jexcel > thead > tr > td { z-index: 2 }) ทั้งที่ selector นี้มี
+           specificity สูงกว่าตามทฤษฎี — ผลคือ cell เดือนที่เลื่อนผ่านเข้ามา
+           paint ทับ label (z-index เท่ากันตัดสินด้วยลำดับ DOM แทน) ทำให้
+           ข้อความ "ยอดรวมแต่ละเดือน" ถูกคอลัมน์เดือนที่กำลังเลื่อนบังเวลา scroll */
+        z-index: 3 !important;
         text-align: left !important;
         padding-left: 10px;
         color: #0061f2;
@@ -277,22 +283,35 @@
         // tr td ด้านบน ไม่ใช่ฟีเจอร์พิเศษของ jexcel เช่นกัน)
         const theadEl = document.querySelector('#spreadsheet table.jexcel thead');
         const headerRow = theadEl.querySelector('tr');
-        const headerCells = Array.from(headerRow.children);
 
         const totalsRow = document.createElement('tr');
         totalsRow.className = 'monthly-totals-row';
 
-        const cornerWidth = headerCells[0].getBoundingClientRect().width;
+        // คอลัมน์เลขแถว (corner, td ตัวแรกของ thead) ไม่ได้ freeze จริงใน
+        // jexcel เอง (updateFreezePosition ตั้ง left ให้แค่ obj.headers[t],
+        // t=0..freezeColumns-1 ซึ่งคือ GL/รายละเอียด ไม่รวม corner) — เลื่อน
+        // หายไปตามปกติเหมือนเนื้อหาอื่น จึงไม่ set left ให้ cell นี้เช่นกัน
         const cornerTd = document.createElement('td');
-        cornerTd.style.left = '0px';
         totalsRow.appendChild(cornerTd);
 
-        const labelTd = document.createElement('td');
-        labelTd.colSpan = 2;
-        labelTd.textContent = 'ยอดรวมแต่ละเดือน';
-        labelTd.classList.add('monthly-totals-label');
-        labelTd.style.left = `${cornerWidth}px`;
-        totalsRow.appendChild(labelTd);
+        // GL/รายละเอียด แต่ละตัว sticky left ของตัวเอง (0px / ความกว้าง GL)
+        // ตรงกับที่ updateFreezePosition ตั้งให้ obj.headers[0]/[1] จริง —
+        // ใช้ 2 cell เดี่ยวแทน cell เดียว colspan=2 เพราะ position:sticky
+        // บน <td colspan> มีพฤติกรรมไม่แน่นอนข้าม browser (sticky containing
+        // block คำนวณผิด ทำให้ตำแหน่งเพี้ยนและซ้อนทับแถวข้อมูลด้านล่าง) ส่วน
+        // เซลล์หัวคอลัมน์จริงของ jexcel เป็น <td> เดี่ยวไม่มี colspan เลย —
+        // ความกว้างใช้ค่าจาก columns config ตรงๆ (source of truth เดียวกับ
+        // ที่ jexcel เองใช้คำนวณ freeze) ไม่พึ่ง DOM measurement
+        const glSumTd = document.createElement('td');
+        glSumTd.textContent = 'ยอดรวมแต่ละเดือน';
+        glSumTd.classList.add('monthly-totals-label');
+        glSumTd.style.left = '0px';
+        totalsRow.appendChild(glSumTd);
+
+        const detailSumTd = document.createElement('td');
+        detailSumTd.classList.add('monthly-totals-label');
+        detailSumTd.style.left = `${columns[0].width}px`;
+        totalsRow.appendChild(detailSumTd);
 
         for (let m = 0; m < 12; m++) {
             const td = document.createElement('td');

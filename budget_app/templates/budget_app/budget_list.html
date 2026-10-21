@@ -69,7 +69,13 @@
         border-top: 2px solid #b6d4fe;
     }
     .monthly-totals-row td.monthly-totals-label {
-        z-index: 3;
+        /* !important จำเป็นจริง — ตรวจสอบด้วย headless browser จริงแล้วว่า
+           ถ้าไม่ใส่ z-index: 3 จะไม่ชนะ jexcel.css's blanket thead rule
+           (.jexcel > thead > tr > td { z-index: 2 }) ทั้งที่ selector นี้มี
+           specificity สูงกว่าตามทฤษฎี — ผลคือ cell เดือนที่เลื่อนผ่านเข้ามา
+           paint ทับ label (z-index เท่ากันตัดสินด้วยลำดับ DOM แทน) ทำให้
+           ข้อความ "ยอดรวมแต่ละเดือน" ถูกคอลัมน์เดือนที่กำลังเลื่อนบังเวลา scroll */
+        z-index: 3 !important;
         text-align: left !important;
         padding-left: 10px;
         color: #0061f2;
