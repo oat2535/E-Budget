@@ -25,6 +25,7 @@ urlpatterns = [
     path('add_gl_entry/', views.budget_add_gl_entry_view, name='budget_add_gl_entry'),
     path('add_revenue/', views.budget_add_revenue_view, name='budget_add_revenue'),
     path('add_budget_plan/', views.budget_add_budget_plan_view, name='budget_add_budget_plan'),
+    path('add_gl_actual_template/', views.budget_add_gl_actual_template_view, name='budget_add_gl_actual_template'),
     path('system/toggle_freeze/', views.toggle_freeze_view, name='toggle_freeze'),
     path('system/set_active_year/', views.set_active_year_view, name='set_active_year'),
 ]

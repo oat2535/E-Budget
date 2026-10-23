@@ -1,152 +1,288 @@
 <mxfile host="app.diagrams.net" agent="Claude Code">
   <diagram id="ebudget-schema-th" name="แผนผังฐานข้อมูล E-Budget">
-    <mxGraphModel dx="1001" dy="608" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1550" pageHeight="3300" math="0" shadow="0">
+    <mxGraphModel dx="1201" dy="730" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1550" pageHeight="3300" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
+        <mxCell id="e5" edge="1" parent="1" source="m_item" style="rounded=1;html=1;strokeColor=#2E5AAC;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#2E5AAC;fontFamily=Tahoma;curved=0;edgeStyle=orthogonalEdgeStyle;exitX=0.125;exitY=1;entryX=0.6667;entryY=0;" target="b_vet" value="กำหนดราคา (FK)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="-242.92" y="49.5" as="offset" />
+            <Array as="points">
+              <mxPoint x="1020.5" y="2041" />
+              <mxPoint x="364.5" y="2041" />
+              <mxPoint x="364.5" y="2120" />
+              <mxPoint x="296.67" y="2120" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
         <mxCell id="hdr_title" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=26;fontStyle=1;fontFamily=Tahoma;" value="แผนผังฐานข้อมูล E-Budget" vertex="1">
-          <mxGeometry height="40" width="900" x="40" y="20" as="geometry" />
+          <mxGeometry height="40" width="900" x="607.665" y="20" as="geometry" />
         </mxCell>
         <mxCell id="hdr_legend" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=12.5;fontFamily=Tahoma;" value="&lt;span style=&quot;color:#23806C&quot;&gt;■&lt;/span&gt; ข้อมูลหลัก (Master Data) &amp;nbsp; &lt;span style=&quot;color:#2E5AAC&quot;&gt;■&lt;/span&gt; งบกำลังคน/ครุภัณฑ์ (7 ตาราง) &amp;nbsp; &lt;span style=&quot;color:#A6631E&quot;&gt;■&lt;/span&gt; รายละเอียดรายเดือน &amp;nbsp; &lt;span style=&quot;color:#7B3FA0&quot;&gt;■&lt;/span&gt; GL Entry &amp;nbsp; &lt;span style=&quot;color:#0E7C99&quot;&gt;■&lt;/span&gt; Budget Plan &amp;nbsp; &lt;span style=&quot;color:#6B7280&quot;&gt;■&lt;/span&gt; ระบบ (Standalone) &amp;nbsp;&amp;nbsp; ─── FK จริง &amp;nbsp;&amp;nbsp; ┄┄┄ อ้างอิงแบบ string (ไม่ใช่ FK)" vertex="1">
-          <mxGeometry height="30" width="1470" x="40" y="100" as="geometry" />
+          <mxGeometry height="30" width="1470" x="322.66499999999996" y="70" as="geometry" />
         </mxCell>
         <mxCell id="m_glm" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#E3F2EE;strokeColor=#23806C;fontFamily=Consolas;fontSize=11;" value="&lt;b&gt;ebudget_general_ledger_master&lt;/b&gt;&lt;br&gt;&lt;i&gt;(บัญชีแยกประเภททั่วไป)&lt;/i&gt;&lt;hr size=1&gt;id : bigint &lt;i&gt;(คีย์หลัก)&lt;/i&gt;&lt;br&gt;gl_code : string (unique)&lt;br&gt;gl_name : string&lt;br&gt;category_id : bigint (FK, NULL ได้)&lt;br&gt;proportion : decimal (%)&lt;br&gt;depreciation : decimal (%)" vertex="1">
-          <mxGeometry height="170" width="300" x="40" y="200" as="geometry" />
+          <mxGeometry height="170" width="300" x="1652" y="1525" as="geometry" />
         </mxCell>
         <mxCell id="m_cat" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#E3F2EE;strokeColor=#23806C;fontFamily=Consolas;fontSize=11;" value="&lt;b&gt;ebudget_budget_category_master&lt;/b&gt;&lt;br&gt;&lt;i&gt;(หมวดหมู่งบประมาณ)&lt;/i&gt;&lt;hr size=1&gt;id : bigint &lt;i&gt;(คีย์หลัก)&lt;/i&gt;&lt;br&gt;category_code : string (unique)&lt;br&gt;category_name : string" vertex="1">
-          <mxGeometry height="110" width="300" x="40" y="390" as="geometry" />
+          <mxGeometry height="110" width="300" x="958" y="1320" as="geometry" />
         </mxCell>
         <mxCell id="m_sub" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#E3F2EE;strokeColor=#23806C;fontFamily=Consolas;fontSize=11;" value="&lt;b&gt;ebudget_budget_sub_category_master&lt;/b&gt;&lt;br&gt;&lt;i&gt;(หมวดหมู่ย่อย)&lt;/i&gt;&lt;hr size=1&gt;id : bigint &lt;i&gt;(คีย์หลัก)&lt;/i&gt;&lt;br&gt;category_id : bigint (FK)&lt;br&gt;sub_category_code : string (unique)&lt;br&gt;sub_category_name : string" vertex="1">
-          <mxGeometry height="140" width="300" x="40" y="520" as="geometry" />
+          <mxGeometry height="140" width="300" x="908" y="1537.5" as="geometry" />
         </mxCell>
         <mxCell id="m_item" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#E3F2EE;strokeColor=#23806C;fontFamily=Consolas;fontSize=11;" value="&lt;b&gt;ebudget_budget_item_master&lt;/b&gt;&lt;br&gt;&lt;i&gt;(รายการ/ตำแหน่งมาตรฐาน)&lt;/i&gt;&lt;hr size=1&gt;id : bigint &lt;i&gt;(คีย์หลัก)&lt;/i&gt;&lt;br&gt;general_ledger_code : string &lt;i&gt;(ไม่ใช่ FK จริง)&lt;/i&gt;&lt;br&gt;category_id : bigint (FK, NULL ได้)&lt;br&gt;sub_category_id : bigint (FK, NULL ได้)&lt;br&gt;item_name : string&lt;br&gt;salary : decimal&lt;br&gt;estimated_shift_allowance : decimal&lt;br&gt;position_allowance : decimal&lt;br&gt;total_salary : decimal&lt;br&gt;purchase_price : decimal" vertex="1">
-          <mxGeometry height="230" width="300" x="40" y="680" as="geometry" />
+          <mxGeometry height="230" width="300" x="983" y="1795" as="geometry" />
         </mxCell>
         <mxCell id="m_cc" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#E3F2EE;strokeColor=#23806C;fontFamily=Consolas;fontSize=11;" value="&lt;b&gt;ebudget_cost_center_master&lt;/b&gt;&lt;br&gt;&lt;i&gt;(ศูนย์ต้นทุน)&lt;/i&gt;&lt;hr size=1&gt;id : bigint &lt;i&gt;(คีย์หลัก)&lt;/i&gt;&lt;br&gt;cost_center_code : string (unique)&lt;br&gt;cost_center_name : string (unique)&lt;br&gt;description : string" vertex="1">
-          <mxGeometry height="130" width="300" x="40" y="930" as="geometry" />
+          <mxGeometry height="130" width="300" x="40" y="1895" as="geometry" />
         </mxCell>
         <mxCell id="b_vet" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#E7EDFA;strokeColor=#2E5AAC;fontFamily=Consolas;fontSize=11;" value="&lt;b&gt;ebudget_vet_manpower&lt;/b&gt;&lt;br&gt;&lt;i&gt;(งบกำลังคนสัตวแพทย์)&lt;/i&gt;&lt;hr size=1&gt;id : bigint &lt;i&gt;(คีย์หลัก)&lt;/i&gt;&lt;br&gt;position_name : string&lt;br&gt;salary : decimal&lt;br&gt;base_branch_id : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;base_sub_branch_id : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;cost_center_name : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;document_no : string&lt;br&gt;item_master_id : bigint (FK, NULL ได้)&lt;br&gt;general_ledger_code : string &lt;i&gt;(ไม่ใช่ FK จริง)&lt;/i&gt;&lt;br&gt;budget_year : int&lt;br&gt;create_date : timestamp&lt;br&gt;create_eid : string &lt;i&gt;(ไม่ใช่ FK ไป auth_user)&lt;/i&gt;&lt;br&gt;modify_date : timestamp&lt;br&gt;modify_eid : string" vertex="1">
-          <mxGeometry height="310" width="320" x="420" y="200" as="geometry" />
+          <mxGeometry height="310" width="320" x="83.33" y="2159.33" as="geometry" />
         </mxCell>
         <mxCell id="b_nonvet" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#E7EDFA;strokeColor=#2E5AAC;fontFamily=Consolas;fontSize=11;" value="&lt;b&gt;ebudget_non_vet_manpower&lt;/b&gt;&lt;br&gt;&lt;i&gt;(งบกำลังคนที่ไม่ใช่สัตวแพทย์)&lt;/i&gt;&lt;hr size=1&gt;id : bigint &lt;i&gt;(คีย์หลัก)&lt;/i&gt;&lt;br&gt;position_name : string&lt;br&gt;salary : decimal&lt;br&gt;position_allowance : decimal&lt;br&gt;base_branch_id : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;base_sub_branch_id : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;cost_center_name : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;document_no : string&lt;br&gt;item_master_id : bigint (FK, NULL ได้)&lt;br&gt;general_ledger_code : string &lt;i&gt;(ไม่ใช่ FK จริง)&lt;/i&gt;&lt;br&gt;budget_year : int&lt;br&gt;create_date : timestamp&lt;br&gt;create_eid : string&lt;br&gt;modify_date : timestamp&lt;br&gt;modify_eid : string" vertex="1">
-          <mxGeometry height="330" width="320" x="420" y="530" as="geometry" />
+          <mxGeometry height="330" width="320" x="676.33" y="2548" as="geometry" />
+        </mxCell>
+        <mxCell id="XOjgt-km7diDDzcwYAxe-1" edge="1" parent="1" source="b_adj" style="rounded=1;orthogonalLoop=1;jettySize=auto;html=1;curved=0;edgeStyle=orthogonalEdgeStyle;exitX=0.3333;exitY=1;entryX=0.6667;entryY=0;" target="b_med" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1322.67" y="2532" />
+              <mxPoint x="1239.67" y="2532" />
+            </Array>
+          </mxGeometry>
         </mxCell>
         <mxCell id="b_adj" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#E7EDFA;strokeColor=#2E5AAC;fontFamily=Consolas;fontSize=11;" value="&lt;b&gt;ebudget_position_adjustment&lt;/b&gt;&lt;br&gt;&lt;i&gt;(การปรับตำแหน่ง)&lt;/i&gt;&lt;hr size=1&gt;id : bigint &lt;i&gt;(คีย์หลัก)&lt;/i&gt;&lt;br&gt;old_position_name : string&lt;br&gt;new_position_name : string&lt;br&gt;old_salary : decimal&lt;br&gt;old_allowance : decimal&lt;br&gt;new_salary : decimal&lt;br&gt;new_allowance : decimal&lt;br&gt;base_branch_id : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;cost_center_name : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;document_no : string&lt;br&gt;item_master_id : bigint (FK, NULL ได้)&lt;br&gt;general_ledger_code : string &lt;i&gt;(ไม่ใช่ FK จริง)&lt;/i&gt;&lt;br&gt;budget_year : int&lt;br&gt;create_date : timestamp&lt;br&gt;create_eid : string&lt;br&gt;modify_date : timestamp&lt;br&gt;modify_eid : string" vertex="1">
-          <mxGeometry height="380" width="320" x="420" y="880" as="geometry" />
+          <mxGeometry height="380" width="320" x="1216" y="2136" as="geometry" />
         </mxCell>
         <mxCell id="b_med" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#E7EDFA;strokeColor=#2E5AAC;fontFamily=Consolas;fontSize=11;" value="&lt;b&gt;ebudget_medical_equipment&lt;/b&gt;&lt;br&gt;&lt;i&gt;(ครุภัณฑ์การแพทย์)&lt;/i&gt;&lt;hr size=1&gt;id : bigint &lt;i&gt;(คีย์หลัก)&lt;/i&gt;&lt;br&gt;item_name : string&lt;br&gt;purchase_price : decimal&lt;br&gt;base_branch_id : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;cost_center_name : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;document_no : string&lt;br&gt;item_master_id : bigint (FK, NULL ได้)&lt;br&gt;general_ledger_code : string &lt;i&gt;(ไม่ใช่ FK จริง)&lt;/i&gt;&lt;br&gt;budget_year : int&lt;br&gt;create_date : timestamp&lt;br&gt;create_eid : string&lt;br&gt;modify_date : timestamp&lt;br&gt;modify_eid : string" vertex="1">
-          <mxGeometry height="310" width="320" x="420" y="1290" as="geometry" />
+          <mxGeometry height="310" width="320" x="1026.33" y="2554.67" as="geometry" />
         </mxCell>
         <mxCell id="b_comp" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#E7EDFA;strokeColor=#2E5AAC;fontFamily=Consolas;fontSize=11;" value="&lt;b&gt;ebudget_computer_equipment&lt;/b&gt;&lt;br&gt;&lt;i&gt;(ครุภัณฑ์คอมพิวเตอร์)&lt;/i&gt;&lt;hr size=1&gt;id : bigint &lt;i&gt;(คีย์หลัก)&lt;/i&gt;&lt;br&gt;item_name : string&lt;br&gt;purchase_price : decimal&lt;br&gt;base_branch_id : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;cost_center_name : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;document_no : string&lt;br&gt;item_master_id : bigint (FK, NULL ได้)&lt;br&gt;general_ledger_code : string &lt;i&gt;(ไม่ใช่ FK จริง)&lt;/i&gt;&lt;br&gt;budget_year : int&lt;br&gt;create_date : timestamp&lt;br&gt;create_eid : string&lt;br&gt;modify_date : timestamp&lt;br&gt;modify_eid : string" vertex="1">
-          <mxGeometry height="310" width="320" x="420" y="1620" as="geometry" />
+          <mxGeometry height="310" width="320" x="1512.33" y="2558" as="geometry" />
         </mxCell>
         <mxCell id="b_furn" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#E7EDFA;strokeColor=#2E5AAC;fontFamily=Consolas;fontSize=11;" value="&lt;b&gt;ebudget_furniture&lt;/b&gt;&lt;br&gt;&lt;i&gt;(ครุภัณฑ์เฟอร์นิเจอร์)&lt;/i&gt;&lt;hr size=1&gt;id : bigint &lt;i&gt;(คีย์หลัก)&lt;/i&gt;&lt;br&gt;item_name : string&lt;br&gt;purchase_price : decimal&lt;br&gt;base_branch_id : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;cost_center_name : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;document_no : string&lt;br&gt;item_master_id : bigint (FK, NULL ได้)&lt;br&gt;general_ledger_code : string &lt;i&gt;(ไม่ใช่ FK จริง)&lt;/i&gt;&lt;br&gt;budget_year : int&lt;br&gt;create_date : timestamp&lt;br&gt;create_eid : string&lt;br&gt;modify_date : timestamp&lt;br&gt;modify_eid : string" vertex="1">
-          <mxGeometry height="310" width="320" x="420" y="1950" as="geometry" />
+          <mxGeometry height="310" width="320" x="1755.33" y="2171" as="geometry" />
         </mxCell>
         <mxCell id="b_tools" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#E7EDFA;strokeColor=#2E5AAC;fontFamily=Consolas;fontSize=11;" value="&lt;b&gt;ebudget_tools_equipment&lt;/b&gt;&lt;br&gt;&lt;i&gt;(เครื่องมือและอุปกรณ์)&lt;/i&gt;&lt;hr size=1&gt;id : bigint &lt;i&gt;(คีย์หลัก)&lt;/i&gt;&lt;br&gt;item_name : string&lt;br&gt;purchase_price : decimal&lt;br&gt;base_branch_id : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;cost_center_name : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;document_no : string&lt;br&gt;item_master_id : bigint (FK, NULL ได้)&lt;br&gt;general_ledger_code : string &lt;i&gt;(ไม่ใช่ FK จริง)&lt;/i&gt;&lt;br&gt;budget_year : int&lt;br&gt;create_date : timestamp&lt;br&gt;create_eid : string&lt;br&gt;modify_date : timestamp&lt;br&gt;modify_eid : string" vertex="1">
-          <mxGeometry height="310" width="320" x="420" y="2280" as="geometry" />
+          <mxGeometry height="310" width="320" x="433.33" y="2171" as="geometry" />
         </mxCell>
         <mxCell id="s_sys" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#EFEFEF;strokeColor=#6B7280;fontFamily=Consolas;fontSize=11;" value="&lt;b&gt;SystemSettings&lt;/b&gt;&lt;br&gt;&lt;i&gt;(สถานะปิดงบ/ปีงบประมาณปัจจุบัน)&lt;/i&gt;&lt;hr size=1&gt;id : bigint &lt;i&gt;(คีย์หลัก)&lt;/i&gt;&lt;br&gt;is_frozen : smallint (0/1)&lt;br&gt;frozen_message : string&lt;br&gt;active_budget_year : int&lt;br&gt;frozen_eid : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;frozen_date : timestamp&lt;br&gt;unfrozen_eid : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;unfrozen_date : timestamp&lt;br&gt;&lt;i&gt;หมายเหตุ: ไม่มีความสัมพันธ์กับตารางอื่น (standalone), หนึ่งแถวต่อหนึ่ง &quot;รอบ freeze&quot;, load() cache ไว้ 300 วิ&lt;/i&gt;" vertex="1">
-          <mxGeometry height="240" width="300" x="820" y="200" as="geometry" />
+          <mxGeometry height="240" width="300" x="907.665" y="110" as="geometry" />
         </mxCell>
         <mxCell id="g_gl" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#F0E6F6;strokeColor=#7B3FA0;fontFamily=Consolas;fontSize=11;" value="&lt;b&gt;ebudget_gl_entry&lt;/b&gt;&lt;br&gt;&lt;i&gt;(การลงบัญชี GL ระหว่างเดือน)&lt;/i&gt;&lt;hr size=1&gt;id : bigint &lt;i&gt;(คีย์หลัก)&lt;/i&gt;&lt;br&gt;general_ledger_code : string &lt;i&gt;(ไม่ใช่ FK จริง)&lt;/i&gt;&lt;br&gt;budget_year : int&lt;br&gt;proportion : decimal (% snapshot จาก GL Master)&lt;br&gt;depreciation : decimal (% snapshot จาก GL Master)&lt;br&gt;detail_note : string&lt;br&gt;base_branch_id : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;cost_center_name : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;document_no : string&lt;br&gt;create_date : timestamp&lt;br&gt;create_eid : string&lt;br&gt;modify_date : timestamp&lt;br&gt;modify_eid : string" vertex="1">
-          <mxGeometry height="300" width="320" x="820" y="470" as="geometry" />
+          <mxGeometry height="300" width="320" x="568" y="1130" as="geometry" />
         </mxCell>
         <mxCell id="g_gl_detail" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#F0E6F6;strokeColor=#7B3FA0;fontFamily=Consolas;fontSize=11;" value="&lt;b&gt;ebudget_gl_entry_monthly_detail&lt;/b&gt;&lt;br&gt;&lt;i&gt;(รายละเอียดรายเดือนของ GL Entry)&lt;/i&gt;&lt;hr size=1&gt;id : bigint &lt;i&gt;(คีย์หลัก)&lt;/i&gt;&lt;br&gt;month : int (1-12)&lt;br&gt;detail_note : string&lt;br&gt;amount : decimal (งบที่ใช้เดือนนี้)&lt;br&gt;cumulative_amount : decimal (สะสม)&lt;br&gt;gl_entry_id : bigint (FK, บังคับ)" vertex="1">
-          <mxGeometry height="175" width="300" x="1190" y="470" as="geometry" />
+          <mxGeometry height="175" width="300" x="578" y="1520" as="geometry" />
         </mxCell>
         <mxCell id="p_plan" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#E1F5FA;strokeColor=#0E7C99;fontFamily=Consolas;fontSize=11;" value="&lt;b&gt;ebudget_budget_plan_item&lt;/b&gt;&lt;br&gt;&lt;i&gt;(แผนงบประมาณประจำปี - Back Office)&lt;/i&gt;&lt;hr size=1&gt;id : bigint &lt;i&gt;(คีย์หลัก)&lt;/i&gt;&lt;br&gt;budget_category : string (choices, &lt;i&gt;ไม่ใช่ FK&lt;/i&gt;)&lt;br&gt;item_code : string&lt;br&gt;general_ledger_code : string &lt;i&gt;(ไม่ใช่ FK จริง)&lt;/i&gt;&lt;br&gt;description : string&lt;br&gt;budget_year : int&lt;br&gt;base_branch_id : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;cost_center_name : string &lt;i&gt;(ไม่ใช่ FK)&lt;/i&gt;&lt;br&gt;document_no : string&lt;br&gt;create_date : timestamp&lt;br&gt;create_eid : string&lt;br&gt;modify_date : timestamp&lt;br&gt;modify_eid : string" vertex="1">
-          <mxGeometry height="300" width="320" x="820" y="800" as="geometry" />
+          <mxGeometry height="300" width="320" x="1312" y="1130" as="geometry" />
         </mxCell>
         <mxCell id="p_plan_detail" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#E1F5FA;strokeColor=#0E7C99;fontFamily=Consolas;fontSize=11;" value="&lt;b&gt;ebudget_budget_plan_monthly_detail&lt;/b&gt;&lt;br&gt;&lt;i&gt;(รายละเอียดรายเดือนของแผนงบประมาณ)&lt;/i&gt;&lt;hr size=1&gt;id : bigint &lt;i&gt;(คีย์หลัก)&lt;/i&gt;&lt;br&gt;month : int (1-12)&lt;br&gt;amount : decimal&lt;br&gt;plan_item_id : bigint (FK, บังคับ)" vertex="1">
-          <mxGeometry height="130" width="300" x="1190" y="680" as="geometry" />
+          <mxGeometry height="130" width="300" x="1322" y="1520" as="geometry" />
         </mxCell>
         <mxCell id="d_detail" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#FBF0E1;strokeColor=#A6631E;fontFamily=Consolas;fontSize=11;" value="&lt;b&gt;ebudget_monthly_detail&lt;/b&gt;&lt;br&gt;&lt;i&gt;(รายละเอียดงบประมาณรายเดือน — ใช้ร่วมกัน 7 ตาราง)&lt;/i&gt;&lt;hr size=1&gt;id : bigint &lt;i&gt;(คีย์หลัก)&lt;/i&gt;&lt;br&gt;month : int&lt;br&gt;headcount : decimal&lt;br&gt;cost : decimal&lt;br&gt;vet_budget_id : bigint (FK, NULL ได้)&lt;br&gt;non_vet_budget_id : bigint (FK, NULL ได้)&lt;br&gt;position_adj_id : bigint (FK, NULL ได้)&lt;br&gt;med_equip_id : bigint (FK, NULL ได้)&lt;br&gt;comp_equip_id : bigint (FK, NULL ได้)&lt;br&gt;furniture_equip_id : bigint (FK, NULL ได้)&lt;br&gt;tools_equip_id : bigint (FK, NULL ได้)&lt;br&gt;&lt;i&gt;หมายเหตุ: แต่ละแถวมีค่าไม่ null แค่ 1 คอลัมน์เท่านั้น&lt;/i&gt;" vertex="1">
-          <mxGeometry height="300" width="320" x="820" y="1140" as="geometry" />
+          <mxGeometry height="300" width="320" x="203.33" y="3017" as="geometry" />
         </mxCell>
         <mxCell id="excl" parent="1" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;dashed=1;fillColor=none;strokeColor=#8A93A3;fontColor=#5B6472;fontFamily=Consolas;fontSize=11;" value="&lt;b&gt;ไม่รวมอยู่ในผังนี้&lt;/b&gt;&lt;hr size=1&gt;Django auth_user / session (ดูหมายเหตุ 4)&lt;br&gt;imedx — ฐานข้อมูลภายนอก เข้าถึงด้วย raw SQL (ดูหมายเหตุ 4)" vertex="1">
-          <mxGeometry height="120" width="300" x="1190" y="1140" as="geometry" />
+          <mxGeometry height="120" width="300" x="907.665" y="360" as="geometry" />
         </mxCell>
-        <mxCell id="e1" edge="1" parent="1" source="m_cat" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#23806C;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=10;fontColor=#23806C;fontFamily=Tahoma;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="m_sub" value="แบ่งหมวด">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="e1" edge="1" parent="1" source="m_cat" style="rounded=1;html=1;strokeColor=#23806C;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=10;fontColor=#23806C;fontFamily=Tahoma;curved=0;edgeStyle=orthogonalEdgeStyle;exitX=0.3333;exitY=1;entryX=0.5;entryY=0;" target="m_sub" value="แบ่งหมวด">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-7.75" as="offset" />
+            <Array as="points">
+              <mxPoint x="1058" y="1483.75" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e2" edge="1" parent="1" source="m_glm" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#8A93A3;strokeWidth=1.5;dashed=1;endArrow=block;endFill=1;fontSize=9.5;fontColor=#5B6472;fontFamily=Tahoma;exitX=1;exitY=0.15;entryX=0;entryY=0.15;" target="m_item" value="general_ledger_code — ไม่ใช่ FK จริง (ดูหมายเหตุ 1)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="e2" edge="1" parent="1" source="m_glm" style="rounded=1;html=1;strokeColor=#8A93A3;strokeWidth=1.5;dashed=1;endArrow=block;endFill=1;fontSize=9.5;fontColor=#5B6472;fontFamily=Tahoma;curved=0;edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=1;entryX=0.75;entryY=0;" target="m_item" value="general_ledger_code — ไม่ใช่ FK จริง (ดูหมายเหตุ 1)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="263" y="-40" as="offset" />
+            <Array as="points">
+              <mxPoint x="1802" y="1779" />
+              <mxPoint x="1208" y="1779" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e3" edge="1" parent="1" source="m_cat" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#23806C;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=10;fontColor=#23806C;fontFamily=Tahoma;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="m_item" value="อ้างอิง (FK)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="e3" edge="1" parent="1" source="m_cat" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#23806C;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=10;fontColor=#23806C;fontFamily=Tahoma;curved=0;exitX=0.6667;exitY=1;entryX=0.5;entryY=0;" target="m_item" value="อ้างอิง (FK)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-17.5" as="offset" />
+            <Array as="points">
+              <mxPoint x="1158" y="1446" />
+              <mxPoint x="1265" y="1446" />
+              <mxPoint x="1265" y="1769" />
+              <mxPoint x="1133" y="1769" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e4" edge="1" parent="1" source="m_sub" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#23806C;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=10;fontColor=#23806C;fontFamily=Tahoma;exitX=1;exitY=0.8;entryX=0;entryY=0.8;" target="m_item" value="อ้างอิง (FK)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="e4" edge="1" parent="1" source="m_sub" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#23806C;strokeWidth=1.5;endArrow=block;endFill=1;fontSize=10;fontColor=#23806C;fontFamily=Tahoma;curved=0;exitX=0.5;exitY=1;entryX=0.25;entryY=0;" target="m_item" value="อ้างอิง (FK)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="2.75" as="offset" />
+            <Array as="points">
+              <mxPoint x="1058" y="1736.25" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e5" edge="1" parent="1" source="m_item" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#2E5AAC;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#2E5AAC;fontFamily=Tahoma;" target="b_vet" value="กำหนดราคา (FK)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="e7" edge="1" parent="1" source="m_item" style="rounded=1;html=1;strokeColor=#2E5AAC;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#2E5AAC;fontFamily=Tahoma;curved=0;edgeStyle=orthogonalEdgeStyle;exitX=0.375;exitY=1;entryX=0.5;entryY=0;" target="b_nonvet" value="กำหนดราคา (FK)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-66.41" as="offset" />
+            <Array as="points">
+              <mxPoint x="1095.5" y="2061" />
+              <mxPoint x="836.33" y="2061" />
+              <mxPoint x="836.33" y="2326" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e7" edge="1" parent="1" source="m_item" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#2E5AAC;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#2E5AAC;fontFamily=Tahoma;" target="b_nonvet" value="กำหนดราคา (FK)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="e9" edge="1" parent="1" source="m_item" style="rounded=1;html=1;strokeColor=#2E5AAC;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#2E5AAC;fontFamily=Tahoma;curved=0;edgeStyle=orthogonalEdgeStyle;exitX=0.625;exitY=1;entryX=0.5;entryY=0;" target="b_adj" value="กำหนดราคา (FK)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="83.25" y="29.5" as="offset" />
+            <Array as="points">
+              <mxPoint x="1170.5" y="2061" />
+              <mxPoint x="1376" y="2061" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e9" edge="1" parent="1" source="m_item" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#2E5AAC;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#2E5AAC;fontFamily=Tahoma;" target="b_adj" value="กำหนดราคา (FK)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="e11" edge="1" parent="1" source="m_item" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#2E5AAC;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#2E5AAC;fontFamily=Tahoma;curved=0;exitX=0.5;exitY=1;entryX=0.3333;entryY=0;" target="b_med" value="กำหนดราคา (FK)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-199.34" as="offset" />
+            <Array as="points">
+              <mxPoint x="1133" y="2326" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e11" edge="1" parent="1" source="m_item" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#2E5AAC;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#2E5AAC;fontFamily=Tahoma;" target="b_med" value="กำหนดราคา (FK)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="e13" edge="1" parent="1" source="m_item" style="rounded=1;html=1;strokeColor=#2E5AAC;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#2E5AAC;fontFamily=Tahoma;curved=0;edgeStyle=orthogonalEdgeStyle;exitX=0.75;exitY=1;entryX=0.5;entryY=0;" target="b_comp" value="กำหนดราคา (FK)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="31.16" as="offset" />
+            <Array as="points">
+              <mxPoint x="1208" y="2051" />
+              <mxPoint x="1672.33" y="2051" />
+              <mxPoint x="1672.33" y="2326" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e13" edge="1" parent="1" source="m_item" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#2E5AAC;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#2E5AAC;fontFamily=Tahoma;" target="b_comp" value="กำหนดราคา (FK)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="e15" edge="1" parent="1" source="m_item" style="rounded=1;html=1;strokeColor=#2E5AAC;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#2E5AAC;fontFamily=Tahoma;curved=0;edgeStyle=orthogonalEdgeStyle;exitX=0.875;exitY=1;entryX=0.5;entryY=0;" target="b_furn" value="กำหนดราคา (FK)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="277.91" y="49.5" as="offset" />
+            <Array as="points">
+              <mxPoint x="1245.5" y="2041" />
+              <mxPoint x="1915.33" y="2041" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e15" edge="1" parent="1" source="m_item" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#2E5AAC;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#2E5AAC;fontFamily=Tahoma;" target="b_furn" value="กำหนดราคา (FK)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="e17" edge="1" parent="1" source="m_item" style="rounded=1;html=1;strokeColor=#2E5AAC;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#2E5AAC;fontFamily=Tahoma;curved=0;edgeStyle=orthogonalEdgeStyle;exitX=0.25;exitY=1;entryX=0.5;entryY=0;" target="b_tools" value="กำหนดราคา (FK)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="-185.33" y="39.5" as="offset" />
+            <Array as="points">
+              <mxPoint x="1058" y="2051" />
+              <mxPoint x="593.33" y="2051" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e17" edge="1" parent="1" source="m_item" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#2E5AAC;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#2E5AAC;fontFamily=Tahoma;" target="b_tools" value="กำหนดราคา (FK)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="e19" edge="1" parent="1" source="b_vet" style="rounded=1;html=1;strokeColor=#A6631E;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#A6631E;fontFamily=Tahoma;curved=0;edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=1;entryX=0.125;entryY=0;" target="d_detail" value="มีรายละเอียดรายเดือน (FK)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-30.16" as="offset" />
+            <Array as="points">
+              <mxPoint x="243.33" y="2921.5" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e19" edge="1" parent="1" source="b_vet" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#A6631E;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#A6631E;fontFamily=Tahoma;" target="d_detail" value="มีรายละเอียดรายเดือน (FK)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="e20" edge="1" parent="1" source="b_nonvet" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#A6631E;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#A6631E;fontFamily=Tahoma;curved=0;exitX=0.5;exitY=1;entryX=0.375;entryY=0;" target="d_detail" value="มีรายละเอียดรายเดือน (FK)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="243" y="-39.5" as="offset" />
+            <Array as="points">
+              <mxPoint x="836.33" y="2961" />
+              <mxPoint x="323.33" y="2961" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e20" edge="1" parent="1" source="b_nonvet" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#A6631E;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#A6631E;fontFamily=Tahoma;" target="d_detail" value="มีรายละเอียดรายเดือน (FK)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="e21" edge="1" parent="1" source="b_adj" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#A6631E;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#A6631E;fontFamily=Tahoma;curved=0;exitX=0.6667;exitY=1;entryX=0.625;entryY=0;" target="d_detail" value="มีรายละเอียดรายเดือน (FK)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="298.5" y="-268" as="offset" />
+            <Array as="points">
+              <mxPoint x="1429.33" y="2921.5" />
+              <mxPoint x="1429.33" y="2981" />
+              <mxPoint x="403.33" y="2981" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e21" edge="1" parent="1" source="b_adj" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#A6631E;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#A6631E;fontFamily=Tahoma;" target="d_detail" value="มีรายละเอียดรายเดือน (FK)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="e22" edge="1" parent="1" source="b_med" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#A6631E;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#A6631E;fontFamily=Tahoma;curved=0;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="d_detail" value="มีรายละเอียดรายเดือน (FK)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="381.34" y="-49.5" as="offset" />
+            <Array as="points">
+              <mxPoint x="1186.33" y="2971" />
+              <mxPoint x="363.33" y="2971" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e22" edge="1" parent="1" source="b_med" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#A6631E;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#A6631E;fontFamily=Tahoma;" target="d_detail" value="มีรายละเอียดรายเดือน (FK)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="e23" edge="1" parent="1" source="b_comp" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#A6631E;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#A6631E;fontFamily=Tahoma;curved=0;exitX=0.5;exitY=1;entryX=0.75;entryY=0;" target="d_detail" value="มีรายละเอียดรายเดือน (FK)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="566" y="-69.5" as="offset" />
+            <Array as="points">
+              <mxPoint x="1672.33" y="2991" />
+              <mxPoint x="443.33" y="2991" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e23" edge="1" parent="1" source="b_comp" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#A6631E;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#A6631E;fontFamily=Tahoma;" target="d_detail" value="มีรายละเอียดรายเดือน (FK)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="e24" edge="1" parent="1" source="b_furn" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#A6631E;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#A6631E;fontFamily=Tahoma;curved=0;exitX=0.5;exitY=1;entryX=0.875;entryY=0;" target="d_detail" value="มีรายละเอียดรายเดือน (FK)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="464" y="-288" as="offset" />
+            <Array as="points">
+              <mxPoint x="1915.33" y="2921.5" />
+              <mxPoint x="1915.33" y="3001" />
+              <mxPoint x="483.33" y="3001" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e24" edge="1" parent="1" source="b_furn" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#A6631E;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#A6631E;fontFamily=Tahoma;" target="d_detail" value="มีรายละเอียดรายเดือน (FK)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="e25" edge="1" parent="1" source="b_tools" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#A6631E;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#A6631E;fontFamily=Tahoma;curved=0;exitX=0.5;exitY=1;entryX=0.25;entryY=0;" target="d_detail" value="มีรายละเอียดรายเดือน (FK)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-191" as="offset" />
+            <Array as="points">
+              <mxPoint x="593.33" y="2921.5" />
+              <mxPoint x="593.33" y="2951" />
+              <mxPoint x="283.33000000000004" y="2951" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e25" edge="1" parent="1" source="b_tools" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#A6631E;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#A6631E;fontFamily=Tahoma;" target="d_detail" value="มีรายละเอียดรายเดือน (FK)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="e26" edge="1" parent="1" source="m_cc" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#8A93A3;strokeWidth=1.5;dashed=1;endArrow=block;endFill=1;fontSize=9.5;fontColor=#5B6472;fontFamily=Tahoma;curved=0;exitX=0.5;exitY=1;entryX=0.3333;entryY=0;" target="b_vet" value="cost_center_name — ทุกตารางที่มีฟิลด์นี้ (ไม่ใช่ FK, ดูหมายเหตุ 1)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-1.66" as="offset" />
+            <Array as="points">
+              <mxPoint x="190" y="2092.17" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e26" edge="1" parent="1" source="m_cc" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#8A93A3;strokeWidth=1.5;dashed=1;endArrow=block;endFill=1;fontSize=9.5;fontColor=#5B6472;fontFamily=Tahoma;exitX=0.5;exitY=1;entryX=0;entryY=0.9;" target="b_vet" value="cost_center_name — ทุกตารางที่มีฟิลด์นี้ (ไม่ใช่ FK, ดูหมายเหตุ 1)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="e27" edge="1" parent="1" source="g_gl" style="rounded=1;html=1;strokeColor=#7B3FA0;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#7B3FA0;fontFamily=Tahoma;curved=0;edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="g_gl_detail" value="มีรายละเอียดรายเดือน (FK, บังคับ)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="1" as="offset" />
+            <Array as="points">
+              <mxPoint x="728" y="1475" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e27" edge="1" parent="1" source="g_gl" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7B3FA0;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#7B3FA0;fontFamily=Tahoma;" target="g_gl_detail" value="มีรายละเอียดรายเดือน (FK, บังคับ)">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e28" edge="1" parent="1" source="p_plan" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#0E7C99;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#0E7C99;fontFamily=Tahoma;" target="p_plan_detail" value="มีรายละเอียดรายเดือน (FK, บังคับ)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="e28" edge="1" parent="1" source="p_plan" style="rounded=1;html=1;strokeColor=#0E7C99;strokeWidth=1.3;endArrow=block;endFill=1;fontSize=9;fontColor=#0E7C99;fontFamily=Tahoma;curved=0;edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="p_plan_detail" value="มีรายละเอียดรายเดือน (FK, บังคับ)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="1" as="offset" />
+            <Array as="points">
+              <mxPoint x="1472" y="1475" />
+            </Array>
+          </mxGeometry>
         </mxCell>
         <mxCell id="notes_h" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=16;fontStyle=1;fontFamily=Tahoma;" value="หมายเหตุ" vertex="1">
-          <mxGeometry height="30" width="300" x="40" y="2620" as="geometry" />
+          <mxGeometry height="30" width="300" x="907.665" y="490" as="geometry" />
         </mxCell>
         <mxCell id="note1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=10;fillColor=#FFFFFF;strokeColor=#8A93A3;strokeWidth=1;arcSize=6;fontFamily=Tahoma;fontSize=12;" value="1. cost_center_name, base_branch_id และ general_ledger_code เป็นข้อความธรรมดา (string) ในทุกตารางที่มีฟิลด์เหล่านี้ (งบกำลังคน/ครุภัณฑ์ทั้ง 7 ตาราง, ebudget_budget_item_master, ebudget_gl_entry, ebudget_budget_plan_item) ไม่ใช่ Foreign Key ไปยัง ebudget_cost_center_master / ebudget_general_ledger_master เลยแม้แต่ตารางเดียว — ตั้งใจให้จับคู่กันด้วยค่า (value) ไม่ใช่ id เพราะชื่อศูนย์ต้นทุนหรือรหัส GL อาจถูกแก้ไขภายหลังในตาราง master โดยไม่ต้องบังคับให้ทุกแถวประวัติเปลี่ยนตาม ส่วน base_branch_id ดึงมาจากระบบ imedx ภายนอกเพียงครั้งเดียวตอนบันทึก ไม่ได้ query สดทุกครั้งที่เปิดดู" vertex="1">
-          <mxGeometry height="130" width="1470" x="40" y="2660" as="geometry" />
+          <mxGeometry height="130" width="1470" x="322.66499999999996" y="530" as="geometry" />
         </mxCell>
         <mxCell id="note2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=10;fillColor=#FFFFFF;strokeColor=#8A93A3;strokeWidth=1;arcSize=6;fontFamily=Tahoma;fontSize=12;" value="2. ทั้ง 7 ตารางงบกำลังคน/ครุภัณฑ์ไม่มี abstract base class ร่วมกันใน budget_app/models.py — ฟิลด์อย่าง position_name / salary / base_branch_id / cost_center_name / audit fields ถูกประกาศแยกกันในแต่ละคลาส โครงสร้างเหมือนกันทุกตัวอักษรแต่ต้องแก้ไขทีละ 7 จุดทุกครั้งที่เพิ่มฟิลด์ใหม่ (เช่นตอนเพิ่ม cost_center_name)" vertex="1">
-          <mxGeometry height="90" width="1470" x="40" y="2810" as="geometry" />
+          <mxGeometry height="90" width="1470" x="322.66499999999996" y="670" as="geometry" />
         </mxCell>
         <mxCell id="note3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=10;fillColor=#FFFFFF;strokeColor=#8A93A3;strokeWidth=1;arcSize=6;fontFamily=Tahoma;fontSize=12;" value="3. ebudget_monthly_detail เชื่อมกับตารางแม่ผ่าน Foreign Key แยกกัน 7 ตัว (vet_budget_id ... tools_equip_id) แทนที่จะใช้ FK แบบ generic ตัวเดียว — แต่ละแถวจะมีค่าไม่ null แค่คอลัมน์เดียว ตรงกับตารางงบประมาณที่แถวนั้นสังกัดอยู่จริง เป็นความสัมพันธ์จริงตามปกติ เพียงแต่กระจายอยู่ใน 7 คอลัมน์แทนที่จะเป็นคอลัมน์เดียว — ส่วน ebudget_gl_entry_monthly_detail และ ebudget_budget_plan_monthly_detail แยกตารางรายละเอียดของตัวเองต่างหาก ไม่ได้ใช้ ebudget_monthly_detail ร่วมด้วย เพราะโครงสร้างข้อมูลรายเดือนไม่เหมือนกัน (มี amount/cumulative_amount แทน headcount/cost)" vertex="1">
-          <mxGeometry height="110" width="1470" x="40" y="2910" as="geometry" />
+          <mxGeometry height="110" width="1470" x="322.66499999999996" y="770" as="geometry" />
         </mxCell>
         <mxCell id="note4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=10;fillColor=#FFFFFF;strokeColor=#8A93A3;strokeWidth=1;arcSize=6;fontFamily=Tahoma;fontSize=12;" value="4. มี 2 ระบบที่ตั้งใจไม่นำมาแสดงในผังนี้: ตาราง auth_user / session ของ Django เอง (ใช้สำหรับ login เท่านั้น ไม่ได้ปรับแต่งเพิ่ม และไม่มีตารางไหนอ้างอิงด้วย FK เลย — create_eid / modify_eid เป็นเพียง string รหัสพนักงานธรรมดา) และ imedx ซึ่งเป็นฐานข้อมูล PostgreSQL ภายนอกแยกต่างหาก เข้าถึงผ่าน raw SQL เพื่อดึงรหัสสาขาเท่านั้น ไม่มี Django model หรือ migration ใดๆ ของ imedx อยู่ในโปรเจกต์นี้เลย" vertex="1">
-          <mxGeometry height="110" width="1470" x="40" y="3030" as="geometry" />
+          <mxGeometry height="110" width="1470" x="322.66499999999996" y="890" as="geometry" />
         </mxCell>
         <mxCell id="note5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=10;fillColor=#FFFFFF;strokeColor=#8A93A3;strokeWidth=1;arcSize=6;fontFamily=Tahoma;fontSize=12;" value="5. ebudget_gl_entry/ebudget_budget_plan_item เก็บ proportion/depreciation หรือ general_ledger_code เป็น &quot;snapshot&quot; ของค่าจาก ebudget_general_ledger_master ณ ตอนบันทึก ไม่ใช่ค่าที่ query สดทุกครั้ง ถ้า GL Master ถูกแก้ไขภายหลัง เอกสารเก่าจะยังคงค่าตอนบันทึกไว้ — SystemSettings ไม่มี FK เชื่อมกับตารางไหนเลย (standalone) และถูก cache ไว้ในหน่วยความจำ 300 วินาทีเพื่อลด round trip ไปเซิร์ฟเวอร์ฐานข้อมูล" vertex="1">
-          <mxGeometry height="90" width="1470" x="40" y="3150" as="geometry" />
+          <mxGeometry height="90" width="1470" x="322.66499999999996" y="1010" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>

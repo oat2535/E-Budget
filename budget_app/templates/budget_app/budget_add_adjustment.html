@@ -138,6 +138,24 @@
         const items = JSON.parse(document.getElementById('items-data').textContent)
             .sort((a, b) => a.name.localeCompare(b.name, 'th'));
 
+        // ตำแหน่งเดิม/ใหม่ dropdown กรองตามคอลัมน์ "ประเภท" ของแถวตัวเอง — ดู
+        // cols1[0]/[1]/[3]'s filter ด้านล่าง. group มาจาก budget_add_adjustment_view
+        // (views.py) อยู่แล้วตั้งแต่รอบก่อน เพิ่งมาใช้งานจริงรอบนี้.
+        const vetPositions = items.filter(i => i.group === 'VET Manpower');
+        const nonVetPositions = items.filter(i => i.group === 'NON VET Manpower');
+
+        // jexcel เรียกฟังก์ชันนี้ใหม่ทุกครั้งที่ cell ของคอลัมน์นี้เข้าโหมด
+        // แก้ไข (ไม่ cache, ไม่ผูกกับคอลัมน์อื่น) — table1 อ้างอิงผ่าน closure
+        // เหมือนที่ onchange ทำอยู่แล้วในไฟล์นี้ ใช้งานได้แม้ถูกนิยามก่อน
+        // table1 จะถูก assign เพราะฟังก์ชันนี้ไม่ถูกเรียกจนกว่าผู้ใช้จะเปิด
+        // dropdown จริง (table1 assign เสร็จแล้วแน่นอนตอนนั้น)
+        const filterPositionsByType = function(el, e, r, n, source) {
+            const type = table1.getValueFromCoords(0, n);
+            if (type === 'VET') return vetPositions;
+            if (type === 'NON VET') return nonVetPositions;
+            return []; // ยังไม่เลือกประเภท — ไม่แสดงตัวเลือกใดๆ จนกว่าจะเลือกประเภทก่อน
+        };
+
         // Helper functions
         const getSalary = (name) => {
             const match = items.find(i => i.name === name);
@@ -193,8 +211,16 @@
 
         // Table 1 Config
         const cols1 = [
-            { type: 'dropdown', align: 'left', title: 'ตำแหน่งเดิม', width: 200, source: items, autocomplete: true },
-            { type: 'dropdown', align: 'left', title: 'ตำแหน่งใหม่', width: 200, source: items, autocomplete: true },
+            // Chosen explicitly per row (not inferred from the position —
+            // old/new share one combined VET+NON VET dropdown list with
+            // nothing else marking which type a row is) since GL coding
+            // depends on it and must work even for a custom position typed
+            // in free-hand, not found in master data at all.
+            { type: 'dropdown', align: 'left', title: 'ประเภท', width: 100, source: ['VET', 'NON VET'], autocomplete: false },
+            { type: 'dropdown', align: 'left', title: 'ตำแหน่งเดิม', width: 200, source: items, autocomplete: true, filter: filterPositionsByType },
+            { type: 'text', align: 'left', title: 'รายละเอียดตำแหน่งเดิม', width: 180 },
+            { type: 'dropdown', align: 'left', title: 'ตำแหน่งใหม่', width: 200, source: items, autocomplete: true, filter: filterPositionsByType },
+            { type: 'text', align: 'left', title: 'รายละเอียดตำแหน่งใหม่', width: 180 },
             { type: 'numeric', title: 'เงินเดือนเดิม', width: 100, mask: '#,##0' },
             { type: 'numeric', title: 'ค่าตำแหน่งเดิม', width: 120, mask: '#,##0' },
             { type: 'numeric', title: 'รวมรายได้เดิม', width: 110, readOnly: true, mask: '#,##0' },
@@ -276,60 +302,60 @@
             // jspreadsheet interaction (e.g. paste) still slips a row past it.
             if (y >= table2.rows.length || y >= table3.rows.length) return;
 
-            let oldSal = getNum(table1.getValueFromCoords(2, y));
-            let oldAllow = getNum(table1.getValueFromCoords(3, y));
-            let newSal = getNum(table1.getValueFromCoords(5, y));
-            let newAllow = getNum(table1.getValueFromCoords(6, y));
+            let oldSal = getNum(table1.getValueFromCoords(5, y));
+            let oldAllow = getNum(table1.getValueFromCoords(6, y));
+            let newSal = getNum(table1.getValueFromCoords(8, y));
+            let newAllow = getNum(table1.getValueFromCoords(9, y));
 
             // Old Position Changed
-            if (x === 0) {
+            if (x === 1) {
                 oldSal = getSalary(value);
                 oldAllow = getAllowance(value);
-                table1.setValueFromCoords(2, y, oldSal, true); 
-                table1.setValueFromCoords(3, y, oldAllow, true); 
+                table1.setValueFromCoords(5, y, oldSal, true);
+                table1.setValueFromCoords(6, y, oldAllow, true);
             }
-            
+
             // New Position Changed
-            if (x === 1) {
+            if (x === 3) {
                 newSal = getSalary(value);
                 newAllow = getAllowance(value);
-                table1.setValueFromCoords(5, y, newSal, true); 
-                table1.setValueFromCoords(6, y, newAllow, true); 
+                table1.setValueFromCoords(8, y, newSal, true);
+                table1.setValueFromCoords(9, y, newAllow, true);
             }
-            
+
             // Manual Salary/Allowance Changed
-            if (x === 2) oldSal = getNum(value);
-            if (x === 3) oldAllow = getNum(value);
-            if (x === 5) newSal = getNum(value);
-            if (x === 6) newAllow = getNum(value);
+            if (x === 5) oldSal = getNum(value);
+            if (x === 6) oldAllow = getNum(value);
+            if (x === 8) newSal = getNum(value);
+            if (x === 9) newAllow = getNum(value);
 
             // Calc Income Totals & Diffs
-            if (x === 0 || x === 1 || x === 2 || x === 3 || x === 5 || x === 6) {
+            if (x === 1 || x === 3 || x === 5 || x === 6 || x === 8 || x === 9) {
                 let oldTotal = oldSal + oldAllow;
                 let newTotal = newSal + newAllow;
-                table1.setValueFromCoords(4, y, oldTotal, true);
-                table1.setValueFromCoords(7, y, newTotal, true);
-                
-                table1.setValueFromCoords(8, y, newSal - oldSal, true);
-                table1.setValueFromCoords(9, y, newAllow - oldAllow, true);
+                table1.setValueFromCoords(7, y, oldTotal, true);
+                table1.setValueFromCoords(10, y, newTotal, true);
+
+                table1.setValueFromCoords(11, y, newSal - oldSal, true);
+                table1.setValueFromCoords(12, y, newAllow - oldAllow, true);
             }
 
             // Get updated values for sync
             const rowData1 = table1.getRowData(y);
-            const oldPos = rowData1[0];
-            const newPos = rowData1[1];
-            const diffSal = getNum(rowData1[8]);
-            const diffAllow = getNum(rowData1[9]);
+            const oldPos = rowData1[1];
+            const newPos = rowData1[3];
+            const diffSal = getNum(rowData1[11]);
+            const diffAllow = getNum(rowData1[12]);
 
-            // Calc Headcount Total (Cols 10 to 21)
+            // Calc Headcount Total (Cols 13 to 24)
             let sumHC = 0;
-            for(let i = 10; i <= 21; i++) {
+            for(let i = 13; i <= 24; i++) {
                 sumHC += getNum(rowData1[i]);
             }
-            table1.setValueFromCoords(22, y, sumHC, true);
+            table1.setValueFromCoords(25, y, sumHC, true);
 
             const monthCounts = [];
-            for (let i = 10; i <= 21; i++) {
+            for (let i = 13; i <= 24; i++) {
                 monthCounts.push(getNum(rowData1[i]));
             }
 
@@ -369,20 +395,20 @@
 
         const initData = () => {
             const arr = [];
-            for (let i = 0; i < 23; i++) arr.push('');
+            for (let i = 0; i < 26; i++) arr.push('');
             return [arr];
         };
 
         table1 = jspreadsheet(document.getElementById('table1-spreadsheet'), {
             data: initData(),
             columns: cols1,
-            minDimensions: [23, 1],
+            minDimensions: [26, 1],
             onchange: onchange,
             allowInsertColumn: false,
             allowManualInsertColumn: false,
             allowDeleteColumn: false,
             tableOverflow: true,
-            freezeColumns: 2,
+            freezeColumns: 5,
             // table1 can gain a row through more than just the "เพิ่มรายการ"
             // button — e.g. pressing Enter on its last row — and table2/table3
             // must always mirror it row-for-row or onchange's cross-table
@@ -448,20 +474,36 @@
             
             for (let i = 0; i < rows.length; i++) {
                 let row = rows[i];
-                let oldPos = row[0];
-                let newPos = row[1];
-                let oldSal = getNum(row[2]);
-                let oldAllow = getNum(row[3]);
-                let newSal = getNum(row[5]);
-                let newAllow = getNum(row[6]);
-                
-                if (oldPos && newPos) {
+                let adjustmentType = row[0];
+                let oldPos = row[1];
+                let oldDetail = row[2];
+                let newPos = row[3];
+                let newDetail = row[4];
+                let oldSal = getNum(row[5]);
+                let oldAllow = getNum(row[6]);
+                let newSal = getNum(row[8]);
+                let newAllow = getNum(row[9]);
+
+                // ประเภท/ตำแหน่งเดิม/ตำแหน่งใหม่ บังคับกรอกครบทั้ง 3 ช่อง —
+                // แถวที่กรอกข้อมูลระบุตัวตนไว้บางส่วน (เช่น เลือกตำแหน่งเดิม
+                // แต่ลืมเลือกประเภท) ต้องบล็อกการบันทึกทั้งเอกสารพร้อมแจ้ง
+                // เตือน ไม่ใช่ข้ามแถวนั้นไปเงียบๆ — ส่วนแถวที่ว่างเปล่าจริงๆ
+                // ทั้ง 3 ช่อง (ไม่ได้ตั้งใจใช้แถวนั้น) ยังข้ามแบบเงียบๆ ตามเดิม
+                const hasAnyIdentityData = adjustmentType || oldPos || newPos;
+                const hasAllRequired = adjustmentType && oldPos && newPos;
+
+                if (hasAnyIdentityData && !hasAllRequired) {
+                    Swal.fire('แจ้งเตือน', `กรุณาเลือกประเภท ตำแหน่งเดิม และตำแหน่งใหม่ให้ครบในแถวที่ ${i + 1} ก่อนบันทึก`, 'warning');
+                    return;
+                }
+
+                if (hasAllRequired) {
                     let diffSal = newSal - oldSal;
                     let diffAllow = newAllow - oldAllow;
 
                     const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
                     const monthCounts = [];
-                    for (let i = 10; i <= 21; i++) monthCounts.push(getNum(row[i]));
+                    for (let i = 13; i <= 24; i++) monthCounts.push(getNum(row[i]));
                     const salaryBudget = computeMonthlyBudget(monthCounts, diffSal);
                     const allowanceBudget = computeMonthlyBudget(monthCounts, diffAllow);
 
@@ -479,8 +521,11 @@
                     });
 
                     dataToSave.push({
+                        'adjustment_type': adjustmentType,
                         'old_position_name': oldPos,
+                        'old_description': oldDetail || '',
                         'new_position_name': newPos,
+                        'new_description': newDetail || '',
                         'old_salary': oldSal,
                         'old_allowance': oldAllow,
                         'new_salary': newSal,

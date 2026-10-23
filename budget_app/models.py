@@ -56,6 +56,7 @@ class SystemSettings(models.Model):
 
 class ebudget_vet_manpower(models.Model):
     position_name = models.CharField(max_length=255, verbose_name="ตำแหน่ง")
+    description = models.CharField(max_length=255, null=True, blank=True, verbose_name="รายละเอียด")
     salary = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="เงินเดือน")
     base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
     # Only set for back-office staff (bank_account_note containing "BACK-<dept>"
@@ -111,6 +112,7 @@ class ebudget_vet_manpower(models.Model):
 
 class ebudget_non_vet_manpower(models.Model):
     position_name = models.CharField(max_length=255, verbose_name="ตำแหน่ง")
+    description = models.CharField(max_length=255, null=True, blank=True, verbose_name="รายละเอียด")
     salary = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="เงินเดือน")
     position_allowance = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="ค่าวัดระดับ/ตำแหน่ง")
     base_branch_id = models.CharField(max_length=20, verbose_name="รหัสสาขาหลัก", null=True, blank=True)
@@ -122,7 +124,12 @@ class ebudget_non_vet_manpower(models.Model):
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
-    general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
+    # Split from a single general_ledger_code — salary and the grade/
+    # position allowance always post to two different, fixed GL codes
+    # (NON_VET_SALARY_GL_CODE / NON_VET_ALLOWANCE_GL_CODE in constants.py),
+    # not a per-position master lookup like VET's single GL code.
+    salary_general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger (เงินเดือน)")
+    position_allowance_general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger (ค่าวัดระดับ)")
     budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
     status = models.CharField(max_length=10, choices=DOCUMENT_STATUS_CHOICES, default=STATUS_PENDING, verbose_name="สถานะ")
     cancel_reason = models.TextField(null=True, blank=True, verbose_name="เหตุผลการยกเลิก")
@@ -166,8 +173,16 @@ class ebudget_non_vet_manpower(models.Model):
         return f"{self.position_name} - {self.salary}"
 
 class ebudget_position_adjustment(models.Model):
+    # Chosen explicitly per row by the user (not inferred from item master —
+    # old/new position dropdowns share one combined VET+NON VET list with
+    # nothing else marking which type a row is), since GL coding depends on
+    # it and must work even for a custom position that isn't in master data.
+    ADJUSTMENT_TYPE_CHOICES = [('VET', 'VET'), ('NON VET', 'NON VET')]
+    adjustment_type = models.CharField(max_length=10, choices=ADJUSTMENT_TYPE_CHOICES, null=True, blank=True, verbose_name="ประเภท")
     old_position_name = models.CharField(max_length=255, verbose_name="ตำแหน่งเดิม")
+    old_description = models.CharField(max_length=255, null=True, blank=True, verbose_name="รายละเอียดตำแหน่งเดิม")
     new_position_name = models.CharField(max_length=255, verbose_name="ตำแหน่งใหม่")
+    new_description = models.CharField(max_length=255, null=True, blank=True, verbose_name="รายละเอียดตำแหน่งใหม่")
     old_salary = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="เงินเดือนเดิม")
     old_allowance = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="ค่าวัดระดับ/ตำแหน่งเดิม")
     new_salary = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="เงินเดือนใหม่")
@@ -180,7 +195,12 @@ class ebudget_position_adjustment(models.Model):
     cost_center_name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Cost Center")
     document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
     item_master = models.ForeignKey('master_data.ebudget_budget_item_master', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="อ้างอิง Item Master")
-    general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger")
+    # Split from a single general_ledger_code — fixed by adjustment_type
+    # (VET: salary only, via VET_CUSTOM_POSITION_GL_CODE; NON VET: both,
+    # via NON_VET_SALARY_GL_CODE/NON_VET_ALLOWANCE_GL_CODE in constants.py)
+    # instead of a master lookup, same reasoning as NON VET Manpower.
+    salary_general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger (เงินเดือน)")
+    allowance_general_ledger_code = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัส General Ledger (ค่าวัดระดับ)")
     budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีงบประมาณ")
     status = models.CharField(max_length=10, choices=DOCUMENT_STATUS_CHOICES, default=STATUS_PENDING, verbose_name="สถานะ")
     cancel_reason = models.TextField(null=True, blank=True, verbose_name="เหตุผลการยกเลิก")
@@ -854,3 +874,66 @@ class ebudget_budget_plan_monthly_detail(models.Model):
 
     def __str__(self):
         return f"Month {self.month} - Amount: {self.amount}"
+
+class ebudget_gl_actual_template(models.Model):
+    """One row per master_data.ebudget_gl_actual_template_row per document —
+    the fixed 181-row P&L outline is always rendered in full on both the add
+    page and here; nothing is user-addable/deletable. No monthly-detail
+    child table: unlike GL Entry/Revenue/Budget Plan, this document has no
+    month columns at all, just the 5 numeric columns below per outline row.
+    """
+    template_row = models.ForeignKey('master_data.ebudget_gl_actual_template_row', on_delete=models.SET_NULL, null=True, blank=True)
+    # Snapshotted from template_row at create/update time (not re-read from
+    # master data afterward) — same reasoning as every other item/position
+    # snapshot in this app: a later edit to the master outline must not
+    # silently reshape an already-saved document.
+    row_order = models.PositiveIntegerField(verbose_name="ลำดับแถว")
+    code = models.CharField(max_length=20, verbose_name="รหัส")
+    label = models.CharField(max_length=255, verbose_name="ชื่อ")
+    row_type = models.CharField(max_length=10, verbose_name="ประเภทแถว")
+
+    actual_value = models.DecimalField(max_digits=14, decimal_places=2, default=0, verbose_name="Act จริง")
+    per_month_value = models.DecimalField(max_digits=14, decimal_places=2, default=0, verbose_name="ต่อเดือน")
+    annualized_value = models.DecimalField(max_digits=14, decimal_places=2, default=0, verbose_name="รายปี (x12)")
+    sales_ratio = models.DecimalField(max_digits=14, decimal_places=2, default=0, verbose_name="สัดส่วน/ยอดขาย")
+    growth_rate = models.DecimalField(max_digits=14, decimal_places=2, default=0, verbose_name="% การโต")
+
+    # Document-level fields, duplicated on every row — same flat-per-row
+    # convention every other doctype in this app already uses for
+    # cost_center_name etc., rather than a separate header table.
+    # department_id is always null here (this page has no imedx-resolved
+    # branch/department — see base_branch_id below) but is kept on the
+    # model anyway because update_document_api reads first_item.department_id
+    # unconditionally across every doc_type's shared edit path.
+    department_id = models.CharField(max_length=50, null=True, blank=True, verbose_name="รหัสแผนก")
+    base_branch_id = models.CharField(max_length=20, null=True, blank=True, verbose_name="สาขา")
+    budget_year = models.PositiveIntegerField(null=True, blank=True, verbose_name="ปีที่ทำ Budget")
+    actual_month_count = models.PositiveIntegerField(null=True, blank=True, verbose_name="จำนวนเดือนข้อมูลจริง")
+    growth_pct_1 = models.DecimalField(max_digits=5, decimal_places=2, default=0, verbose_name="% การโต")
+    growth_pct_2 = models.DecimalField(max_digits=5, decimal_places=2, default=0, verbose_name="% การโต2")
+    growth_pct_3 = models.DecimalField(max_digits=5, decimal_places=2, default=0, verbose_name="% การโต3")
+
+    document_no = models.CharField(max_length=50, verbose_name="เลขที่เอกสาร", null=True, blank=True)
+    status = models.CharField(max_length=10, choices=DOCUMENT_STATUS_CHOICES, default=STATUS_PENDING, verbose_name="สถานะ")
+    cancel_reason = models.TextField(null=True, blank=True, verbose_name="เหตุผลการยกเลิก")
+
+    create_date = Timestamp0Field(verbose_name="วันที่สร้าง", null=True, blank=True)
+    create_eid = models.CharField(max_length=50, verbose_name="ผู้สร้าง (Employee ID)")
+    modify_date = Timestamp0Field(verbose_name="วันที่แก้ไขล่าสุด", null=True, blank=True)
+    modify_eid = models.CharField(max_length=50, verbose_name="ผู้แก้ไข (Employee ID)", null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        now = datetime.now().replace(microsecond=0)
+        if not self.id and not self.create_date:
+            self.create_date = now
+        self.modify_date = now
+        super().save(*args, **kwargs)
+
+    class Meta:
+        db_table = 'ebudget_gl_actual_template'
+        ordering = ['row_order']
+        verbose_name = "GL Actual Template"
+        verbose_name_plural = "GL Actual Templates"
+
+    def __str__(self):
+        return f"{self.document_no} - {self.code}"

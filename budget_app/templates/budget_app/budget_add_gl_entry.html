@@ -49,6 +49,31 @@
     .jexcel > thead > tr > td {
         text-align: center !important;
     }
+    /* แถว "ยอดรวมแต่ละเดือน" ที่ inject เข้า thead (ดู inline <script>) —
+       sticky แนวตั้งต่อจากแถวหัวคอลัมน์จริง (top ตั้งค่าแบบ inline จาก JS
+       ตาม offsetHeight จริงของแถวหัวคอลัมน์ กันกรณี header ห่อบรรทัด) และ
+       sticky แนวนอนให้ label ตรงแนวกับ freezeColumns: 2 ด้านบน (left ตั้ง
+       inline จาก JS เช่นกัน ตามความกว้างจริงของคอลัมน์ลำดับแถว/GL/รายละเอียด) */
+    .monthly-totals-row td {
+        position: sticky;
+        z-index: 2;
+        background-color: #eef6ff;
+        font-weight: 600;
+        text-align: center !important;
+        border-top: 2px solid #b6d4fe;
+    }
+    .monthly-totals-row td.monthly-totals-label {
+        /* !important จำเป็นจริง — ตรวจสอบด้วย headless browser จริงแล้วว่า
+           ถ้าไม่ใส่ z-index: 3 จะไม่ชนะ jexcel.css's blanket thead rule
+           (.jexcel > thead > tr > td { z-index: 2 }) ทั้งที่ selector นี้มี
+           specificity สูงกว่าตามทฤษฎี — ผลคือ cell เดือนที่เลื่อนผ่านเข้ามา
+           paint ทับ label (z-index เท่ากันตัดสินด้วยลำดับ DOM แทน) ทำให้
+           ข้อความ "ยอดรวมแต่ละเดือน" ถูกคอลัมน์เดือนที่กำลังเลื่อนบังเวลา scroll */
+        z-index: 3 !important;
+        text-align: left !important;
+        padding-left: 10px;
+        color: #0061f2;
+    }
 </style>
 {% endblock %}
 
@@ -170,6 +195,26 @@
         const amountCol = (m) => 2 + m;
         const totalCol = 2 + 12; // 14
 
+        // ยอดรวมแต่ละเดือน (column sum ข้ามทุกแถว) — แสดงผลอย่างเดียว ไม่เก็บ
+        // ลง database และไม่ส่งไปใน dataToSave ตอนบันทึก (ดู save handler
+        // ด้านล่าง: อ่านจาก table1.getData() ตรงๆ เท่านั้น ไม่เกี่ยวกับส่วนนี้)
+        // Element ปลายทาง (monthly-total-0..11) ถูกสร้างหลัง table1 init
+        // ด้านล่าง (inject เข้า thead เอง) — ฟังก์ชันนี้แค่หา element ด้วย id
+        // ตอนเขียนผล จึงไม่ผูกกับตอนสร้าง element
+        const formatNum = (n) => n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+
+        const updateMonthlyTotals = function() {
+            if (!table1) return;
+            const rows = table1.getData();
+            for (let m = 0; m < 12; m++) {
+                let sum = 0;
+                for (let i = 0; i < rows.length; i++) {
+                    sum += getNum(rows[i][amountCol(m)]);
+                }
+                document.getElementById(`monthly-total-${m}`).textContent = formatNum(sum);
+            }
+        };
+
         const columns = [
             { type: 'dropdown', align: 'left', title: 'GL', width: 220, source: glNames, autocomplete: true },
             { type: 'text', align: 'left', title: 'รายละเอียด', width: 150 },
@@ -197,6 +242,16 @@
             table1.setValueFromCoords(totalCol, y, total, true);
 
             isUpdating = false;
+
+            updateMonthlyTotals();
+        };
+
+        const oninsertrow = function() {
+            updateMonthlyTotals();
+        };
+
+        const ondeleterow = function() {
+            updateMonthlyTotals();
         };
 
         const createInitialData = () => [Array(columns.length).fill('')];
@@ -206,6 +261,8 @@
             columns: columns,
             minDimensions: [columns.length, 1],
             onchange: onchange,
+            oninsertrow: oninsertrow,
+            ondeleterow: ondeleterow,
             allowInsertColumn: false,
             allowManualInsertColumn: false,
             allowDeleteColumn: false,
@@ -214,6 +271,67 @@
             tableOverflow: true,
             freezeColumns: 2,
         });
+
+        // แถว "ยอดรวมแต่ละเดือน" — inject เข้า <thead> จริงของตาราง (ไม่ใช่
+        // jexcel API เพราะ vendor เวอร์ชันนี้ไม่มี option freeze แนวตั้ง มีแต่
+        // freezeColumns แนวนอน) อยู่นอก data model ของ jexcel โดยสิ้นเชิง —
+        // getData()/insertRow()/ฯลฯ ไม่เห็นแถวนี้เลย, อัปเดตด้วย textContent
+        // ตรงๆ จาก updateMonthlyTotals() เท่านั้น. Sticky ทั้งแนวตั้ง (top,
+        // ตามใต้แถวหัวคอลัมน์จริง) และแนวนอน (left, ให้ label ตรงแนวกับ
+        // freezeColumns: 2 ด้านบน) ด้วย position: sticky ธรรมดา — วิธีเดียว
+        // กับที่ thead เดิม sticky อยู่แล้วตอนนี้ (ดู CSS #spreadsheet thead
+        // tr td ด้านบน ไม่ใช่ฟีเจอร์พิเศษของ jexcel เช่นกัน)
+        const theadEl = document.querySelector('#spreadsheet table.jexcel thead');
+        const headerRow = theadEl.querySelector('tr');
+
+        const totalsRow = document.createElement('tr');
+        totalsRow.className = 'monthly-totals-row';
+
+        // คอลัมน์เลขแถว (corner, td ตัวแรกของ thead) ไม่ได้ freeze จริงใน
+        // jexcel เอง (updateFreezePosition ตั้ง left ให้แค่ obj.headers[t],
+        // t=0..freezeColumns-1 ซึ่งคือ GL/รายละเอียด ไม่รวม corner) — เลื่อน
+        // หายไปตามปกติเหมือนเนื้อหาอื่น จึงไม่ set left ให้ cell นี้เช่นกัน
+        const cornerTd = document.createElement('td');
+        totalsRow.appendChild(cornerTd);
+
+        // GL/รายละเอียด แต่ละตัว sticky left ของตัวเอง (0px / ความกว้าง GL)
+        // ตรงกับที่ updateFreezePosition ตั้งให้ obj.headers[0]/[1] จริง —
+        // ใช้ 2 cell เดี่ยวแทน cell เดียว colspan=2 เพราะ position:sticky
+        // บน <td colspan> มีพฤติกรรมไม่แน่นอนข้าม browser (sticky containing
+        // block คำนวณผิด ทำให้ตำแหน่งเพี้ยนและซ้อนทับแถวข้อมูลด้านล่าง) ส่วน
+        // เซลล์หัวคอลัมน์จริงของ jexcel เป็น <td> เดี่ยวไม่มี colspan เลย —
+        // ความกว้างใช้ค่าจาก columns config ตรงๆ (source of truth เดียวกับ
+        // ที่ jexcel เองใช้คำนวณ freeze) ไม่พึ่ง DOM measurement
+        const glSumTd = document.createElement('td');
+        glSumTd.textContent = 'ยอดรวมแต่ละเดือน';
+        glSumTd.classList.add('monthly-totals-label');
+        glSumTd.style.left = '0px';
+        totalsRow.appendChild(glSumTd);
+
+        const detailSumTd = document.createElement('td');
+        detailSumTd.classList.add('monthly-totals-label');
+        detailSumTd.style.left = `${columns[0].width}px`;
+        totalsRow.appendChild(detailSumTd);
+
+        for (let m = 0; m < 12; m++) {
+            const td = document.createElement('td');
+            td.id = `monthly-total-${m}`;
+            td.textContent = '0';
+            totalsRow.appendChild(td);
+        }
+
+        totalsRow.appendChild(document.createElement('td')); // คอลัมน์ "รวม" — เว้นว่าง
+
+        theadEl.appendChild(totalsRow);
+
+        const setMonthlyTotalsRowTop = () => {
+            const top = `${headerRow.offsetHeight}px`;
+            totalsRow.querySelectorAll('td').forEach(td => { td.style.top = top; });
+        };
+        setMonthlyTotalsRowTop();
+        window.addEventListener('resize', setMonthlyTotalsRowTop);
+
+        updateMonthlyTotals();
 
         // Bind add row button
         document.getElementById('add-row-btn').addEventListener('click', function() {

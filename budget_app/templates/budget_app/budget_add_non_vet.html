@@ -163,6 +163,9 @@
         // Columns definition
         const columns = [
             { type: 'dropdown', align: 'left', title: 'ตำแหน่ง', width: 150, source: itemNames, autocomplete: true },
+            // For a position typed in free-hand (not in master data) —
+            // mirrors VET's own รายละเอียด column (budget_add.html).
+            { type: 'text', align: 'left', title: 'รายละเอียด', width: 200 },
             { type: 'numeric', title: 'เงินเดือน', width: 100, mask: '#,##0' },
             { type: 'numeric', title: 'ค่าวัดระดับ/ตำแหน่ง', width: 150, mask: '#,##0' },
             { type: 'numeric', title: 'Jan', width: 85 },
@@ -182,6 +185,7 @@
 
         const calcColumns = [
             { type: 'text', align: 'left', title: 'ตำแหน่ง', width: 150, readOnly: true },
+            { type: 'text', align: 'left', title: 'รายละเอียด', width: 200, readOnly: true },
             { type: 'numeric', title: 'เงินเดือน', width: 100, readOnly: true, mask: '#,##0' },
             { type: 'numeric', title: 'ค่าวัดระดับ/ตำแหน่ง', width: 150, readOnly: true, mask: '#,##0' },
             { type: 'numeric', title: 'Jan', width: 85, readOnly: true, mask: '#,##0' },
@@ -234,41 +238,43 @@
                 if (x === 0) {
                     const salary = getSalary(value);
                     const allowance = getAllowance(value);
-                    table1.setValueFromCoords(1, y, salary, true);
-                    table1.setValueFromCoords(2, y, allowance, true);
+                    table1.setValueFromCoords(2, y, salary, true);
+                    table1.setValueFromCoords(3, y, allowance, true);
                 }
 
                 // Calculate total for this row in table1
                 const rowData1 = table1.getRowData(y);
                 let sum1 = 0;
-                for(let i = 3; i <= 14; i++) {
+                for(let i = 4; i <= 15; i++) {
                     sum1 += getNum(rowData1[i]);
                 }
-                table1.setValueFromCoords(15, y, sum1, true);
+                table1.setValueFromCoords(16, y, sum1, true);
 
                 // Sync with table2
                 const pos = rowData1[0];
-                const sal = getNum(rowData1[1]);
-                const allow = getNum(rowData1[2]);
+                const detail = rowData1[1];
+                const sal = getNum(rowData1[2]);
+                const allow = getNum(rowData1[3]);
                 const total_sal = sal + allow;
 
-                // Set position and salary in table 2
+                // Set position, detail, salary, and allowance in table 2
                 table2.setValueFromCoords(0, y, pos, true);
-                table2.setValueFromCoords(1, y, sal, true);
-                table2.setValueFromCoords(2, y, allow, true);
+                table2.setValueFromCoords(1, y, detail, true);
+                table2.setValueFromCoords(2, y, sal, true);
+                table2.setValueFromCoords(3, y, allow, true);
 
                 const monthCounts = [];
-                for (let i = 3; i <= 14; i++) {
+                for (let i = 4; i <= 15; i++) {
                     monthCounts.push(getNum(rowData1[i]));
                 }
                 const monthlyBudget = computeMonthlyBudget(monthCounts, total_sal);
 
                 let sum2 = 0;
                 monthlyBudget.forEach((m, idx) => {
-                    table2.setValueFromCoords(idx + 3, y, m.cost, true);
+                    table2.setValueFromCoords(idx + 4, y, m.cost, true);
                     sum2 += m.cost;
                 });
-                table2.setValueFromCoords(15, y, sum2, true);
+                table2.setValueFromCoords(16, y, sum2, true);
             } finally {
                 // Always clear the guard, even if something above throws —
                 // otherwise every future edit silently no-ops forever (the bug
@@ -277,12 +283,12 @@
             }
         };
 
-        const createInitialData = () => [['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']];
+        const createInitialData = () => [['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']];
 
         table1 = jspreadsheet(document.getElementById('spreadsheet'), {
             data: createInitialData(),
             columns: columns,
-            minDimensions: [16, 1],
+            minDimensions: [17, 1],
             onchange: onchange,
             allowInsertColumn: false,
             allowManualInsertColumn: false,
@@ -298,13 +304,13 @@
             oninsertrow: function(el, rowNumber, numOfRows, rowRecords, insertBefore) {
                 if (table2) table2.insertRow(numOfRows, rowNumber, insertBefore);
             },
-            freezeColumns: 3,
+            freezeColumns: 4,
         });
 
         table2 = jspreadsheet(document.getElementById('calc-spreadsheet'), {
             data: createInitialData(),
             columns: calcColumns,
-            minDimensions: [16, 1],
+            minDimensions: [17, 1],
             allowInsertRow: true,
             allowDeleteRow: true,
             allowInsertColumn: false,
@@ -312,7 +318,7 @@
             allowDeleteColumn: false,
             tableOverflow: true,
             contextMenu: function() { return false; },
-            freezeColumns: 3,
+            freezeColumns: 4,
         });
         
         // Bind add row button — table1's oninsertrow hook mirrors this into
@@ -342,13 +348,14 @@
             for (let i = 0; i < rows.length; i++) {
                 let row = rows[i];
                 let position = row[0];
-                let salary = getNum(row[1]);
-                let allowance = getNum(row[2]);
+                let detail = row[1];
+                let salary = getNum(row[2]);
+                let allowance = getNum(row[3]);
 
                 if (position && (salary > 0 || allowance > 0)) {
                     const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
                     const monthCounts = [];
-                    for (let i = 3; i <= 14; i++) monthCounts.push(getNum(row[i]));
+                    for (let i = 4; i <= 15; i++) monthCounts.push(getNum(row[i]));
                     const monthlyBudget = computeMonthlyBudget(monthCounts, salary + allowance);
 
                     let monthlyData = {};
@@ -358,6 +365,7 @@
 
                     dataToSave.push({
                         'position_name': position,
+                        'description': detail || '',
                         'salary': salary,
                         'position_allowance': allowance,
                         'branch_code': branchCode,

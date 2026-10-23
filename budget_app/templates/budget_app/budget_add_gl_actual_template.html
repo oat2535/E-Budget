@@ -1,0 +1,415 @@
+{% extends "budget_app/base.html" %}
+{% load static %}
+
+{% block title %}Add Budget - GL Actual Template{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'budget_app/vendor/jexcel/jexcel.css' %}" type="text/css" />
+<link rel="stylesheet" href="{% static 'budget_app/vendor/jsuites/jsuites.css' %}" type="text/css" />
+<link rel="stylesheet" href="{% static 'budget_app/vendor/tom-select/tom-select.bootstrap5.min.css' %}">
+<style>
+    .jexcel_container {
+        width: 100%;
+        max-width: 100%;
+    }
+    .jexcel_content {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto;
+    }
+    .jexcel {
+        width: 100% !important;
+    }
+    .card-body {
+        overflow: hidden;
+    }
+    #config-card-body {
+        overflow: visible;
+    }
+    .jexcel tbody tr td {
+        vertical-align: middle;
+        /* jexcel/jsuites' own default cell text color reads as a light
+           gray, hard to read against this grid's 181 dense rows — darkened
+           for readability, per request. */
+        color: #212529 !important;
+    }
+    #spreadsheet thead tr td {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background-color: #f5f5f5;
+    }
+    .jexcel > thead > tr > td {
+        text-align: center !important;
+    }
+    /* Section-header / subtotal rows (row_type != 'gl') get a shaded,
+       bold look so the 181-row fixed outline reads at a glance — purely
+       cosmetic, no effect on data or jexcel's row model. */
+    .jexcel tbody tr.gl-actual-row-header td {
+        background-color: #eef2f7;
+        font-weight: 600;
+    }
+    .jexcel tbody tr.gl-actual-row-subtotal td {
+        background-color: #f7f3e8;
+        font-weight: 600;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<header class="page-header page-header-dark bg-gradient-primary-to-secondary pb-10">
+    <div class="container-fluid px-4">
+        <div class="page-header-content pt-4">
+            <div class="row align-items-center justify-content-between">
+                <div class="col-auto mt-4">
+                    <h1 class="page-header-title">
+                        <div class="page-header-icon"><i data-feather="plus-circle"></i></div>
+                        GL Actual Template
+                    </h1>
+                </div>
+                <div class="col-auto mt-4">
+                    <a href="{% url 'budget_list' %}" class="btn btn-light text-dark me-2 shadow-sm fw-500" style="width: 120px;"><i data-feather="arrow-left" class="me-1"></i> กลับ</a>
+                    <button id="save-budget-btn" class="btn btn-success shadow-sm fw-500" style="width: 120px;"><i data-feather="save" class="me-1"></i> บันทึก</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</header>
+
+<div class="container-fluid px-4 mt-n10">
+    <div class="card mb-4 shadow-sm border-0 card-soft">
+        <div class="card-body" id="config-card-body">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label for="branch-select" class="form-label fw-500">สาขา <span class="text-danger">*</span></label>
+                    <select id="branch-select" class="form-select" placeholder="-- เลือกสาขา --"></select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-500">ปีงบประมาณ</label>
+                    <input type="text" class="form-control" value="{{ actual_year }}" disabled>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-500">ปีที่ทำ Budget</label>
+                    <input type="text" class="form-control" value="{{ active_budget_year }}" disabled>
+                </div>
+            </div>
+            <div class="row g-3 mt-1">
+                <div class="col-md-3">
+                    <label for="month-count-input" class="form-label fw-500">จำนวนเดือนข้อมูลจริง</label>
+                    <input type="number" id="month-count-input" class="form-control" min="0" max="12" step="1">
+                </div>
+                <div class="col-md-3">
+                    <label for="growth-pct-1-input" class="form-label fw-500">% การโต</label>
+                    <input type="number" id="growth-pct-1-input" class="form-control" step="0.01">
+                </div>
+                <div class="col-md-3">
+                    <label for="growth-pct-2-input" class="form-label fw-500">% การโต2</label>
+                    <input type="number" id="growth-pct-2-input" class="form-control" step="0.01">
+                </div>
+                <div class="col-md-3">
+                    <label for="growth-pct-3-input" class="form-label fw-500">% การโต3</label>
+                    <input type="number" id="growth-pct-3-input" class="form-control" step="0.01">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4 shadow-sm border-0 card-soft">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h6 class="m-0 font-weight-bold text-primary">GL Actual Template</h6>
+        </div>
+        <div class="card-body">
+            <div id="spreadsheet"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'budget_app/vendor/jexcel/jexcel.js' %}"></script>
+<script src="{% static 'budget_app/vendor/jsuites/jsuites.js' %}"></script>
+<script defer src="{% static 'budget_app/vendor/tom-select/tom-select.complete.min.js' %}"></script>
+
+{{ template_rows_json|json_script:"template-rows-data" }}
+{{ branches_json|json_script:"branches-data" }}
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const templateRows = JSON.parse(document.getElementById('template-rows-data').textContent);
+
+        const branches = JSON.parse(document.getElementById('branches-data').textContent);
+        const branchSelectEl = document.getElementById('branch-select');
+        new TomSelect(branchSelectEl, {
+            options: branches.map(b => ({ value: b.code, text: `${b.code} - ${b.name}` })),
+            valueField: 'value',
+            labelField: 'text',
+            searchField: ['text', 'value'],
+            create: false,
+            placeholder: '-- เลือกสาขา --',
+        });
+
+        // col 0/1 = code/label (fixed, read-only), col 2-6 = C-E-F-G data
+        // entry columns, all manual numbers (no computed/auto columns —
+        // confirmed with the user, unlike every other grid in this app
+        // these never derive one column from another).
+        const codeCol = 0;
+        const labelCol = 1;
+        const actualCol = 2;
+        const perMonthCol = 3;
+        const annualizedCol = 4;
+        const salesRatioCol = 5;
+        const growthRateCol = 6;
+
+        // "Act จริง" has no fixed name of its own — it's actually how many
+        // months of real data the number represents, which the user sets
+        // via the "จำนวนเดือนข้อมูลจริง" field above the grid. The header
+        // tracks that field live (see the input listener below) instead of
+        // showing a separate, easy-to-miss static label.
+        const actualColumnLabel = (monthCount) => `จำนวนเดือนข้อมูลจริง(${monthCount || '-'})`;
+
+        const columns = [
+            { type: 'text', align: 'left', title: 'รหัส', width: 90, readOnly: true },
+            { type: 'text', align: 'left', title: 'ชื่อ', width: 280, readOnly: true },
+            { type: 'numeric', title: actualColumnLabel(document.getElementById('month-count-input').value), width: 150, mask: '#,##0.00' },
+            { type: 'numeric', title: 'ต่อเดือน', width: 120, mask: '#,##0.00' },
+            { type: 'numeric', title: 'รายปี (x12)', width: 120, mask: '#,##0.00' },
+            { type: 'numeric', title: 'สัดส่วน/ยอดขาย', width: 130, mask: '#,##0.00' },
+            { type: 'numeric', title: '% การโต', width: 110, mask: '#,##0.00' },
+        ];
+
+        // Seeded with the full fixed 181-row outline up front — unlike
+        // every other add-budget grid in this app, this one is never
+        // user-addable/deletable (allowInsertRow/allowDeleteRow: false
+        // below), so there is no "+ เพิ่มรายการ" button either.
+        const initialData = templateRows.map(r => [r.code, r.label, '', '', '', '', '']);
+
+        // Pasting a full 181-row x 5-column block (the normal way to fill
+        // this page in) never goes through jexcel's own .paste() — verified
+        // with a real browser (Playwright) that .paste() itself runs fast,
+        // but leaves the table unclickable for several seconds on the very
+        // next click afterward (not a popup/timing issue — confirmed by
+        // calling .paste() directly with no popup involved at all, same
+        // hang). Replacing the same cells via setData() instead has no such
+        // problem: verified instant, responsive clicks right after. So we
+        // always cancel jexcel's own paste (onbeforepaste returning false)
+        // and apply the pasted TSV ourselves through setData.
+        // Strip Excel's CSV-quoting from a pasted cell value. When a cell
+        // in Excel contains a comma (e.g. "1,200.50"), the clipboard TSV
+        // wraps it in double-quotes: "1,200.50" — jexcel doesn't strip
+        // those, so without this the grid shows literal quote characters
+        // and number formatting/parsing breaks.
+        const sanitizeCell = (val) => {
+            if (typeof val !== 'string') return val;
+            val = val.trim();
+            if (val.length >= 2 && val.charAt(0) === '"' && val.charAt(val.length - 1) === '"') {
+                val = val.slice(1, -1).replace(/""/g, '"');
+            }
+            return val;
+        };
+
+        const applyPastedText = (startX, startY, text) => {
+            // CRITICAL: jexcel passes x/y as *strings* (e.g. "2", "0").
+            // Without parseInt, `startX + c` becomes string concatenation
+            // ("2" + 0 = "20") instead of addition (2 + 0 = 2), which
+            // immediately breaks the bounds check and writes zero cells.
+            const originX = parseInt(startX, 10) || 0;
+            const originY = parseInt(startY, 10) || 0;
+
+            const pasteRows = String(text).replace(/\r/g, '').split('\n');
+            // A clipboard TSV block from Excel/Sheets ends with a trailing
+            // newline — drop the resulting empty trailing row so it isn't
+            // misread as "paste one more (blank) row".
+            if (pasteRows.length > 1 && pasteRows[pasteRows.length - 1] === '') pasteRows.pop();
+
+            // Build a brand-new array rather than mutating what getData()
+            // returns in place — jexcel's rows may not be safe to mutate
+            // and feed straight back into setData (observed a hang doing
+            // that; building fresh rows avoids any aliasing with jexcel's
+            // own live internal state).
+            const existing = table1.getData();
+            const numRows = existing.length;
+            const numCols = existing[0] ? existing[0].length : 0;
+            const data = existing.map(row => row.slice());
+            let pastedCellCount = 0;
+            for (let r = 0; r < pasteRows.length; r++) {
+                const targetRow = originY + r;
+                if (targetRow >= numRows) break;
+                const cells = pasteRows[r].split('\t');
+                for (let c = 0; c < cells.length; c++) {
+                    const targetCol = originX + c;
+                    if (targetCol >= numCols) break;
+                    if (targetCol < 2) continue; // รหัส/ชื่อ คงที่เสมอ ไม่ให้วางทับ
+                    data[targetRow][targetCol] = sanitizeCell(cells[c]);
+                    pastedCellCount++;
+                }
+            }
+            table1.setData(data);
+
+            // setData() destroys and recreates every <tr> in the tbody,
+            // which wipes the .gl-actual-row-header / .gl-actual-row-subtotal
+            // classes applied at page load. Re-apply them immediately.
+            reapplyRowStyles();
+
+            return pastedCellCount;
+        };
+
+        const onbeforepaste = function(el, pastedText, x, y) {
+            Swal.fire({
+                title: 'กำลังวางข้อมูลลงตาราง กรุณารอสักครู่...',
+                allowOutsideClick: false,
+                didOpen: () => { Swal.showLoading(); }
+            });
+            // SweetAlert2 v11 opens the popup with an inline opacity:0
+            // style and only clears it once its show animation finishes.
+            // The reliable signal is SweetAlert2's own animation ending,
+            // so we wait for that before starting the data fill. A 1s
+            // timeout acts as safety net in case the event never fires.
+            const popupEl = document.querySelector('.swal2-popup');
+            const runPaste = () => {
+                const count = applyPastedText(x, y, pastedText);
+                // applyPastedText() returning only means the JS/data-model
+                // side is done — the browser hasn't laid out and painted the
+                // ~1,300 cells yet. Double rAF waits for a real composite
+                // before dismissing the popup, so the table is genuinely
+                // interactive by the time it closes.
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        Swal.close();
+                        // Immediately disarm the SweetAlert2 backdrop and
+                        // popup so they can't intercept clicks during the
+                        // ~300ms fade-out animation.
+                        const swalContainer = document.querySelector('.swal2-container');
+                        if (swalContainer) swalContainer.style.pointerEvents = 'none';
+                        const swalPopup = document.querySelector('.swal2-popup');
+                        if (swalPopup) swalPopup.style.pointerEvents = 'none';
+                    });
+                });
+            };
+            if (popupEl) {
+                let started = false;
+                const start = () => {
+                    if (started) return;
+                    started = true;
+                    runPaste();
+                };
+                popupEl.addEventListener('animationend', start, { once: true });
+                popupEl.addEventListener('transitionend', start, { once: true });
+                setTimeout(start, 1000);
+            } else {
+                runPaste();
+            }
+            return false;
+        };
+
+        const table1 = jspreadsheet(document.getElementById('spreadsheet'), {
+            data: initialData,
+            columns: columns,
+            minDimensions: [columns.length, 1],
+            onbeforepaste: onbeforepaste,
+            allowInsertColumn: false,
+            allowManualInsertColumn: false,
+            allowDeleteColumn: false,
+            allowInsertRow: false,
+            allowDeleteRow: false,
+            tableOverflow: true,
+            freezeColumns: 2,
+        });
+
+        document.getElementById('month-count-input').addEventListener('input', function(e) {
+            table1.setHeader(actualCol, actualColumnLabel(e.target.value));
+        });
+
+        // Shade header/subtotal rows for readability (see .gl-actual-row-*
+        // CSS above) — purely visual. Extracted into a named function so
+        // it can be re-applied after setData() (which destroys all <tr>s).
+        const reapplyRowStyles = () => {
+            templateRows.forEach((r, i) => {
+                if (r.row_type === 'header' || r.row_type === 'subtotal') {
+                    const rowEl = document.querySelector(`#spreadsheet tbody tr:nth-child(${i + 1})`);
+                    if (rowEl) {
+                        rowEl.classList.add(r.row_type === 'header' ? 'gl-actual-row-header' : 'gl-actual-row-subtotal');
+                    }
+                }
+            });
+        };
+        reapplyRowStyles();
+
+        const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
+
+        document.getElementById('save-budget-btn').addEventListener('click', function() {
+            const branchCode = branchSelectEl.value;
+            if (!branchCode) {
+                Swal.fire('แจ้งเตือน', 'กรุณาเลือกสาขาก่อนบันทึก', 'warning');
+                return;
+            }
+
+            const monthCount = document.getElementById('month-count-input').value;
+            const growthPct1 = document.getElementById('growth-pct-1-input').value;
+            const growthPct2 = document.getElementById('growth-pct-2-input').value;
+            const growthPct3 = document.getElementById('growth-pct-3-input').value;
+
+            const rows = table1.getData();
+            const dataToSave = templateRows.map((r, i) => ({
+                template_row_id: r.template_row_id,
+                row_order: r.row_order,
+                code: r.code,
+                label: r.label,
+                row_type: r.row_type,
+                actual_value: getNum(rows[i][actualCol]),
+                per_month_value: getNum(rows[i][perMonthCol]),
+                annualized_value: getNum(rows[i][annualizedCol]),
+                sales_ratio: getNum(rows[i][salesRatioCol]),
+                growth_rate: getNum(rows[i][growthRateCol]),
+                branch_code: branchCode,
+                actual_month_count: monthCount ? parseInt(monthCount, 10) : null,
+                growth_pct_1: getNum(growthPct1),
+                growth_pct_2: getNum(growthPct2),
+                growth_pct_3: getNum(growthPct3),
+            }));
+
+            Swal.fire({
+                title: 'ยืนยันการบันทึกข้อมูล?',
+                text: "คุณตรวจสอบข้อมูลครบถ้วนและต้องการบันทึกใช่หรือไม่?",
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonColor: '#0061f2',
+                cancelButtonColor: '#e81500',
+                confirmButtonText: 'ยืนยัน',
+                cancelButtonText: 'ยกเลิก'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    Swal.fire({
+                        title: 'กำลังบันทึกข้อมูล...',
+                        allowOutsideClick: false,
+                        didOpen: () => {
+                            Swal.showLoading();
+                        }
+                    });
+
+                    fetch('{% url "budget_add_gl_actual_template" %}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify(dataToSave)
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            Swal.fire('สำเร็จ!', 'บันทึกข้อมูลเรียบร้อยแล้ว', 'success').then(() => {
+                                window.location.href = '{% url "budget_list" %}';
+                            });
+                        } else {
+                            Swal.fire('ข้อผิดพลาด', 'ไม่สามารถบันทึกได้: ' + data.message, 'error');
+                        }
+                    })
+                    .catch(error => {
+                        console.error(error);
+                        Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย', 'error');
+                    });
+                }
+            });
+        });
+    });
+</script>
+{% endblock %}

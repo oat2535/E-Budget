@@ -1,5 +1,6 @@
 from functools import wraps
 from datetime import datetime
+from decimal import Decimal
 from django.shortcuts import render, redirect
 from django.http import JsonResponse
 import json
@@ -8,11 +9,63 @@ from django.contrib.auth import authenticate, login
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db.models import Count, Max, Sum
-from master_data.models import ebudget_budget_item_master, ebudget_budget_category_master, ebudget_cost_center_master, ebudget_general_ledger_master
+from master_data.models import ebudget_budget_item_master, ebudget_budget_category_master, ebudget_cost_center_master, ebudget_general_ledger_master, ebudget_gl_actual_template_row
 from django.core.cache import cache
-from budget_app.models import ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment, ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_car, ebudget_renovate, ebudget_software, ebudget_gl_entry, ebudget_revenue, ebudget_budget_plan_item, SystemSettings, SYSTEM_SETTINGS_CACHE_KEY
+from budget_app.models import ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment, ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_car, ebudget_renovate, ebudget_software, ebudget_gl_entry, ebudget_revenue, ebudget_budget_plan_item, ebudget_gl_actual_template, SystemSettings, SYSTEM_SETTINGS_CACHE_KEY
 from budget_app.services import BudgetService
-from budget_app.constants import ALL_BRANCH_USERNAMES, STATUS_PENDING, STATUS_APPROVED, STATUS_CANCELLED, EXPENSE_PAGE_EXCLUDED_GL_CODES
+from budget_app.constants import ALL_BRANCH_USERNAMES, STATUS_PENDING, STATUS_APPROVED, STATUS_CANCELLED, EXPENSE_PAGE_EXCLUDED_GL_CODES, VET_CUSTOM_POSITION_GL_CODE, NON_VET_SALARY_GL_CODE, NON_VET_ALLOWANCE_GL_CODE, MEDICAL_EQUIPMENT_GL_CODE_HIGH, MEDICAL_EQUIPMENT_GL_CODE_LOW, MEDICAL_EQUIPMENT_GL_PRICE_THRESHOLD, COMPUTER_EQUIPMENT_GL_CODE_HIGH, COMPUTER_EQUIPMENT_GL_CODE_LOW, COMPUTER_EQUIPMENT_GL_PRICE_THRESHOLD, FURNITURE_GL_CODE_HIGH, FURNITURE_GL_CODE_LOW, FURNITURE_GL_PRICE_THRESHOLD, TOOLS_EQUIPMENT_GL_CODE_HIGH, TOOLS_EQUIPMENT_GL_CODE_LOW, TOOLS_EQUIPMENT_GL_PRICE_THRESHOLD, GL_ACTUAL_TEMPLATE_BRANCHES
+
+def resolve_adjustment_gl_codes(adjustment_type):
+    """Maps an explicit per-row VET/NON VET choice (not a master lookup —
+    see ebudget_position_adjustment.adjustment_type) to its fixed GL codes.
+    VET has no allowance GL code at all (its scheme is salary-only)."""
+    if adjustment_type == 'VET':
+        return VET_CUSTOM_POSITION_GL_CODE, None
+    if adjustment_type == 'NON VET':
+        return NON_VET_SALARY_GL_CODE, NON_VET_ALLOWANCE_GL_CODE
+    return None, None
+
+def resolve_price_threshold_gl_code(purchase_price, gl_code_high, gl_code_low, threshold):
+    """Generic capitalization-threshold GL policy shared by equipment
+    categories whose master data has no GL column (Medical Equipment,
+    Computer Equipment, ...): the GL code is keyed on the document's own
+    entered purchase_price, not a master-data lookup. A price landing
+    exactly on the threshold is accounting-ambiguous and must be corrected
+    by the user rather than silently bucketed either way."""
+    price = Decimal(str(purchase_price))
+    threshold = Decimal(str(threshold))
+    if price > threshold:
+        return gl_code_high
+    if price < threshold:
+        return gl_code_low
+    raise ValueError(
+        f'ราคาซื้อเท่ากับ {threshold:,} บาทพอดี ไม่สามารถระบุรหัสบัญชี (GL Code) ได้ '
+        f'กรุณาระบุราคาซื้อให้มากกว่า หรือน้อยกว่า {threshold:,} บาท ก่อนบันทึก'
+    )
+
+def resolve_medical_equipment_gl_code(purchase_price):
+    return resolve_price_threshold_gl_code(
+        purchase_price, MEDICAL_EQUIPMENT_GL_CODE_HIGH, MEDICAL_EQUIPMENT_GL_CODE_LOW,
+        MEDICAL_EQUIPMENT_GL_PRICE_THRESHOLD,
+    )
+
+def resolve_computer_equipment_gl_code(purchase_price):
+    return resolve_price_threshold_gl_code(
+        purchase_price, COMPUTER_EQUIPMENT_GL_CODE_HIGH, COMPUTER_EQUIPMENT_GL_CODE_LOW,
+        COMPUTER_EQUIPMENT_GL_PRICE_THRESHOLD,
+    )
+
+def resolve_furniture_gl_code(purchase_price):
+    return resolve_price_threshold_gl_code(
+        purchase_price, FURNITURE_GL_CODE_HIGH, FURNITURE_GL_CODE_LOW,
+        FURNITURE_GL_PRICE_THRESHOLD,
+    )
+
+def resolve_tools_equipment_gl_code(purchase_price):
+    return resolve_price_threshold_gl_code(
+        purchase_price, TOOLS_EQUIPMENT_GL_CODE_HIGH, TOOLS_EQUIPMENT_GL_CODE_LOW,
+        TOOLS_EQUIPMENT_GL_PRICE_THRESHOLD,
+    )
 from budget_app.decorators import require_not_frozen
 
 def login_required_json(view_func):
@@ -249,6 +302,17 @@ def budget_list_view(request):
             'purchase_price': float(item.get('purchase_price') or 0)
         })
 
+    glat_template_rows_json = [
+        {
+            'template_row_id': r['id'],
+            'row_order': r['row_order'],
+            'code': r['code'],
+            'label': r['label'],
+            'row_type': r['row_type'],
+        }
+        for r in ebudget_gl_actual_template_row.objects.order_by('row_order').values('id', 'row_order', 'code', 'label', 'row_type')
+    ]
+
     return render(request, 'budget_app/budget_list.html', {
         'categories': categories,
         'items_vet_json': vet_items_list,
@@ -261,6 +325,8 @@ def budget_list_view(request):
         'items_renovate_json': renovate_items_list,
         'items_software_json': software_items_list,
         'cost_centers_json': get_cost_centers_json(),
+        'glat_template_rows_json': glat_template_rows_json,
+        'glat_branches_json': [{'code': code, 'name': name} for code, name in GL_ACTUAL_TEMPLATE_BRANCHES],
         **get_branch_selection_context(request),
     })
 
@@ -283,6 +349,7 @@ def budget_add_view(request):
                     master_obj, gl_code = master_fks.get(item['position_name'], (None, None))
                     obj = ebudget_vet_manpower.objects.create(
                         position_name=item['position_name'],
+                        description=item.get('description') or None,
                         salary=item['salary'],
                         create_eid=username,
                         base_branch_id=branch_id,
@@ -290,7 +357,11 @@ def budget_add_view(request):
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger_code=gl_code,
+                        # Positions not found in item master (custom/one-off
+                        # entries typed via the dropdown's autocomplete)
+                        # would otherwise save a null GL code — fall back to
+                        # a known, active GL code instead.
+                        general_ledger_code=gl_code or VET_CUSTOM_POSITION_GL_CODE,
                         budget_year=budget_year
                     )
                     BudgetService.save_monthly_data(obj, 'VET', item['monthly_data'])
@@ -335,9 +406,16 @@ def budget_add_non_vet_view(request):
 
             with transaction.atomic():
                 for item in data:
-                    master_obj, gl_code = master_fks.get(item['position_name'], (None, None))
+                    # master_obj is still resolved (item_master FK, salary/
+                    # allowance auto-fill) — only the GL code is no longer
+                    # taken from the lookup: salary and the grade/position
+                    # allowance always post to their own fixed GL codes
+                    # (see NON_VET_SALARY_GL_CODE/NON_VET_ALLOWANCE_GL_CODE),
+                    # regardless of which position was picked.
+                    master_obj, _ = master_fks.get(item['position_name'], (None, None))
                     obj = ebudget_non_vet_manpower.objects.create(
                         position_name=item['position_name'],
+                        description=item.get('description') or None,
                         salary=item['salary'],
                         position_allowance=item.get('position_allowance', 0),
                         create_eid=username,
@@ -346,7 +424,8 @@ def budget_add_non_vet_view(request):
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger_code=gl_code,
+                        salary_general_ledger_code=NON_VET_SALARY_GL_CODE,
+                        position_allowance_general_ledger_code=NON_VET_ALLOWANCE_GL_CODE,
                         budget_year=budget_year
                     )
                     BudgetService.save_monthly_data(obj, 'NON VET', item['monthly_data'])
@@ -729,6 +808,35 @@ def get_budget_documents_api(request, category_code):
                 'type': 'Budget Plan'
             })
 
+        # Fetch GL Actual Template — no monthly_details child table (this
+        # type has no month columns at all), so "total_budget" is the sum
+        # of annualized_value (the full-year figure) across its 181 rows
+        # rather than a Sum over a child relation like every other C03 type.
+        gl_actual_template_docs = ebudget_gl_actual_template.objects.filter(**visibility_filter).values('document_no').annotate(
+            total_budget=Sum('annualized_value'),
+            total_positions=Count('id', distinct=True),
+            create_date=Max('create_date'),
+            create_eid=Max('create_eid'),
+            budget_year=Max('budget_year'),
+            status=Max('status'),
+            base_branch_id=Max('base_branch_id'),
+        )
+
+        for doc in gl_actual_template_docs:
+            results.append({
+                'document_no': doc['document_no'] or '-',
+                'create_date_raw': doc['create_date'].isoformat() if doc['create_date'] else '',
+                'create_date': doc['create_date'].strftime('%d/%m/%Y %H:%M') if doc['create_date'] else '-',
+                'create_eid': doc['create_eid'] or '-',
+                'total_positions': doc['total_positions'],
+                'budget_year': doc['budget_year'] or '-',
+                'status': doc['status'] or STATUS_PENDING,
+                'base_branch_id': doc['base_branch_id'] or '-',
+                'cost_center_name': '-',
+                'total_budget': float(doc['total_budget'] or 0),
+                'type': 'GL Actual Template'
+            })
+
         results.sort(key=lambda x: x['create_date_raw'], reverse=True)
         return JsonResponse({'status': 'success', 'data': results})
 
@@ -753,6 +861,7 @@ def _resolve_model_class(doc_type):
         'GL Entry': ebudget_gl_entry,
         'Revenue': ebudget_revenue,
         'Budget Plan': ebudget_budget_plan_item,
+        'GL Actual Template': ebudget_gl_actual_template,
     }.get(doc_type)
 
 @login_required_json
@@ -784,6 +893,8 @@ def get_document_detail_api(request, doc_type, doc_no):
         items = ebudget_revenue.objects.filter(document_no=doc_no, **visibility_filter)
     elif doc_type == 'Budget Plan':
         items = ebudget_budget_plan_item.objects.filter(document_no=doc_no, **visibility_filter)
+    elif doc_type == 'GL Actual Template':
+        items = ebudget_gl_actual_template.objects.filter(document_no=doc_no, **visibility_filter)
     else:
         return JsonResponse({'status': 'error', 'message': 'ประเภทเอกสารไม่ถูกต้อง'})
 
@@ -797,11 +908,19 @@ def get_document_detail_api(request, doc_type, doc_no):
         'create_eid': first_item.create_eid,
         'type': doc_type,
         'base_branch_id': first_item.base_branch_id or '-',
-        'cost_center_name': first_item.cost_center_name or '',
+        # GL Actual Template has no cost_center_name field at all (it's a
+        # branch-level summary, not itemized per cost center).
+        'cost_center_name': ('' if doc_type == 'GL Actual Template' else (first_item.cost_center_name or '')),
         'budget_year': first_item.budget_year or '-',
         'status': first_item.status,
         'cancel_reason': first_item.cancel_reason or ''
     }
+    if doc_type == 'GL Actual Template':
+        doc_info['actual_year'] = first_item.create_date.year if first_item.create_date else '-'
+        doc_info['actual_month_count'] = first_item.actual_month_count or '-'
+        doc_info['growth_pct_1'] = float(first_item.growth_pct_1)
+        doc_info['growth_pct_2'] = float(first_item.growth_pct_2)
+        doc_info['growth_pct_3'] = float(first_item.growth_pct_3)
 
     # Only GL Entry/Revenue/Budget Plan rows need a gl_code -> gl_name
     # lookup, so build it lazily to avoid an extra query for every other
@@ -814,8 +933,11 @@ def get_document_detail_api(request, doc_type, doc_no):
     for item in items:
         if doc_type == 'Position Adjustment':
             data = {
+                'adjustment_type': item.adjustment_type,
                 'old_position_name': item.old_position_name,
+                'old_description': item.old_description or '',
                 'new_position_name': item.new_position_name,
+                'new_description': item.new_description or '',
                 'old_salary': float(item.old_salary),
                 'old_allowance': float(item.old_allowance),
                 'new_salary': float(item.new_salary),
@@ -848,6 +970,18 @@ def get_document_detail_api(request, doc_type, doc_no):
                 'description': item.description,
                 'monthly_data': item.monthly_data_dict
             }
+        elif doc_type == 'GL Actual Template':
+            data = {
+                'row_order': item.row_order,
+                'code': item.code,
+                'label': item.label,
+                'row_type': item.row_type,
+                'actual_value': float(item.actual_value),
+                'per_month_value': float(item.per_month_value),
+                'annualized_value': float(item.annualized_value),
+                'sales_ratio': float(item.sales_ratio),
+                'growth_rate': float(item.growth_rate),
+            }
         else:
             data = {
                 'position_name': item.position_name,
@@ -856,6 +990,11 @@ def get_document_detail_api(request, doc_type, doc_no):
             }
             if doc_type == 'NON VET':
                 data['position_allowance'] = float(getattr(item, 'position_allowance', 0))
+            if doc_type in ('VET', 'NON VET'):
+                # Both now have a description field — this else branch only
+                # ever handles these two doc_types (every other manpower-
+                # shaped type has its own elif above).
+                data['description'] = item.description or ''
         manpower_list.append(data)
 
     return JsonResponse({
@@ -882,7 +1021,12 @@ def update_document_api(request, doc_type, doc_no):
 
     try:
         data = json.loads(request.body)
-        if not data or not data[0].get('cost_center_name'):
+        if not data:
+            return JsonResponse({'status': 'error', 'message': 'ไม่มีข้อมูลสำหรับบันทึก'})
+        # GL Actual Template has no Cost Center at all (branch-level summary,
+        # not itemized per cost center) — every other doc_type still
+        # requires one.
+        if doc_type != 'GL Actual Template' and not data[0].get('cost_center_name'):
             return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
         username = request.user.username
 
@@ -912,9 +1056,11 @@ def update_document_api(request, doc_type, doc_no):
             model_class = ebudget_revenue
         elif doc_type == 'Budget Plan':
             model_class = ebudget_budget_plan_item
+        elif doc_type == 'GL Actual Template':
+            model_class = ebudget_gl_actual_template
         else:
             return JsonResponse({'status': 'error', 'message': 'ประเภทเอกสารไม่ถูกต้อง'})
-            
+
         existing_items = model_class.objects.filter(document_no=doc_no)
         if not existing_items.exists():
             return JsonResponse({'status': 'error', 'message': 'ไม่พบเอกสาร'})
@@ -941,7 +1087,18 @@ def update_document_api(request, doc_type, doc_no):
         # Only multi-branch users can actually change this (see
         # resolve_branch_for_update) — everyone else keeps the branch
         # they already had, same as before this was editable at all.
-        base_branch_id = resolve_branch_for_update(request, data, first_item.base_branch_id)
+        # GL Actual Template is the one exception: its branch is a plain
+        # dropdown over all 22 branches (GL_ACTUAL_TEMPLATE_BRANCHES), not
+        # resolved from the editing user's own imedx branch list, so it
+        # can't go through resolve_branch_for_update at all.
+        if doc_type == 'GL Actual Template':
+            chosen_branch = data[0].get('branch_code') if data else None
+            valid_branch_codes = {code for code, _ in GL_ACTUAL_TEMPLATE_BRANCHES}
+            if chosen_branch not in valid_branch_codes:
+                raise ValueError('กรุณาเลือกสาขาให้ถูกต้อง')
+            base_branch_id = chosen_branch
+        else:
+            base_branch_id = resolve_branch_for_update(request, data, first_item.base_branch_id)
         # Preserve the document's original budget year across an edit — an
         # edit doesn't reclassify which budget year the document belongs to,
         # even if the site-wide active year has since moved on.
@@ -954,7 +1111,7 @@ def update_document_api(request, doc_type, doc_no):
             lookup_field = 'new_position_name'
         elif doc_type in ('Medical Equipment', 'Computer Equipment', 'Furniture', 'Tools & Equipment', 'CAR', 'Renovate', 'Software'):
             lookup_field = 'item_name'
-        elif doc_type in ('GL Entry', 'Revenue', 'Budget Plan'):
+        elif doc_type in ('GL Entry', 'Revenue', 'Budget Plan', 'GL Actual Template'):
             lookup_field = None
         else:
             lookup_field = 'position_name'
@@ -966,10 +1123,14 @@ def update_document_api(request, doc_type, doc_no):
 
             for item in data:
                 if doc_type == 'Position Adjustment':
-                    master_obj, gl_code = master_fks.get(item['new_position_name'], (None, None))
+                    master_obj, _ = master_fks.get(item['new_position_name'], (None, None))
+                    salary_gl, allowance_gl = resolve_adjustment_gl_codes(item.get('adjustment_type'))
                     obj = model_class.objects.create(
+                        adjustment_type=item.get('adjustment_type') or None,
                         old_position_name=item['old_position_name'],
+                        old_description=item.get('old_description') or None,
                         new_position_name=item['new_position_name'],
+                        new_description=item.get('new_description') or None,
                         old_salary=item['old_salary'],
                         old_allowance=item['old_allowance'],
                         new_salary=item['new_salary'],
@@ -982,7 +1143,8 @@ def update_document_api(request, doc_type, doc_no):
                         create_eid=create_eid,
                         modify_eid=username,
                         item_master=master_obj,
-                        general_ledger_code=gl_code,
+                        salary_general_ledger_code=salary_gl,
+                        allowance_general_ledger_code=allowance_gl,
                         budget_year=budget_year
                     )
 
@@ -991,6 +1153,7 @@ def update_document_api(request, doc_type, doc_no):
                     master_obj, gl_code = master_fks.get(item['position_name'], (None, None))
                     obj = model_class.objects.create(
                         position_name=item['position_name'],
+                        description=item.get('description') or None,
                         salary=item['salary'],
                         base_branch_id=base_branch_id,
                         department_id=department_id,
@@ -1000,13 +1163,21 @@ def update_document_api(request, doc_type, doc_no):
                         create_eid=create_eid,
                         modify_eid=username,
                         item_master=master_obj,
-                        general_ledger_code=gl_code,
+                        general_ledger_code=gl_code or VET_CUSTOM_POSITION_GL_CODE,
                         budget_year=budget_year
                     )
 
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
                 elif doc_type == 'Medical Equipment' or doc_type == 'Computer Equipment' or doc_type == 'Furniture' or doc_type == 'Tools & Equipment' or doc_type == 'CAR' or doc_type == 'Renovate' or doc_type == 'Software':
                     master_obj, gl_code = master_fks.get(item['item_name'], (None, None))
+                    if doc_type == 'Medical Equipment':
+                        gl_code = resolve_medical_equipment_gl_code(item['purchase_price'])
+                    elif doc_type == 'Computer Equipment':
+                        gl_code = resolve_computer_equipment_gl_code(item['purchase_price'])
+                    elif doc_type == 'Furniture':
+                        gl_code = resolve_furniture_gl_code(item['purchase_price'])
+                    elif doc_type == 'Tools & Equipment':
+                        gl_code = resolve_tools_equipment_gl_code(item['purchase_price'])
                     obj = model_class.objects.create(
                         item_name=item['item_name'],
                         description=item.get('description') or None,
@@ -1064,10 +1235,45 @@ def update_document_api(request, doc_type, doc_no):
                         budget_year=budget_year
                     )
                     BudgetService.save_budget_plan_monthly_data(obj, item['monthly_data'])
+                elif doc_type == 'GL Actual Template':
+                    # growth_pct_1/2/3 and actual_month_count are document-
+                    # level (one value for the whole document, not per row)
+                    # — every row in the payload carries the same value, so
+                    # reading them from item (rather than data[0]) once per
+                    # row is simplest and matches how cost_center_name/
+                    # branch_code are already read per-row elsewhere above.
+                    model_class.objects.create(
+                        template_row_id=item.get('template_row_id'),
+                        row_order=item['row_order'],
+                        code=item['code'],
+                        label=item['label'],
+                        row_type=item['row_type'],
+                        actual_value=item.get('actual_value', 0),
+                        per_month_value=item.get('per_month_value', 0),
+                        annualized_value=item.get('annualized_value', 0),
+                        sales_ratio=item.get('sales_ratio', 0),
+                        growth_rate=item.get('growth_rate', 0),
+                        base_branch_id=base_branch_id,
+                        department_id=department_id,
+                        budget_year=budget_year,
+                        actual_month_count=item.get('actual_month_count') or None,
+                        growth_pct_1=item.get('growth_pct_1', 0),
+                        growth_pct_2=item.get('growth_pct_2', 0),
+                        growth_pct_3=item.get('growth_pct_3', 0),
+                        document_no=doc_no,
+                        create_date=create_date,
+                        create_eid=create_eid,
+                        modify_eid=username,
+                    )
                 else:
-                    master_obj, gl_code = master_fks.get(item['position_name'], (None, None))
+                    # NON VET only (every other manpower-shaped type has its
+                    # own elif above) — GL codes are fixed by accounting
+                    # policy, not looked up per position; see
+                    # budget_add_non_vet_view for the same reasoning.
+                    master_obj, _ = master_fks.get(item['position_name'], (None, None))
                     obj = model_class.objects.create(
                         position_name=item['position_name'],
+                        description=item.get('description') or None,
                         salary=item['salary'],
                         position_allowance=item.get('position_allowance', 0),
                         base_branch_id=base_branch_id,
@@ -1078,7 +1284,8 @@ def update_document_api(request, doc_type, doc_no):
                         create_eid=create_eid,
                         modify_eid=username,
                         item_master=master_obj,
-                        general_ledger_code=gl_code,
+                        salary_general_ledger_code=NON_VET_SALARY_GL_CODE,
+                        position_allowance_general_ledger_code=NON_VET_ALLOWANCE_GL_CODE,
                         budget_year=budget_year
                     )
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
@@ -1198,10 +1405,18 @@ def budget_add_adjustment_view(request):
 
             with transaction.atomic():
                 for item in data:
-                    master_obj, gl_code = master_fks.get(item['new_position_name'], (None, None))
+                    # master_obj still resolved (item_master FK, salary/
+                    # allowance auto-fill) — GL codes come from the row's
+                    # own explicit adjustment_type choice instead, not this
+                    # lookup (see resolve_adjustment_gl_codes).
+                    master_obj, _ = master_fks.get(item['new_position_name'], (None, None))
+                    salary_gl, allowance_gl = resolve_adjustment_gl_codes(item.get('adjustment_type'))
                     obj = ebudget_position_adjustment.objects.create(
+                        adjustment_type=item.get('adjustment_type') or None,
                         old_position_name=item['old_position_name'],
+                        old_description=item.get('old_description') or None,
                         new_position_name=item['new_position_name'],
+                        new_description=item.get('new_description') or None,
                         old_salary=item['old_salary'],
                         old_allowance=item['old_allowance'],
                         new_salary=item['new_salary'],
@@ -1212,7 +1427,8 @@ def budget_add_adjustment_view(request):
                         cost_center_name=item.get('cost_center_name'),
                         document_no=doc_no,
                         item_master=master_obj,
-                        general_ledger_code=gl_code,
+                        salary_general_ledger_code=salary_gl,
+                        allowance_general_ledger_code=allowance_gl,
                         budget_year=budget_year
                     )
                     BudgetService.save_monthly_data(obj, 'Position Adjustment', item['monthly_data'])
@@ -1270,6 +1486,14 @@ def _budget_add_equipment_view(request, model_class, doc_type, template_name, su
             with transaction.atomic():
                 for item in data:
                     master_obj, gl_code = master_fks.get(item['item_name'], (None, None))
+                    if doc_type == 'Medical Equipment':
+                        gl_code = resolve_medical_equipment_gl_code(item['purchase_price'])
+                    elif doc_type == 'Computer Equipment':
+                        gl_code = resolve_computer_equipment_gl_code(item['purchase_price'])
+                    elif doc_type == 'Furniture':
+                        gl_code = resolve_furniture_gl_code(item['purchase_price'])
+                    elif doc_type == 'Tools & Equipment':
+                        gl_code = resolve_tools_equipment_gl_code(item['purchase_price'])
                     obj = model_class.objects.create(
                         item_name=item['item_name'],
                         description=item.get('description') or None,
@@ -1453,6 +1677,78 @@ def budget_add_budget_plan_view(request):
         'general_ledgers_json': get_general_ledgers_json(),
         'cost_centers_json': get_cost_centers_json(),
         **get_branch_selection_context(request),
+    })
+
+@login_required
+@require_not_frozen
+def budget_add_gl_actual_template_view(request):
+    """Unlike every other add-budget page, this one's rows are a fixed
+    181-row P&L outline (master_data.ebudget_gl_actual_template_row) that
+    always renders in full — nothing is user-addable/deletable — and its
+    branch picker is a plain dropdown over all 22 branches
+    (GL_ACTUAL_TEMPLATE_BRANCHES), not the editing user's own imedx
+    branch(es) like every other page uses. There is also no Cost Center and
+    no monthly columns at all, so this doesn't fit _budget_add_equipment_view
+    or the GL Entry/Revenue/Budget Plan shape closely enough to reuse either."""
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            if not data:
+                return JsonResponse({'status': 'error', 'message': 'ไม่มีข้อมูลสำหรับบันทึก'})
+
+            branch_code = data[0].get('branch_code')
+            valid_branch_codes = {code for code, _ in GL_ACTUAL_TEMPLATE_BRANCHES}
+            if branch_code not in valid_branch_codes:
+                return JsonResponse({'status': 'error', 'message': 'กรุณาเลือกสาขาให้ถูกต้อง'})
+
+            username = request.user.username
+            doc_no = BudgetService.generate_document_no('GL Actual Template')
+            budget_year = SystemSettings.load().active_budget_year
+
+            with transaction.atomic():
+                for item in data:
+                    ebudget_gl_actual_template.objects.create(
+                        template_row_id=item.get('template_row_id'),
+                        row_order=item['row_order'],
+                        code=item['code'],
+                        label=item['label'],
+                        row_type=item['row_type'],
+                        actual_value=item.get('actual_value', 0),
+                        per_month_value=item.get('per_month_value', 0),
+                        annualized_value=item.get('annualized_value', 0),
+                        sales_ratio=item.get('sales_ratio', 0),
+                        growth_rate=item.get('growth_rate', 0),
+                        create_eid=username,
+                        base_branch_id=branch_code,
+                        budget_year=budget_year,
+                        actual_month_count=item.get('actual_month_count') or None,
+                        growth_pct_1=item.get('growth_pct_1', 0),
+                        growth_pct_2=item.get('growth_pct_2', 0),
+                        growth_pct_3=item.get('growth_pct_3', 0),
+                        document_no=doc_no,
+                    )
+            return JsonResponse({'status': 'success'})
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'message': str(e)})
+
+    template_rows = ebudget_gl_actual_template_row.objects.order_by('row_order').values(
+        'id', 'row_order', 'code', 'label', 'row_type'
+    )
+    template_rows_json = [
+        {
+            'template_row_id': r['id'],
+            'row_order': r['row_order'],
+            'code': r['code'],
+            'label': r['label'],
+            'row_type': r['row_type'],
+        }
+        for r in template_rows
+    ]
+
+    return render(request, 'budget_app/budget_add_gl_actual_template.html', {
+        'template_rows_json': template_rows_json,
+        'branches_json': [{'code': code, 'name': name} for code, name in GL_ACTUAL_TEMPLATE_BRANCHES],
+        'actual_year': datetime.now().year,
     })
 
 @login_required_json

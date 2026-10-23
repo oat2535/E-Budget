@@ -22,6 +22,24 @@
     .jexcel tbody tr td {
         vertical-align: middle;
     }
+    /* GL Actual Template's section-header/subtotal rows (see
+       renderGlatSpreadsheet in budget_list.js) — same shading as the add
+       page (budget_add_gl_actual_template.html). */
+    .jexcel tbody tr.gl-actual-row-header td {
+        background-color: #eef2f7;
+        font-weight: 600;
+    }
+    .jexcel tbody tr.gl-actual-row-subtotal td {
+        background-color: #f7f3e8;
+        font-weight: 600;
+    }
+    /* jexcel/jsuites' own default cell text color reads as a light gray,
+       hard to read against this grid's 181 dense rows — darkened for
+       readability, per request. Scoped to this doc type's own grid
+       container only (not every other modal's .jexcel grid on this page). */
+    #glatDetailTableContainer .jexcel tbody tr td {
+        color: #212529 !important;
+    }
     /* Distinct from btn-success/bg-success (used by the Medical Equipment
        badge elsewhere in this page) so the approve action never reads as
        the same color as an unrelated document-type label. */
@@ -56,10 +74,11 @@
     .jexcel > thead > tr > td {
         text-align: center !important;
     }
-    /* แถว "ยอดรวมแต่ละเดือน" ที่ inject เข้า thead ของตาราง Revenue ใน popup
-       รายละเอียดเอกสาร (ดู injectGlRevenueMonthlyTotalsRow ใน budget_list.js)
-       — คัดลอกมาจาก budget_add_revenue.html ให้หน้าตาเหมือนกัน (top/left
-       ตั้ง inline จาก JS ตามขนาดจริงของหัวคอลัมน์/คอลัมน์ GL+รายละเอียด) */
+    /* แถว "ยอดรวมแต่ละเดือน" ที่ inject เข้า thead ของตาราง EXPENSE/Revenue
+       ใน popup รายละเอียดเอกสาร (ดู injectGlEntryMonthlyTotalsRow ใน
+       budget_list.js) — คัดลอกมาจาก budget_add_revenue.html/
+       budget_add_gl_entry.html ให้หน้าตาเหมือนกัน (top/left ตั้ง inline
+       จาก JS ตามขนาดจริงของหัวคอลัมน์/คอลัมน์ GL+รายละเอียด) */
     .monthly-totals-row td {
         position: sticky;
         z-index: 2;
@@ -489,6 +508,79 @@
             </div>
         </div>
     </div>
+
+    <!-- GL Actual Template Document Detail Modal — fixed 181-row outline,
+         5 plain numeric columns, no Cost Center, no monthly breakdown. -->
+    <div class="modal fade" id="glatDocumentDetailModal" tabindex="-1" aria-labelledby="glatDocumentDetailModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-fullscreen modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="glatDocumentDetailModalLabel">รายละเอียดเอกสาร</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="glatModalLoadingSpinner" class="text-center py-5" style="display: none;">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <div class="mt-2 text-muted">กำลังโหลดข้อมูล...</div>
+                    </div>
+                    <div id="glatModalContent" style="display: none;">
+                        <h6 class="text-primary mb-3"><i data-feather="file-text" class="me-2"></i>ข้อมูลเอกสาร (Document Info)</h6>
+                        <div class="table-responsive mb-4">
+                            <table class="table table-bordered table-sm">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>เลขที่เอกสาร</th>
+                                        <th>ประเภท</th>
+                                        <th>สาขา</th>
+                                        <th>ปีงบประมาณ</th>
+                                        <th>ปีที่ทำ Budget</th>
+                                        <th>จำนวนเดือนข้อมูลจริง</th>
+                                        <th>% การโต / 2 / 3</th>
+                                        <th>ผู้สร้าง</th>
+                                        <th>วันที่สร้าง</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td id="glatModalDocNo"></td>
+                                        <td><span class="badge" style="background-color: #6f42c1;">GL Actual Template</span></td>
+                                        <td id="glatModalDocBranch"></td>
+                                        <td id="glatModalActualYear"></td>
+                                        <td id="glatModalDocBudgetYear"></td>
+                                        <td id="glatModalMonthCount"></td>
+                                        <td id="glatModalGrowthPct"></td>
+                                        <td id="glatModalDocCreator"></td>
+                                        <td id="glatModalDocDate"></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <h6 class="text-primary mb-3"><i data-feather="list" class="me-2"></i>รายการ (Line Items)</h6>
+                        <div class="card mb-3 card-soft">
+                            <div class="card-header bg-light fw-bold text-dark">ตารางรายการ (181 รายการคงที่)</div>
+                            <div class="card-body p-0">
+                                <div id="glatDetailTableContainer"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    {% if can_edit_own_documents %}
+                    <button type="button" class="btn btn-primary" id="btnGlatEditMode" onclick="toggleGlatEditMode()">
+                        <i data-feather="edit-2" class="me-1"></i> แก้ไขข้อมูล
+                    </button>
+                    {% endif %}
+                    <button type="button" class="btn btn-success" id="btnGlatSaveDocument" style="display: none;" onclick="saveGlatDocument()">
+                        <i data-feather="save" class="me-1"></i> บันทึกข้อมูล
+                    </button>
+                    <button type="button" class="btn btn-secondary" id="btnGlatCloseModal" data-bs-dismiss="modal">ปิด</button>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -509,6 +601,8 @@
 {{ items_software_json|json_script:"software-items-data" }}
 {{ cost_centers_json|json_script:"cost-centers-data" }}
 {{ branch_options_json|json_script:"branch-options-data" }}
+{{ glat_template_rows_json|json_script:"glat-template-rows-data" }}
+{{ glat_branches_json|json_script:"glat-branches-data" }}
 
 <script>
     window.APP_CONFIG = {

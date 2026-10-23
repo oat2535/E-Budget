@@ -6,7 +6,8 @@ from budget_app.models import (
     ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_car, ebudget_renovate, ebudget_software, BudgetMonthlyDetail,
     ebudget_gl_entry, ebudget_gl_entry_monthly_detail,
     ebudget_revenue, ebudget_revenue_monthly_detail,
-    ebudget_budget_plan_item, ebudget_budget_plan_monthly_detail
+    ebudget_budget_plan_item, ebudget_budget_plan_monthly_detail,
+    ebudget_gl_actual_template
 )
 from master_data.models import ebudget_budget_item_master, ebudget_general_ledger_master
 
@@ -172,7 +173,8 @@ class BudgetService:
             'Software': 'SW',
             'GL Entry': 'GLE',
             'Revenue': 'REV',
-            'Budget Plan': 'PLAN'
+            'Budget Plan': 'PLAN',
+            'GL Actual Template': 'GLACT'
         }
         model_map = {
             'VET': ebudget_vet_manpower,
@@ -187,7 +189,8 @@ class BudgetService:
             'Software': ebudget_software,
             'GL Entry': ebudget_gl_entry,
             'Revenue': ebudget_revenue,
-            'Budget Plan': ebudget_budget_plan_item
+            'Budget Plan': ebudget_budget_plan_item,
+            'GL Actual Template': ebudget_gl_actual_template
         }
         
         prefix_code = prefix_map.get(doc_type, 'DOC')

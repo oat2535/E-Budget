@@ -56,3 +56,26 @@ class ebudget_cost_center_master(models.Model):
 
     def __str__(self):
         return f"{self.cost_center_code} - {self.cost_center_name}"
+
+class ebudget_gl_actual_template_row(models.Model):
+    """The fixed, always-identical P&L outline behind the "GL Actual
+    Template" page (budget_app.ebudget_gl_actual_template) — one row per
+    line of the outline, in the exact order it appears in the source
+    workbook. `code` mixes real GL codes (e.g. '41100001') with
+    structural section/subtotal codes (e.g. 'H101', 'FH101') that have no
+    matching row in ebudget_general_ledger_master, which is why this is
+    its own table rather than an FK onto the GL master."""
+    row_order = models.PositiveIntegerField(unique=True, verbose_name="ลำดับแถว")
+    code = models.CharField(max_length=20, verbose_name="รหัส")
+    label = models.CharField(max_length=255, verbose_name="ชื่อ")
+    row_type = models.CharField(max_length=10, choices=[
+        ('header', 'Section Header'),
+        ('subtotal', 'Subtotal'),
+        ('gl', 'GL Line'),
+    ], verbose_name="ประเภทแถว")
+
+    class Meta:
+        ordering = ['row_order']
+
+    def __str__(self):
+        return f"{self.row_order}: {self.code} - {self.label}"

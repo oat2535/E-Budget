@@ -42,6 +42,14 @@ const BudgetApp = (function() {
     let currentAdjBranchCode = '';
     let isAdjUpdating = false;
 
+    let glatModalInstance = null;
+    let glatTable = null;
+    let isGlatEditMode = false;
+    let currentGlatDocNo = '';
+    let currentGlatBranchCode = '';
+    let currentGlatMonthCount = null;
+    let currentGlatGrowthPct1 = 0, currentGlatGrowthPct2 = 0, currentGlatGrowthPct3 = 0;
+
     // Wait for DOM
     document.addEventListener('DOMContentLoaded', () => {
         // By now every deferred <script> (including sweetalert2) has run —
@@ -58,6 +66,13 @@ const BudgetApp = (function() {
     const carItems = document.getElementById('car-items-data') ? JSON.parse(document.getElementById('car-items-data').textContent) : [];
     const renovateItems = document.getElementById('renovate-items-data') ? JSON.parse(document.getElementById('renovate-items-data').textContent) : [];
     const softwareItems = document.getElementById('software-items-data') ? JSON.parse(document.getElementById('software-items-data').textContent) : [];
+
+    // Fixed 181-row P&L outline + the static 22-branch list for GL Actual
+    // Template — unrelated to needsBranchSelection/branchOptions above,
+    // which are the CURRENT USER's own imedx branch(es) and don't apply to
+    // this doc_type's plain "pick any branch" dropdown.
+    const glatTemplateRows = document.getElementById('glat-template-rows-data') ? JSON.parse(document.getElementById('glat-template-rows-data').textContent) : [];
+    const glatBranches = document.getElementById('glat-branches-data') ? JSON.parse(document.getElementById('glat-branches-data').textContent) : [];
 
     // Cost Center / branch dropdown sources for edit mode — same data the
     // add-budget pages use (get_cost_centers_json / get_branch_selection_context
@@ -303,6 +318,7 @@ const BudgetApp = (function() {
             const isRenovate = currentDocType === 'Renovate';
             const isSoftware = currentDocType === 'Software';
             const isEquipment = isMed || isComp || isFurniture || isTools || isCar || isRenovate || isSoftware;
+            const isVet = currentDocType === 'VET';
             let itemsList = vetItems;
             if (isNonVet) itemsList = nonVetItems;
             if (isMed) itemsList = medItems;
@@ -312,10 +328,19 @@ const BudgetApp = (function() {
             else if (isCar) itemsList = carItems;
             else if (isRenovate) itemsList = renovateItems;
             else if (isSoftware) itemsList = softwareItems;
-            // Equipment inserts a "รายละเอียด" text column right after the
-            // item dropdown (col 0), pushing price/months/total each +1 —
-            // priceCol/startCol/endCol below account for that shift.
-            const priceCol = isEquipment ? 2 : 1;
+            // Every type reaching this function now has a "รายละเอียด" text
+            // column right after the item/position dropdown (col 0) —
+            // Equipment and VET insert one more column before months
+            // (price/salary), NON VET inserts two (salary, then its own
+            // ค่าวัดระดับ/ตำแหน่ง allowance) — priceCol/allowanceCol/
+            // startCol/endCol below are computed from that, not hardcoded,
+            // since there are now 3 different widths instead of a binary
+            // shifted/unshifted split.
+            const hasDetailCol = isEquipment || isVet || isNonVet;
+            const priceCol = hasDetailCol ? 2 : 1;
+            const allowanceCol = priceCol + 1; // only meaningful when isNonVet
+            const startCol = priceCol + 1 + (isNonVet ? 1 : 0);
+            const endCol = startCol + 11;
 
             // If position changed, update salary
             if (x === 0) {
@@ -325,15 +350,13 @@ const BudgetApp = (function() {
 
                 if (isNonVet) {
                     const allowance = match ? match.position_allowance : 0;
-                    modalTable1.setValueFromCoords(2, y, allowance, true);
+                    modalTable1.setValueFromCoords(allowanceCol, y, allowance, true);
                 }
             }
 
             // Calculate total for this row in table1
             const rowData1 = modalTable1.getRowData(y);
             let sum1 = 0;
-            const startCol = (isNonVet || isEquipment) ? 3 : 2;
-            const endCol = (isNonVet || isEquipment) ? 14 : 13;
 
             for(let i = startCol; i <= endCol; i++) {
                 sum1 += getNum(rowData1[i]);
@@ -342,19 +365,19 @@ const BudgetApp = (function() {
 
             // Sync with table2
             const pos = rowData1[0];
-            const desc = isEquipment ? rowData1[1] : undefined;
+            const desc = hasDetailCol ? rowData1[1] : undefined;
             const sal = getNum(rowData1[priceCol]);
 
             modalTable2.setValueFromCoords(0, y, pos, true);
-            if (isEquipment) {
+            if (hasDetailCol) {
                 modalTable2.setValueFromCoords(1, y, desc, true);
             }
             modalTable2.setValueFromCoords(priceCol, y, sal, true);
 
             let total_sal = sal;
             if (isNonVet) {
-                const allow = getNum(rowData1[2]);
-                modalTable2.setValueFromCoords(2, y, allow, true);
+                const allow = getNum(rowData1[allowanceCol]);
+                modalTable2.setValueFromCoords(allowanceCol, y, allow, true);
                 total_sal += allow;
             }
 
@@ -437,9 +460,13 @@ const BudgetApp = (function() {
                     doc.type === 'GL Entry' ? '<span class="badge" style="background-color: #0dcaf0;">EXPENSE</span>' :
                     doc.type === 'Revenue' ? '<span class="badge" style="background-color: #84cc16;">Revenue</span>' :
                     doc.type === 'Budget Plan' ? '<span class="badge" style="background-color: #20c997;">Budget Plan</span>' :
+                    doc.type === 'GL Actual Template' ? '<span class="badge" style="background-color: #6f42c1;">GL Actual Template</span>' :
                     '<span class="badge" style="background-color: #6610f2;">NON VET</span>';
                 const isGeneralLedgerDoc = doc.type === 'GL Entry' || doc.type === 'Revenue' || doc.type === 'Budget Plan';
-                const actionUrl = isGeneralLedgerDoc ?
+                const isGlatDoc = doc.type === 'GL Actual Template';
+                const actionUrl = isGlatDoc ?
+                    `javascript:viewGlatDocumentDetails('${doc.document_no}')` :
+                    isGeneralLedgerDoc ?
                     `javascript:viewGeneralLedgerDocumentDetails('${doc.document_no}', '${doc.type}')` :
                     `javascript:viewDocumentDetails('${doc.document_no}', '${doc.type}')`;
 
@@ -770,12 +797,13 @@ const BudgetApp = (function() {
                     const isRenovate = result.doc_info.type === 'Renovate';
                     const isSoftware = result.doc_info.type === 'Software';
                     const isEquipment = isMed || isComp || isFurniture || isTools || isCar || isRenovate || isSoftware;
+                    const isVet = result.doc_info.type === 'VET';
 
                     // Columns setup
                     const columns = [
                         { type: 'text', align: 'left', title: isEquipment ? 'เครื่องมือ' : 'ตำแหน่ง', width: 250, readOnly: true }
                     ];
-                    if (isEquipment) {
+                    if (isEquipment || isVet || isNonVet) {
                         columns.push({ type: 'text', align: 'left', title: 'รายละเอียด', width: 200, readOnly: true });
                     }
                     columns.push({ type: 'numeric', title: isEquipment ? 'ราคาซื้อ' : 'เงินเดือน', width: 100, readOnly: true, mask: '#,##0' });
@@ -795,7 +823,7 @@ const BudgetApp = (function() {
                         let m = item.monthly_data || {};
                         let row1 = [item.position_name || item.item_name];
                         let row2 = [item.position_name || item.item_name];
-                        if (isEquipment) {
+                        if (isEquipment || isVet || isNonVet) {
                             row1.push(item.description || '');
                             row2.push(item.description || '');
                         }
@@ -829,7 +857,7 @@ const BudgetApp = (function() {
                     if (data1.length === 0) {
                         let emptyRow = new Array(columns.length).fill(0);
                         emptyRow[0] = '';
-                        if (isEquipment) emptyRow[1] = '';
+                        if (isEquipment || isVet || isNonVet) emptyRow[1] = '';
                         data1.push([...emptyRow]);
                         data2.push([...emptyRow]);
                     }
@@ -908,6 +936,7 @@ const BudgetApp = (function() {
         const isRenovate = currentDocType === 'Renovate';
         const isSoftware = currentDocType === 'Software';
         const isEquipment = isMed || isComp || isFurniture || isTools || isCar || isRenovate || isSoftware;
+        const isVet = currentDocType === 'VET';
         let itemsList = vetItems;
         if (isNonVet) itemsList = nonVetItems;
         if (isMed) itemsList = medItems;
@@ -937,7 +966,7 @@ const BudgetApp = (function() {
             let columns = [
                 { type: 'dropdown', align: 'left', title: isEquipment ? 'เครื่องมือ' : 'ตำแหน่ง', width: 250, source: itemNames, autocomplete: true }
             ];
-            if (isEquipment) {
+            if (isEquipment || isVet || isNonVet) {
                 columns.push({ type: 'text', align: 'left', title: 'รายละเอียด', width: 200 });
             }
             columns.push({ type: 'numeric', title: isEquipment ? 'ราคาซื้อ' : 'เงินเดือน', width: 100, mask: '#,##0' });
@@ -1051,8 +1080,11 @@ const BudgetApp = (function() {
         const isRenovate = currentDocType === 'Renovate';
         const isSoftware = currentDocType === 'Software';
         const isEquipment = isMed || isComp || isFurniture || isTools || isCar || isRenovate || isSoftware;
-        const priceCol = isEquipment ? 2 : 1;
-        const startCol = (isNonVet || isEquipment) ? 3 : 2;
+        const isVet = currentDocType === 'VET';
+        const hasDetailCol = isEquipment || isVet || isNonVet;
+        const priceCol = hasDetailCol ? 2 : 1;
+        const allowanceCol = priceCol + 1; // only meaningful when isNonVet
+        const startCol = priceCol + 1 + (isNonVet ? 1 : 0);
 
         let rows = modalTable1.getData();
         let dataToSave = [];
@@ -1060,9 +1092,9 @@ const BudgetApp = (function() {
         for (let i = 0; i < rows.length; i++) {
             let row = rows[i];
             let position = row[0];
-            let description = isEquipment ? row[1] : undefined;
+            let description = hasDetailCol ? row[1] : undefined;
             let salary = getNum(row[priceCol]);
-            let allowance = isNonVet ? getNum(row[2]) : 0;
+            let allowance = isNonVet ? getNum(row[allowanceCol]) : 0;
 
             if (position && (salary > 0 || allowance > 0)) {
                 const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
@@ -1109,6 +1141,9 @@ const BudgetApp = (function() {
                     };
                     if (isNonVet) {
                         rowData['position_allowance'] = allowance;
+                    }
+                    if (isVet || isNonVet) {
+                        rowData['description'] = description;
                     }
                 }
                 dataToSave.push(rowData);
@@ -1337,12 +1372,14 @@ const BudgetApp = (function() {
     }
 
     // ยอดรวมแต่ละเดือน (column sum ข้ามทุกแถว) สำหรับ popup รายละเอียดเอกสาร
-    // Revenue — มิเรอร์ updateMonthlyTotals()/injection logic ของ
-    // budget_add_revenue.html ทุกประการ (แถวนอก jexcel data model, ไม่หลุด
-    // เข้า getData()/saveGlDocument() เลย) ต่างแค่ต้อง inject ใหม่ทุกครั้งที่
-    // renderGlDetailSpreadsheet() ถูกเรียก เพราะตารางนี้ destroy+rebuild
-    // ทั้งก้อนทุกครั้ง (เปิดดูครั้งแรก และตอนเข้า/ออก edit mode)
-    function injectGlRevenueMonthlyTotalsRow(mountEl, columns) {
+    // EXPENSE/Revenue (table shape เดียวกัน, ดู docType !== 'Budget Plan'
+    // ใน renderGlDetailSpreadsheet) — มิเรอร์ updateMonthlyTotals()/injection
+    // logic ของ budget_add_revenue.html/budget_add_gl_entry.html ทุกประการ
+    // (แถวนอก jexcel data model, ไม่หลุดเข้า getData()/saveGlDocument() เลย)
+    // ต่างแค่ต้อง inject ใหม่ทุกครั้งที่ renderGlDetailSpreadsheet() ถูกเรียก
+    // เพราะตารางนี้ destroy+rebuild ทั้งก้อนทุกครั้ง (เปิดดูครั้งแรก และตอน
+    // เข้า/ออก edit mode)
+    function injectGlEntryMonthlyTotalsRow(mountEl, columns) {
         const theadEl = mountEl.querySelector('table.jexcel thead');
         if (!theadEl) return;
         const headerRow = theadEl.querySelector('tr');
@@ -1394,7 +1431,7 @@ const BudgetApp = (function() {
 
         for (let m = 0; m < 12; m++) {
             const td = document.createElement('td');
-            td.id = `glRevenueMonthlyTotal-${m}`;
+            td.id = `glEntryMonthlyTotal-${m}`;
             td.textContent = '0';
             td.style.top = `${headerRow.offsetHeight}px`;
             totalsRow.appendChild(td);
@@ -1407,14 +1444,14 @@ const BudgetApp = (function() {
         theadEl.appendChild(totalsRow);
     }
 
-    function updateGlRevenueMonthlyTotals() {
+    function updateGlEntryMonthlyTotals() {
         const table = glDetailTables[0];
         if (!table) return;
         const rows = table.getData();
         for (let m = 0; m < 12; m++) {
             let sum = 0;
             for (let i = 0; i < rows.length; i++) sum += getNum(rows[i][2 + m]);
-            const cell = document.getElementById(`glRevenueMonthlyTotal-${m}`);
+            const cell = document.getElementById(`glEntryMonthlyTotal-${m}`);
             if (cell) cell.textContent = sum.toLocaleString('en-US', { maximumFractionDigits: 2 });
         }
     }
@@ -1488,30 +1525,30 @@ const BudgetApp = (function() {
             return;
         }
 
-        // Revenue shares GL Entry's exact table shape (just a filtered GL
-        // list server-side) — only Budget Plan's 3-section layout differs.
+        // Revenue/EXPENSE share GL Entry's exact table shape — only Budget
+        // Plan's 3-section layout differs. Monthly-totals row applies to
+        // both (ยอดรวมแต่ละเดือน requested for EXPENSE's Budget List popup
+        // to match Revenue's, already shipped in an earlier round).
         if (docType !== 'Budget Plan') {
-            const isRevenueDoc = docType === 'Revenue';
             const columns = glEntryColumns(editable);
             const data = (items && items.length > 0) ? items.map(glEntryRowData) : [Array(columns.length).fill('')];
 
             const mountEl = document.createElement('div');
             container.appendChild(mountEl);
 
+            // คง onchange เดิม (คำนวณ "รวม" ต่อแถว ตอน editable) ไว้ครบ แค่
+            // compose เรียก updateGlEntryMonthlyTotals() ต่อท้าย — view mode
+            // ไม่มี onchange เดิมอยู่แล้วจึงแค่ใส่ของเราเข้าไป. oninsertrow/
+            // ondeleterow ไม่เคยมีมาก่อนในตารางนี้เลย (ไม่เคยต้องคำนวณอะไร
+            // ตอนแถวเปลี่ยนจำนวน) เพิ่มใหม่เฉพาะที่นี่.
             const extraOptions = editable ? { minDimensions: [columns.length, 1], onchange: makeGlOnchange(() => glDetailTables[0], 2, 14) } : {};
-            if (isRevenueDoc) {
-                // คง onchange เดิม (คำนวณ "รวม" ต่อแถว ตอน editable) ไว้ครบ
-                // แค่ compose เรียก updateGlRevenueMonthlyTotals() ต่อท้าย —
-                // view mode ไม่มี onchange เดิมอยู่แล้วจึงแค่ใส่ของเราเข้าไป.
-                // oninsertrow/ondeleterow ไม่เคยมีมาก่อนในตารางนี้เลย (ไม่เคย
-                // ต้องคำนวณอะไรตอนแถวเปลี่ยนจำนวน) เพิ่มใหม่เฉพาะที่นี่.
-                const baseOnchange = extraOptions.onchange;
-                extraOptions.onchange = baseOnchange
-                    ? function() { baseOnchange(); updateGlRevenueMonthlyTotals(); }
-                    : updateGlRevenueMonthlyTotals;
-                extraOptions.oninsertrow = updateGlRevenueMonthlyTotals;
-                extraOptions.ondeleterow = updateGlRevenueMonthlyTotals;
-            }
+            const baseOnchange = extraOptions.onchange;
+            extraOptions.onchange = baseOnchange
+                ? function() { baseOnchange(); updateGlEntryMonthlyTotals(); }
+                : updateGlEntryMonthlyTotals;
+            extraOptions.oninsertrow = updateGlEntryMonthlyTotals;
+            extraOptions.ondeleterow = updateGlEntryMonthlyTotals;
+
             const table = jspreadsheet(mountEl, Object.assign({}, glCommonTableOptions(editable), {
                 data: data,
                 columns: columns,
@@ -1519,10 +1556,8 @@ const BudgetApp = (function() {
             }, extraOptions));
             glDetailTables[0] = table;
 
-            if (isRevenueDoc) {
-                injectGlRevenueMonthlyTotalsRow(mountEl, columns);
-                updateGlRevenueMonthlyTotals();
-            }
+            injectGlEntryMonthlyTotalsRow(mountEl, columns);
+            updateGlEntryMonthlyTotals();
 
             // Fixed-position button in the card-header (#btnGlAddRow) —
             // matches every other add-budget table's "เพิ่มรายการ" button
@@ -1968,8 +2003,11 @@ const BudgetApp = (function() {
                     const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
                     
                     const cols1 = [
+                        { type: 'text', align: 'left', title: 'ประเภท', width: 100, readOnly: true },
                         { type: 'text', align: 'left', title: 'ตำแหน่งเดิม', width: 200, readOnly: true },
+                        { type: 'text', align: 'left', title: 'รายละเอียดตำแหน่งเดิม', width: 180, readOnly: true },
                         { type: 'text', align: 'left', title: 'ตำแหน่งใหม่', width: 200, readOnly: true },
+                        { type: 'text', align: 'left', title: 'รายละเอียดตำแหน่งใหม่', width: 180, readOnly: true },
                         { type: 'numeric', title: 'เงินเดือนเดิม', width: 100, readOnly: true, mask: '#,##0' },
                         { type: 'numeric', title: 'ค่าตำแหน่งเดิม', width: 120, readOnly: true, mask: '#,##0' },
                         { type: 'numeric', title: 'รวมรายได้เดิม', width: 110, readOnly: true, mask: '#,##0' },
@@ -2041,7 +2079,9 @@ const BudgetApp = (function() {
                         let diffAllow = item.new_allowance - item.old_allowance;
                         
                         let r1 = [
-                            item.old_position_name, item.new_position_name,
+                            item.adjustment_type || '',
+                            item.old_position_name, item.old_description || '',
+                            item.new_position_name, item.new_description || '',
                             item.old_salary, item.old_allowance, item.old_salary + item.old_allowance,
                             item.new_salary, item.new_allowance, item.new_salary + item.new_allowance,
                             diffSal, diffAllow
@@ -2074,7 +2114,7 @@ const BudgetApp = (function() {
                     adjTable1 = jspreadsheet(document.getElementById('adjModalSpreadsheet1'), {
                         data: data1, columns: cols1, allowInsertRow: false, allowDeleteRow: false,
                         allowInsertColumn: false, allowManualInsertColumn: false, allowDeleteColumn: false,
-                        tableOverflow: true, contextMenu: function() { return false; }, freezeColumns: 2
+                        tableOverflow: true, contextMenu: function() { return false; }, freezeColumns: 5
                     });
                     adjTable2 = jspreadsheet(document.getElementById('adjModalSpreadsheet2'), {
                         data: data2, columns: cols2, allowInsertRow: false, allowDeleteRow: false,
@@ -2128,56 +2168,56 @@ const BudgetApp = (function() {
             const getAllowance = (name) => { const m = allAdjItems.find(i => i.name === name); return m ? m.position_allowance : 0; };
             const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
 
-            let oldSal = getNum(adjTable1.getValueFromCoords(2, y));
-            let oldAllow = getNum(adjTable1.getValueFromCoords(3, y));
-            let newSal = getNum(adjTable1.getValueFromCoords(5, y));
-            let newAllow = getNum(adjTable1.getValueFromCoords(6, y));
+            let oldSal = getNum(adjTable1.getValueFromCoords(5, y));
+            let oldAllow = getNum(adjTable1.getValueFromCoords(6, y));
+            let newSal = getNum(adjTable1.getValueFromCoords(8, y));
+            let newAllow = getNum(adjTable1.getValueFromCoords(9, y));
 
-            if (x === 0) {
+            if (x === 1) {
                 oldSal = getSalary(value);
                 oldAllow = getAllowance(value);
-                adjTable1.setValueFromCoords(2, y, oldSal, true);
-                adjTable1.setValueFromCoords(3, y, oldAllow, true);
+                adjTable1.setValueFromCoords(5, y, oldSal, true);
+                adjTable1.setValueFromCoords(6, y, oldAllow, true);
             }
-            if (x === 1) {
+            if (x === 3) {
                 newSal = getSalary(value);
                 newAllow = getAllowance(value);
-                adjTable1.setValueFromCoords(5, y, newSal, true);
-                adjTable1.setValueFromCoords(6, y, newAllow, true);
+                adjTable1.setValueFromCoords(8, y, newSal, true);
+                adjTable1.setValueFromCoords(9, y, newAllow, true);
             }
-            if (x === 2) oldSal = getNum(value);
-            if (x === 3) oldAllow = getNum(value);
-            if (x === 5) newSal = getNum(value);
-            if (x === 6) newAllow = getNum(value);
+            if (x === 5) oldSal = getNum(value);
+            if (x === 6) oldAllow = getNum(value);
+            if (x === 8) newSal = getNum(value);
+            if (x === 9) newAllow = getNum(value);
 
-            if (x === 0 || x === 1 || x === 2 || x === 3 || x === 5 || x === 6) {
+            if (x === 1 || x === 3 || x === 5 || x === 6 || x === 8 || x === 9) {
                 let oldTotal = oldSal + oldAllow;
                 let newTotal = newSal + newAllow;
-                adjTable1.setValueFromCoords(4, y, oldTotal, true);
-                adjTable1.setValueFromCoords(7, y, newTotal, true);
+                adjTable1.setValueFromCoords(7, y, oldTotal, true);
+                adjTable1.setValueFromCoords(10, y, newTotal, true);
 
-                adjTable1.setValueFromCoords(8, y, newSal - oldSal, true);
-                adjTable1.setValueFromCoords(9, y, newAllow - oldAllow, true);
+                adjTable1.setValueFromCoords(11, y, newSal - oldSal, true);
+                adjTable1.setValueFromCoords(12, y, newAllow - oldAllow, true);
             }
 
             const rowData1 = adjTable1.getRowData(y);
-            const oldPos = rowData1[0];
-            const newPos = rowData1[1];
-            const diffSal = getNum(rowData1[8]);
-            const diffAllow = getNum(rowData1[9]);
+            const oldPos = rowData1[1];
+            const newPos = rowData1[3];
+            const diffSal = getNum(rowData1[11]);
+            const diffAllow = getNum(rowData1[12]);
 
             let sumHC = 0;
-            for(let i = 10; i <= 21; i++) {
+            for(let i = 13; i <= 24; i++) {
                 sumHC += getNum(rowData1[i]);
             }
-            adjTable1.setValueFromCoords(22, y, sumHC, true);
+            adjTable1.setValueFromCoords(25, y, sumHC, true);
 
             adjTable2.setValueFromCoords(0, y, oldPos, true);
             adjTable2.setValueFromCoords(1, y, newPos, true);
             adjTable2.setValueFromCoords(2, y, diffSal, true);
 
             const monthHeadcounts = [];
-            for(let i = 10; i <= 21; i++) {
+            for(let i = 13; i <= 24; i++) {
                 monthHeadcounts.push(getNum(rowData1[i]));
             }
 
@@ -2224,6 +2264,18 @@ const BudgetApp = (function() {
         // pre-sorting lets that repeated internal sort do less work).
         allAdjItems.sort((a, b) => a.name.localeCompare(b.name, 'th'));
 
+        // ตำแหน่งเดิม/ใหม่ dropdown กรองตามคอลัมน์ "ประเภท" ของแถวตัวเอง —
+        // jexcel เรียกฟังก์ชันนี้ใหม่ทุกครั้งที่ cell เข้าโหมดแก้ไข (ไม่ cache)
+        // adjTable1 อ้างอิงผ่าน closure เหมือน onAdjSpreadsheetChange ทำอยู่
+        // แล้ว ใช้งานได้แม้นิยามก่อน adjTable1 ถูก assign ด้านล่าง เพราะ
+        // ฟังก์ชันนี้ไม่ถูกเรียกจนกว่าผู้ใช้จะเปิด dropdown จริง
+        const filterAdjPositionsByType = function(el, e, r, n, source) {
+            const type = adjTable1.getValueFromCoords(0, n);
+            if (type === 'VET') return vetItems;
+            if (type === 'NON VET') return nonVetItems;
+            return []; // ยังไม่เลือกประเภท — ไม่แสดงตัวเลือกใดๆ จนกว่าจะเลือกประเภทก่อน
+        };
+
         if (isAdjEditMode) {
             btnEdit.innerHTML = '<i data-feather="x" class="me-1"></i> ยกเลิกการแก้ไข';
             btnEdit.classList.remove('btn-primary', 'text-white');
@@ -2236,8 +2288,11 @@ const BudgetApp = (function() {
             buildBranchSelect('adjModalDocBranch', currentAdjBranchCode, (value) => { currentAdjBranchCode = value; });
 
             const cols1 = [
-                { type: 'dropdown', align: 'left', title: 'ตำแหน่งเดิม', width: 200, source: allAdjItems, autocomplete: true },
-                { type: 'dropdown', align: 'left', title: 'ตำแหน่งใหม่', width: 200, source: allAdjItems, autocomplete: true },
+                { type: 'dropdown', align: 'left', title: 'ประเภท', width: 100, source: ['VET', 'NON VET'], autocomplete: false },
+                { type: 'dropdown', align: 'left', title: 'ตำแหน่งเดิม', width: 200, source: allAdjItems, autocomplete: true, filter: filterAdjPositionsByType },
+                { type: 'text', align: 'left', title: 'รายละเอียดตำแหน่งเดิม', width: 180 },
+                { type: 'dropdown', align: 'left', title: 'ตำแหน่งใหม่', width: 200, source: allAdjItems, autocomplete: true, filter: filterAdjPositionsByType },
+                { type: 'text', align: 'left', title: 'รายละเอียดตำแหน่งใหม่', width: 180 },
                 { type: 'numeric', title: 'เงินเดือนเดิม', width: 100, mask: '#,##0' },
                 { type: 'numeric', title: 'ค่าตำแหน่งเดิม', width: 120, mask: '#,##0' },
                 { type: 'numeric', title: 'รวมรายได้เดิม', width: 110, readOnly: true, mask: '#,##0' },
@@ -2273,7 +2328,7 @@ const BudgetApp = (function() {
                 allowManualInsertColumn: false,
                 allowDeleteColumn: false,
                 tableOverflow: true,
-                freezeColumns: 2,
+                freezeColumns: 5,
                 onchange: onAdjSpreadsheetChange,
                 contextMenu: function() { return true; },
                 // adjTable1 can gain a row through more than just the
@@ -2323,19 +2378,32 @@ const BudgetApp = (function() {
 
         for (let i = 0; i < rows.length; i++) {
             let row = rows[i];
-            let oldPos = row[0];
-            let newPos = row[1];
-            let oldSal = getNum(row[2]);
-            let oldAllow = getNum(row[3]);
-            let newSal = getNum(row[5]);
-            let newAllow = getNum(row[6]);
+            let adjustmentType = row[0];
+            let oldPos = row[1];
+            let oldDetail = row[2];
+            let newPos = row[3];
+            let newDetail = row[4];
+            let oldSal = getNum(row[5]);
+            let oldAllow = getNum(row[6]);
+            let newSal = getNum(row[8]);
+            let newAllow = getNum(row[9]);
 
-            if (oldPos && newPos) {
+            // ประเภท/ตำแหน่งเดิม/ตำแหน่งใหม่ บังคับกรอกครบทั้ง 3 ช่อง — ดู
+            // เหตุผลเดียวกันใน budget_add_adjustment.html
+            const hasAnyIdentityData = adjustmentType || oldPos || newPos;
+            const hasAllRequired = adjustmentType && oldPos && newPos;
+
+            if (hasAnyIdentityData && !hasAllRequired) {
+                Swal.fire('แจ้งเตือน', `กรุณาเลือกประเภท ตำแหน่งเดิม และตำแหน่งใหม่ให้ครบในแถวที่ ${i + 1} ก่อนบันทึก`, 'warning');
+                return;
+            }
+
+            if (hasAllRequired) {
                 let diffSal = newSal - oldSal;
                 let diffAllow = newAllow - oldAllow;
                 const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
                 const monthCounts = [];
-                for (let c = 10; c <= 21; c++) monthCounts.push(getNum(row[c]));
+                for (let c = 13; c <= 24; c++) monthCounts.push(getNum(row[c]));
                 // Cost must accumulate ("ขั้นบันได") the same way the
                 // on-screen preview (adjTable2/adjTable3, via
                 // onAdjSpreadsheetChange) and the create-flow save handler
@@ -2360,8 +2428,11 @@ const BudgetApp = (function() {
                 });
 
                 dataToSave.push({
+                    'adjustment_type': adjustmentType,
                     'old_position_name': oldPos,
+                    'old_description': oldDetail || '',
                     'new_position_name': newPos,
+                    'new_description': newDetail || '',
                     'old_salary': oldSal,
                     'old_allowance': oldAllow,
                     'new_salary': newSal,
@@ -2506,6 +2577,435 @@ const BudgetApp = (function() {
         });
     }
 
+    // ---- GL Actual Template (fixed 181-row outline, 5 plain numeric
+    // columns, no Cost Center, no monthly breakdown — doesn't fit either
+    // the generic manpower/equipment modal (headcount/cost twin grids) or
+    // the GL-ledger modal (GL dropdown + 12 month columns), so it gets its
+    // own dedicated view/edit/save trio, same reasoning as Position
+    // Adjustment's adjModalInstance/adjTable* having their own. ----
+
+    function resetGlatEditButtons() {
+        const btnEdit = document.getElementById('btnGlatEditMode');
+        if (btnEdit) {
+            btnEdit.innerHTML = '<i data-feather="edit-2" class="me-1"></i> แก้ไขข้อมูล';
+            btnEdit.classList.remove('btn-outline-danger');
+            btnEdit.classList.add('btn-primary');
+        }
+        const btnSave = document.getElementById('btnGlatSaveDocument');
+        if (btnSave) btnSave.style.display = 'none';
+        const btnClose = document.getElementById('btnGlatCloseModal');
+        if (btnClose) btnClose.style.display = 'inline-block';
+    }
+
+    // "Act จริง" has no fixed name of its own — it's how many months of
+    // real data the number represents, tracked by the document's own
+    // actual_month_count (see glatModalMonthCount / its edit-mode input).
+    // Same helper as budget_add_gl_actual_template.html's actualColumnLabel.
+    const glatActualColumnLabel = (monthCount) => `จำนวนเดือนข้อมูลจริง(${monthCount || '-'})`;
+
+    const glatColumns = [
+        { type: 'text', align: 'left', title: 'รหัส', width: 90, readOnly: true },
+        { type: 'text', align: 'left', title: 'ชื่อ', width: 280, readOnly: true },
+        { type: 'numeric', title: glatActualColumnLabel(), width: 150, mask: '#,##0.00' },
+        { type: 'numeric', title: 'ต่อเดือน', width: 120, mask: '#,##0.00' },
+        { type: 'numeric', title: 'รายปี (x12)', width: 120, mask: '#,##0.00' },
+        { type: 'numeric', title: 'สัดส่วน/ยอดขาย', width: 130, mask: '#,##0.00' },
+        { type: 'numeric', title: '% การโต', width: 110, mask: '#,##0.00' },
+    ];
+
+    // items: the manpower_list array from get_document_detail_api, already
+    // in row_order (same order glatTemplateRows is in — both ultimately
+    // come from the same master_data.ebudget_gl_actual_template_row
+    // ordering). editable toggles readOnly on the 5 data columns and
+    // whether header/subtotal row shading gets (re)applied.
+    function renderGlatSpreadsheet(items, editable) {
+        const container = document.getElementById('glatDetailTableContainer');
+        if (glatTable) {
+            glatTable.destroy();
+            glatTable = null;
+        }
+        container.innerHTML = '';
+
+        const columns = glatColumns.map((col, idx) => {
+            if (idx < 2) return col;
+            return Object.assign({}, col, { readOnly: !editable });
+        });
+
+        const data = (items && items.length > 0)
+            ? items.map(item => [item.code, item.label, item.actual_value, item.per_month_value, item.annualized_value, item.sales_ratio, item.growth_rate])
+            : glatTemplateRows.map(r => [r.code, r.label, 0, 0, 0, 0, 0]);
+
+        // Strip Excel's CSV-quoting from a pasted cell value (see the
+        // budget_add_gl_actual_template.html comment for full rationale).
+        const sanitizeCell = (val) => {
+            if (typeof val !== 'string') return val;
+            val = val.trim();
+            if (val.length >= 2 && val.charAt(0) === '"' && val.charAt(val.length - 1) === '"') {
+                val = val.slice(1, -1).replace(/""/g, '"');
+            }
+            return val;
+        };
+
+        const applyPastedText = (startX, startY, text) => {
+            // CRITICAL: jexcel passes x/y as *strings* (e.g. "2", "0").
+            // Without parseInt, `startX + c` becomes string concatenation
+            // ("2" + 0 = "20") instead of addition (2 + 0 = 2), which
+            // immediately breaks the bounds check and writes zero cells.
+            const originX = parseInt(startX, 10) || 0;
+            const originY = parseInt(startY, 10) || 0;
+
+            const pasteRows = String(text).replace(/\r/g, '').split('\n');
+            if (pasteRows.length > 1 && pasteRows[pasteRows.length - 1] === '') pasteRows.pop();
+
+            // Build a brand-new array rather than mutating what getData()
+            // returns in place — observed a hang mutating jexcel's own
+            // rows directly and feeding them straight back into setData;
+            // fresh rows avoid any aliasing with jexcel's live internal
+            // state.
+            const existing = glatTable.getData();
+            const numRows = existing.length;
+            const numCols = existing[0] ? existing[0].length : 0;
+            const data = existing.map(row => row.slice());
+            let pastedCellCount = 0;
+            for (let r = 0; r < pasteRows.length; r++) {
+                const targetRow = originY + r;
+                if (targetRow >= numRows) break;
+                const cells = pasteRows[r].split('\t');
+                for (let c = 0; c < cells.length; c++) {
+                    const targetCol = originX + c;
+                    if (targetCol >= numCols) break;
+                    if (targetCol < 2) continue; // รหัส/ชื่อ คงที่เสมอ ไม่ให้วางทับ
+                    data[targetRow][targetCol] = sanitizeCell(cells[c]);
+                    pastedCellCount++;
+                }
+            }
+            glatTable.setData(data);
+            return pastedCellCount;
+        };
+
+        const onbeforepaste = function(el, pastedText, x, y) {
+            Swal.fire({
+                title: 'กำลังวางข้อมูลลงตาราง กรุณารอสักครู่...',
+                allowOutsideClick: false,
+                didOpen: () => { Swal.showLoading(); }
+            });
+            // SweetAlert2 v11 opens the popup with an inline opacity:0
+            // style and only clears it once its show animation finishes.
+            // The reliable signal is SweetAlert2's own animation ending,
+            // so we wait for that before starting the data fill. A 1s
+            // timeout acts as safety net in case the event never fires.
+            const popupEl = document.querySelector('.swal2-popup');
+            const runPaste = () => {
+                try {
+                    applyPastedText(x, y, pastedText);
+                } finally {
+                    Swal.close();
+                    // Immediately disarm the SweetAlert2 backdrop and
+                    // popup so they can't intercept clicks during the
+                    // ~300ms fade-out animation.
+                    const container = document.querySelector('.swal2-container');
+                    if (container) container.style.pointerEvents = 'none';
+                    const swalPopup = document.querySelector('.swal2-popup');
+                    if (swalPopup) swalPopup.style.pointerEvents = 'none';
+                }
+            };
+            if (popupEl) {
+                let started = false;
+                const start = () => {
+                    if (started) return;
+                    started = true;
+                    runPaste();
+                };
+                popupEl.addEventListener('animationend', start, { once: true });
+                popupEl.addEventListener('transitionend', start, { once: true });
+                setTimeout(start, 1000);
+            } else {
+                runPaste();
+            }
+            return false;
+        };
+
+        glatTable = jspreadsheet(container, {
+            data: data,
+            columns: columns,
+            onbeforepaste: onbeforepaste,
+            allowInsertColumn: false,
+            allowManualInsertColumn: false,
+            allowDeleteColumn: false,
+            allowInsertRow: false,
+            allowDeleteRow: false,
+            tableOverflow: true,
+            freezeColumns: 2,
+            contextMenu: function() { return false; },
+        });
+        glatTable.setHeader(2, glatActualColumnLabel(currentGlatMonthCount));
+
+        const rowsMeta = (items && items.length > 0)
+            ? items.map(item => ({ row_type: item.row_type }))
+            : glatTemplateRows;
+        rowsMeta.forEach((r, i) => {
+            if (r.row_type === 'header' || r.row_type === 'subtotal') {
+                const rowEl = container.querySelector(`tbody tr:nth-child(${i + 1})`);
+                if (rowEl) rowEl.classList.add(r.row_type === 'header' ? 'gl-actual-row-header' : 'gl-actual-row-subtotal');
+            }
+        });
+    }
+
+    function buildGlatBranchSelect(cellId, currentValue, onChange) {
+        const cell = document.getElementById(cellId);
+        if (!cell) return;
+        const selectId = cellId + 'Select';
+        cell.innerHTML = `<select id="${selectId}" class="form-select form-select-sm"></select>`;
+        const ts = new TomSelect(`#${selectId}`, {
+            options: glatBranches.map(b => ({ value: b.code, text: `${b.code} - ${b.name}` })),
+            valueField: 'value',
+            labelField: 'text',
+            searchField: ['text', 'value'],
+            create: false,
+            placeholder: '-- เลือกสาขา --',
+            onChange: onChange,
+            dropdownParent: 'body',
+        });
+        if (currentValue) ts.setValue(currentValue, true);
+    }
+
+    function viewGlatDocumentDetails(docNo) {
+        currentGlatDocNo = docNo;
+        isGlatEditMode = false;
+        resetGlatEditButtons();
+
+        const modalEl = document.getElementById('glatDocumentDetailModal');
+        if (!glatModalInstance) {
+            glatModalInstance = new bootstrap.Modal(modalEl);
+        }
+        const shownPromise = waitForModalShown(modalEl);
+        glatModalInstance.show();
+
+        document.getElementById('glatModalContent').style.display = 'none';
+        document.getElementById('glatModalLoadingSpinner').style.display = 'block';
+
+        const urlTemplate = window.APP_CONFIG.urls.apiDocumentDetail;
+        const url = urlTemplate.replace('TYPE', encodeURIComponent('GL Actual Template')).replace('DOCNO', encodeURIComponent(docNo));
+
+        Promise.all([fetch(url).then(handleApiResponse), shownPromise])
+            .then(([result]) => {
+                document.getElementById('glatModalLoadingSpinner').style.display = 'none';
+
+                if (result.status === 'success') {
+                    document.getElementById('glatModalDocNo').innerText = result.doc_info.document_no;
+                    document.getElementById('glatModalDocBranch').innerText = result.doc_info.base_branch_id;
+                    currentGlatBranchCode = result.doc_info.base_branch_id || '';
+                    document.getElementById('glatModalActualYear').innerText = result.doc_info.actual_year;
+                    document.getElementById('glatModalDocBudgetYear').innerText = result.doc_info.budget_year;
+                    document.getElementById('glatModalMonthCount').innerText = result.doc_info.actual_month_count;
+                    currentGlatMonthCount = result.doc_info.actual_month_count;
+                    document.getElementById('glatModalGrowthPct').innerText =
+                        `${result.doc_info.growth_pct_1} / ${result.doc_info.growth_pct_2} / ${result.doc_info.growth_pct_3}`;
+                    currentGlatGrowthPct1 = result.doc_info.growth_pct_1;
+                    currentGlatGrowthPct2 = result.doc_info.growth_pct_2;
+                    currentGlatGrowthPct3 = result.doc_info.growth_pct_3;
+                    document.getElementById('glatModalDocCreator').innerText = result.doc_info.create_eid;
+                    applyEditButtonVisibility(document.getElementById('btnGlatEditMode'), result.doc_info.create_eid, result.doc_info.status);
+                    if (typeof feather !== 'undefined') feather.replace();
+                    document.getElementById('glatModalDocDate').innerText = result.doc_info.create_date;
+
+                    const modalContentEl = document.getElementById('glatModalContent');
+                    modalContentEl.style.display = 'block';
+                    modalContentEl.style.visibility = 'hidden';
+
+                    renderGlatSpreadsheet(result.manpower_list, false);
+
+                    modalContentEl.style.visibility = 'visible';
+                    modalContentEl.classList.remove('modal-content-fade-in');
+                    void modalContentEl.offsetWidth;
+                    modalContentEl.classList.add('modal-content-fade-in');
+                } else {
+                    Swal.fire('ข้อผิดพลาด', result.message || 'ไม่พบเอกสารนี้', 'error');
+                    glatModalInstance.hide();
+                }
+            })
+            .catch(error => {
+                if (error.message === SESSION_EXPIRED) return;
+                document.getElementById('glatModalLoadingSpinner').style.display = 'none';
+                console.error(error);
+                Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
+                glatModalInstance.hide();
+            });
+    }
+
+    function toggleGlatEditMode() {
+        isGlatEditMode = !isGlatEditMode;
+        const btnEdit = document.getElementById('btnGlatEditMode');
+        const btnSave = document.getElementById('btnGlatSaveDocument');
+        const btnClose = document.getElementById('btnGlatCloseModal');
+
+        if (isGlatEditMode) {
+            if (btnEdit) {
+                btnEdit.innerHTML = '<i data-feather="x" class="me-1"></i> ยกเลิกการแก้ไข';
+                btnEdit.classList.remove('btn-primary');
+                btnEdit.classList.add('btn-outline-danger');
+            }
+            if (btnSave) btnSave.style.display = 'inline-block';
+            if (btnClose) btnClose.style.display = 'none';
+            buildGlatBranchSelect('glatModalDocBranch', currentGlatBranchCode, (value) => { currentGlatBranchCode = value; });
+
+            // Month count / growth % become plain number inputs in place of
+            // their <td> text, same swap-in-place pattern as the branch
+            // select above.
+            const monthCountTd = document.getElementById('glatModalMonthCount');
+            monthCountTd.innerHTML = `<input type="number" id="glatMonthCountInput" class="form-control form-control-sm" min="0" max="12" step="1" value="${currentGlatMonthCount || ''}">`;
+            document.getElementById('glatMonthCountInput').addEventListener('input', (e) => {
+                currentGlatMonthCount = e.target.value;
+                if (glatTable) glatTable.setHeader(2, glatActualColumnLabel(currentGlatMonthCount));
+            });
+
+            const growthTd = document.getElementById('glatModalGrowthPct');
+            growthTd.innerHTML =
+                `<input type="number" id="glatGrowthPct1Input" class="form-control form-control-sm d-inline-block" style="width:80px;" step="0.01" value="${currentGlatGrowthPct1 || 0}"> / ` +
+                `<input type="number" id="glatGrowthPct2Input" class="form-control form-control-sm d-inline-block" style="width:80px;" step="0.01" value="${currentGlatGrowthPct2 || 0}"> / ` +
+                `<input type="number" id="glatGrowthPct3Input" class="form-control form-control-sm d-inline-block" style="width:80px;" step="0.01" value="${currentGlatGrowthPct3 || 0}">`;
+            document.getElementById('glatGrowthPct1Input').addEventListener('input', (e) => { currentGlatGrowthPct1 = e.target.value; });
+            document.getElementById('glatGrowthPct2Input').addEventListener('input', (e) => { currentGlatGrowthPct2 = e.target.value; });
+            document.getElementById('glatGrowthPct3Input').addEventListener('input', (e) => { currentGlatGrowthPct3 = e.target.value; });
+
+            // Rebuilding all 181 rows as an editable jspreadsheet grid is
+            // synchronous and heavy enough to look like the page froze —
+            // show a loading popup first, then only start the rebuild once
+            // SweetAlert2's own show animation has genuinely finished (see
+            // onbeforepaste above / budget_add_gl_actual_template.html for
+            // why a bare setTimeout or requestAnimationFrame isn't reliable
+            // here — verified with a real browser).
+            Swal.fire({
+                title: 'กำลังโหลดข้อมูลสำหรับแก้ไข กรุณารอสักครู่...',
+                allowOutsideClick: false,
+                didOpen: () => { Swal.showLoading(); }
+            });
+            const editPopupEl = document.querySelector('.swal2-popup');
+            const runEditRebuild = () => {
+                try {
+                    // Rebuild from the data already on screen (no extra
+                    // fetch) — same as toggleAdjEditMode/toggleGlEditMode.
+                    const rows = glatTable ? glatTable.getData() : [];
+                    const items = rows.map((row, i) => ({
+                        code: row[0],
+                        label: row[1],
+                        row_type: glatTemplateRows[i] ? glatTemplateRows[i].row_type : 'gl',
+                        actual_value: row[2],
+                        per_month_value: row[3],
+                        annualized_value: row[4],
+                        sales_ratio: row[5],
+                        growth_rate: row[6],
+                    }));
+                    renderGlatSpreadsheet(items, true);
+
+                    const containerEl = document.getElementById('glatDetailTableContainer');
+                    containerEl.classList.remove('eb-edit-flash');
+                    void containerEl.offsetWidth;
+                    containerEl.classList.add('eb-edit-flash');
+                } finally {
+                    Swal.close();
+                    // See onbeforepaste above / budget_add_gl_actual_template.html
+                    // for the full investigation — drop pointer-events on the
+                    // lingering backdrop immediately instead of waiting out
+                    // SweetAlert2's own ~1s fade-out, so the rebuilt grid is
+                    // clickable right away.
+                    const swalContainerEl = document.querySelector('.swal2-container');
+                    if (swalContainerEl) swalContainerEl.style.pointerEvents = 'none';
+                }
+            };
+            if (editPopupEl) {
+                let editStarted = false;
+                const startEdit = () => {
+                    if (editStarted) return;
+                    editStarted = true;
+                    runEditRebuild();
+                };
+                editPopupEl.addEventListener('animationend', startEdit, { once: true });
+                editPopupEl.addEventListener('transitionend', startEdit, { once: true });
+                setTimeout(startEdit, 1000);
+            } else {
+                runEditRebuild();
+            }
+        } else {
+            // Cancel edit -> reload document details from the server.
+            viewGlatDocumentDetails(currentGlatDocNo);
+        }
+        if (typeof feather !== 'undefined') feather.replace();
+    }
+
+    function saveGlatDocument() {
+        if (!currentGlatBranchCode) {
+            Swal.fire('แจ้งเตือน', 'กรุณาเลือกสาขาก่อนบันทึก', 'warning');
+            return;
+        }
+
+        const rows = glatTable ? glatTable.getData() : [];
+        const dataToSave = glatTemplateRows.map((r, i) => {
+            const row = rows[i] || [];
+            return {
+                template_row_id: r.template_row_id,
+                row_order: r.row_order,
+                code: r.code,
+                label: r.label,
+                row_type: r.row_type,
+                actual_value: getNum(row[2]),
+                per_month_value: getNum(row[3]),
+                annualized_value: getNum(row[4]),
+                sales_ratio: getNum(row[5]),
+                growth_rate: getNum(row[6]),
+                branch_code: currentGlatBranchCode,
+                actual_month_count: currentGlatMonthCount ? parseInt(currentGlatMonthCount, 10) : null,
+                growth_pct_1: getNum(currentGlatGrowthPct1),
+                growth_pct_2: getNum(currentGlatGrowthPct2),
+                growth_pct_3: getNum(currentGlatGrowthPct3),
+            };
+        });
+
+        Swal.fire({
+            title: 'ยืนยันการบันทึกข้อมูล?',
+            text: 'คุณตรวจสอบข้อมูลครบถ้วนและต้องการบันทึกใช่หรือไม่?',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#0061f2',
+            cancelButtonColor: '#e81500',
+            confirmButtonText: 'ยืนยัน',
+            cancelButtonText: 'ยกเลิก'
+        }).then((result) => {
+            if (!result.isConfirmed) return;
+
+            Swal.fire({
+                title: 'กำลังบันทึกข้อมูล...',
+                allowOutsideClick: false,
+                didOpen: () => { Swal.showLoading(); }
+            });
+
+            const urlTemplate = window.APP_CONFIG.urls.apiDocumentUpdate;
+            const url = urlTemplate.replace('TYPE', encodeURIComponent('GL Actual Template')).replace('DOCNO', encodeURIComponent(currentGlatDocNo));
+
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.APP_CONFIG.csrfToken },
+                body: JSON.stringify(dataToSave)
+            })
+            .then(handleApiResponse)
+            .then(data => {
+                if (data.status === 'success') {
+                    Swal.fire('สำเร็จ!', 'บันทึกข้อมูลเรียบร้อยแล้ว', 'success').then(() => {
+                        viewGlatDocumentDetails(currentGlatDocNo);
+                        fetchDocuments();
+                    });
+                } else {
+                    Swal.fire('ข้อผิดพลาด', 'ไม่สามารถบันทึกได้: ' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                if (error.message === SESSION_EXPIRED) return;
+                console.error(error);
+                Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย', 'error');
+            });
+        });
+    }
+
     // ---- Public API ----
     return {
         fetchDocuments: fetchDocuments,
@@ -2527,7 +3027,10 @@ const BudgetApp = (function() {
         addAdjSpreadsheetRow: addAdjSpreadsheetRow,
         saveAdjDocument: saveAdjDocument,
         approveAdjDocument: approveAdjDocument,
-        cancelAdjDocument: cancelAdjDocument
+        cancelAdjDocument: cancelAdjDocument,
+        viewGlatDocumentDetails: viewGlatDocumentDetails,
+        toggleGlatEditMode: toggleGlatEditMode,
+        saveGlatDocument: saveGlatDocument
     };
 })();
 
@@ -2552,3 +3055,6 @@ window.addAdjSpreadsheetRow = BudgetApp.addAdjSpreadsheetRow;
 window.saveAdjDocument = BudgetApp.saveAdjDocument;
 window.approveAdjDocument = BudgetApp.approveAdjDocument;
 window.cancelAdjDocument = BudgetApp.cancelAdjDocument;
+window.viewGlatDocumentDetails = BudgetApp.viewGlatDocumentDetails;
+window.toggleGlatEditMode = BudgetApp.toggleGlatEditMode;
+window.saveGlatDocument = BudgetApp.saveGlatDocument;
