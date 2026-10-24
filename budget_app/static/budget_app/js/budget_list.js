@@ -1515,6 +1515,7 @@ const BudgetApp = (function() {
 
     function renderGlDetailSpreadsheet(docType, items, editable) {
         const container = document.getElementById('glDetailTableContainer');
+        container.dataset.docType = docType;
 
         glDetailTables.forEach(table => table && table.destroy());
         glDetailTables = [];
@@ -1534,6 +1535,7 @@ const BudgetApp = (function() {
             const data = (items && items.length > 0) ? items.map(glEntryRowData) : [Array(columns.length).fill('')];
 
             const mountEl = document.createElement('div');
+            mountEl.className = 'gl-single-table-mount';
             container.appendChild(mountEl);
 
             // คง onchange เดิม (คำนวณ "รวม" ต่อแถว ตอน editable) ไว้ครบ แค่
@@ -1552,6 +1554,7 @@ const BudgetApp = (function() {
             const table = jspreadsheet(mountEl, Object.assign({}, glCommonTableOptions(editable), {
                 data: data,
                 columns: columns,
+                tableHeight: '100%',
                 freezeColumns: 2,
             }, extraOptions));
             glDetailTables[0] = table;
@@ -1673,7 +1676,7 @@ const BudgetApp = (function() {
                     // container was still display:none (no layout box at
                     // all), which risks it reading 0-width dimensions.
                     const modalContentEl = document.getElementById('glModalContent');
-                    modalContentEl.style.display = 'block';
+                    modalContentEl.style.display = 'flex';
                     modalContentEl.style.visibility = 'hidden';
 
                     renderGlDetailSpreadsheet(docType, result.manpower_list, false);
@@ -2735,6 +2738,7 @@ const BudgetApp = (function() {
             allowInsertRow: false,
             allowDeleteRow: false,
             tableOverflow: true,
+            tableHeight: '100%',
             freezeColumns: 2,
             contextMenu: function() { return false; },
         });
@@ -2810,7 +2814,7 @@ const BudgetApp = (function() {
                     document.getElementById('glatModalDocDate').innerText = result.doc_info.create_date;
 
                     const modalContentEl = document.getElementById('glatModalContent');
-                    modalContentEl.style.display = 'block';
+                    modalContentEl.style.display = 'flex';
                     modalContentEl.style.visibility = 'hidden';
 
                     renderGlatSpreadsheet(result.manpower_list, false);

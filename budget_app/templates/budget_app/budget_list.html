@@ -40,6 +40,198 @@
     #glatDetailTableContainer .jexcel tbody tr td {
         color: #212529 !important;
     }
+    /* ---- GLAT modal: table stretches edge-to-edge & full height ---- */
+    #glatDocumentDetailModal .modal-body {
+        padding-left: 0;
+        padding-right: 0;
+        padding-top: 1rem;
+        padding-bottom: 1.25rem;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;   /* inner scroll handled by .jexcel_content */
+    }
+    /* The loading spinner and content wrapper both need to participate
+       in the flex layout; content stretches to fill remaining space. */
+    #glatDocumentDetailModal #glatModalContent {
+        flex: 1 1 0;
+        min-height: 0;      /* allow shrinking below content size */
+        overflow: hidden;
+    }
+    #glatDocumentDetailModal #glatModalContent[style*="display: none"] {
+        display: none !important;
+    }
+    #glatDocumentDetailModal #glatModalContent:not([style*="display: none"]) {
+        display: flex !important;
+        flex-direction: column !important;
+    }
+    /* Keep horizontal padding for the Document Info section (h6 + table)
+       but not for the card wrapping the jexcel grid. */
+    #glatDocumentDetailModal .modal-body > #glatModalContent > h6,
+    #glatDocumentDetailModal .modal-body > #glatModalContent > .table-responsive {
+        padding-left: 1rem;
+        padding-right: 1rem;
+        flex-shrink: 0;      /* don't collapse the info section */
+    }
+    #glatDocumentDetailModal .modal-body > #glatModalContent > .table-responsive {
+        margin-bottom: 0.75rem !important;
+    }
+    /* The card wrapping the jexcel table: remove side borders & border radius
+       so it touches modal sides, flex stretches down towards footer with clean spacing. */
+    #glatDocumentDetailModal .modal-body .card {
+        border-left: 0;
+        border-right: 0;
+        border-radius: 0;
+        margin-bottom: 0 !important;
+        flex: 1 1 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
+    #glatDocumentDetailModal .modal-body .card > .card-header {
+        flex-shrink: 0;
+    }
+    #glatDocumentDetailModal .modal-body .card > .card-body {
+        flex: 1 1 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        padding: 0;
+    }
+    /* The jexcel mount point fills the card body. */
+    #glatDetailTableContainer {
+        flex: 1 1 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        width: 100%;
+        height: 100%;
+    }
+    /* jexcel's tableOverflow wrapper — fill both width and full available height.
+       max-height: none !important overrides jexcel's inline max-height: 300px. */
+    #glatDetailTableContainer .jexcel_container {
+        width: 100% !important;
+        max-width: 100% !important;
+        height: 100% !important;
+        flex: 1 1 0 !important;
+        min-height: 0 !important;
+        display: flex !important;
+        flex-direction: column !important;
+    }
+    #glatDetailTableContainer .jexcel_content {
+        width: 100% !important;
+        max-width: 100% !important;
+        height: 100% !important;
+        max-height: none !important;
+        flex: 1 1 0 !important;
+        min-height: 0 !important;
+        display: block !important;
+        overflow: auto !important;
+    }
+    /* Make the jexcel <table> stretch its columns to fill the full
+       available width instead of summing fixed pixel widths. */
+    #glatDetailTableContainer .jexcel {
+        width: 100% !important;
+    }
+    /* ---- GL / Revenue modal: table stretches edge-to-edge & full height ---- */
+    #glDocumentDetailModal .modal-body {
+        padding-left: 0;
+        padding-right: 0;
+        padding-top: 1rem;
+        padding-bottom: 1.25rem;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;   /* inner scroll handled by .jexcel_content */
+    }
+    #glDocumentDetailModal #glModalContent {
+        flex: 1 1 0;
+        min-height: 0;      /* allow shrinking below content size */
+        overflow: hidden;
+    }
+    #glDocumentDetailModal #glModalContent[style*="display: none"] {
+        display: none !important;
+    }
+    #glDocumentDetailModal #glModalContent:not([style*="display: none"]) {
+        display: flex !important;
+        flex-direction: column !important;
+    }
+    #glDocumentDetailModal .modal-body > #glModalContent > h6,
+    #glDocumentDetailModal .modal-body > #glModalContent > .table-responsive {
+        padding-left: 1rem;
+        padding-right: 1rem;
+        flex-shrink: 0;      /* don't collapse the info section */
+    }
+    #glDocumentDetailModal .modal-body > #glModalContent > .table-responsive {
+        margin-bottom: 0.75rem !important;
+    }
+    #glDocumentDetailModal .modal-body .card {
+        border-left: 0;
+        border-right: 0;
+        border-radius: 0;
+        margin-bottom: 0 !important;
+        flex: 1 1 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
+    #glDocumentDetailModal .modal-body .card > .card-header {
+        flex-shrink: 0;
+    }
+    #glDocumentDetailModal .modal-body .card > .card-body {
+        flex: 1 1 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        padding: 0;
+    }
+    #glDetailTableContainer {
+        flex: 1 1 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        width: 100%;
+        height: 100%;
+    }
+    #glDetailTableContainer[data-doc-type="Budget Plan"] {
+        overflow-y: auto !important;
+    }
+    #glDetailTableContainer:not([data-doc-type="Budget Plan"]) > div {
+        flex: 1 1 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        width: 100%;
+        height: 100%;
+    }
+    #glDetailTableContainer .jexcel_container {
+        width: 100% !important;
+        max-width: 100% !important;
+        height: 100% !important;
+        flex: 1 1 0 !important;
+        min-height: 0 !important;
+        display: flex !important;
+        flex-direction: column !important;
+    }
+    #glDetailTableContainer .jexcel_content {
+        width: 100% !important;
+        max-width: 100% !important;
+        height: 100% !important;
+        max-height: none !important;
+        flex: 1 1 0 !important;
+        min-height: 0 !important;
+        display: block !important;
+        overflow: auto !important;
+    }
+    #glDetailTableContainer[data-doc-type="Budget Plan"] .jexcel_content {
+        max-height: 350px !important;
+    }
+    #glDetailTableContainer .jexcel {
+        width: 100% !important;
+    }
     /* Distinct from btn-success/bg-success (used by the Medical Equipment
        badge elsewhere in this page) so the approve action never reads as
        the same color as an unrelated document-type label. */
