@@ -138,22 +138,87 @@
         const items = JSON.parse(document.getElementById('items-data').textContent)
             .sort((a, b) => a.name.localeCompare(b.name, 'th'));
 
-        // ตำแหน่งเดิม/ใหม่ dropdown กรองตามคอลัมน์ "ประเภท" ของแถวตัวเอง — ดู
-        // cols1[0]/[1]/[3]'s filter ด้านล่าง. group มาจาก budget_add_adjustment_view
-        // (views.py) อยู่แล้วตั้งแต่รอบก่อน เพิ่งมาใช้งานจริงรอบนี้.
+        // ตำแหน่งเดิม/ใหม่ datalist กรองตามคอลัมน์ "ประเภท" ของแถวตัวเอง:
+        // รองรับการพิมพ์ static text อิสระ และยังคงมี autocomplete จาก item master
         const vetPositions = items.filter(i => i.group === 'VET Manpower');
         const nonVetPositions = items.filter(i => i.group === 'NON VET Manpower');
 
-        // jexcel เรียกฟังก์ชันนี้ใหม่ทุกครั้งที่ cell ของคอลัมน์นี้เข้าโหมด
-        // แก้ไข (ไม่ cache, ไม่ผูกกับคอลัมน์อื่น) — table1 อ้างอิงผ่าน closure
-        // เหมือนที่ onchange ทำอยู่แล้วในไฟล์นี้ ใช้งานได้แม้ถูกนิยามก่อน
-        // table1 จะถูก assign เพราะฟังก์ชันนี้ไม่ถูกเรียกจนกว่าผู้ใช้จะเปิด
-        // dropdown จริง (table1 assign เสร็จแล้วแน่นอนตอนนั้น)
-        const filterPositionsByType = function(el, e, r, n, source) {
-            const type = table1.getValueFromCoords(0, n);
-            if (type === 'VET') return vetPositions;
-            if (type === 'NON VET') return nonVetPositions;
-            return []; // ยังไม่เลือกประเภท — ไม่แสดงตัวเลือกใดๆ จนกว่าจะเลือกประเภทก่อน
+        const createDatalist = (id, itemList) => {
+            let dl = document.getElementById(id);
+            if (!dl) {
+                dl = document.createElement('datalist');
+                dl.id = id;
+                document.body.appendChild(dl);
+            }
+            dl.innerHTML = '';
+            itemList.forEach(item => {
+                const opt = document.createElement('option');
+                opt.value = item.name;
+                dl.appendChild(opt);
+            });
+            return dl;
+        };
+
+        createDatalist('adj-vet-positions-datalist', vetPositions);
+        createDatalist('adj-non-vet-positions-datalist', nonVetPositions);
+        createDatalist('adj-all-positions-datalist', items);
+
+        const adjPositionEditor = {
+            createCell: function(cell) {
+                return cell;
+            },
+            updateCell: function(cell, value, force) {
+                cell.innerText = value || '';
+                return value;
+            },
+            setValue: function(cell, value) {
+                cell.innerText = value || '';
+            },
+            openEditor: function(cell, el, empty, def) {
+                const rect = cell.getBoundingClientRect();
+                const input = document.createElement('input');
+
+                const y = parseInt(cell.getAttribute('data-y'));
+                const rowType = (!isNaN(y) && table1) ? table1.getValueFromCoords(0, y) : '';
+                let listId = 'adj-all-positions-datalist';
+                if (rowType === 'VET') listId = 'adj-vet-positions-datalist';
+                else if (rowType === 'NON VET') listId = 'adj-non-vet-positions-datalist';
+
+                input.setAttribute('list', listId);
+                input.className = 'jexcel_editor';
+                input.style.width = rect.width + 'px';
+                input.style.height = (rect.height - 2) + 'px';
+                input.style.minHeight = (rect.height - 2) + 'px';
+                input.style.boxSizing = 'border-box';
+                input.style.border = 'none';
+                input.style.outline = 'none';
+                input.style.padding = '0 4px';
+                input.style.font = 'inherit';
+
+                const currentValue = cell.innerText || '';
+                input.value = empty ? '' : currentValue;
+
+                cell.classList.add('editor');
+                cell.innerHTML = '';
+                cell.appendChild(input);
+                input.focus();
+
+                input.onkeydown = function(e) {
+                    if (e.which === 13) {
+                        if (table1 && table1.edition) table1.closeEditor(cell, true);
+                    } else if (e.which === 27) {
+                        if (table1 && table1.edition) table1.closeEditor(cell, false);
+                    }
+                };
+
+                input.onblur = function() {
+                    if (table1 && table1.edition) table1.closeEditor(cell, true);
+                };
+            },
+            closeEditor: function(cell, save) {
+                const input = cell.querySelector('input');
+                return input ? input.value.trim() : (cell.innerText || '').trim();
+            }
         };
 
         // Helper functions
@@ -217,9 +282,9 @@
             // depends on it and must work even for a custom position typed
             // in free-hand, not found in master data at all.
             { type: 'dropdown', align: 'left', title: 'ประเภท', width: 100, source: ['VET', 'NON VET'], autocomplete: false },
-            { type: 'dropdown', align: 'left', title: 'ตำแหน่งเดิม', width: 200, source: items, autocomplete: true, filter: filterPositionsByType },
+            { type: 'text', align: 'left', title: 'ตำแหน่งเดิม', width: 200, editor: adjPositionEditor },
             { type: 'text', align: 'left', title: 'รายละเอียดตำแหน่งเดิม', width: 180 },
-            { type: 'dropdown', align: 'left', title: 'ตำแหน่งใหม่', width: 200, source: items, autocomplete: true, filter: filterPositionsByType },
+            { type: 'text', align: 'left', title: 'ตำแหน่งใหม่', width: 200, editor: adjPositionEditor },
             { type: 'text', align: 'left', title: 'รายละเอียดตำแหน่งใหม่', width: 180 },
             { type: 'numeric', title: 'เงินเดือนเดิม', width: 100, mask: '#,##0' },
             { type: 'numeric', title: 'ค่าตำแหน่งเดิม', width: 120, mask: '#,##0' },
@@ -309,18 +374,30 @@
 
             // Old Position Changed
             if (x === 1) {
-                oldSal = getSalary(value);
-                oldAllow = getAllowance(value);
-                table1.setValueFromCoords(5, y, oldSal, true);
-                table1.setValueFromCoords(6, y, oldAllow, true);
+                const match = items.find(i => i.name === value);
+                if (match) {
+                    oldSal = match.salary || 0;
+                    oldAllow = match.position_allowance || 0;
+                    table1.setValueFromCoords(5, y, oldSal, true);
+                    table1.setValueFromCoords(6, y, oldAllow, true);
+                } else {
+                    if (!oldSal) table1.setValueFromCoords(5, y, 0, true);
+                    if (!oldAllow) table1.setValueFromCoords(6, y, 0, true);
+                }
             }
 
             // New Position Changed
             if (x === 3) {
-                newSal = getSalary(value);
-                newAllow = getAllowance(value);
-                table1.setValueFromCoords(8, y, newSal, true);
-                table1.setValueFromCoords(9, y, newAllow, true);
+                const match = items.find(i => i.name === value);
+                if (match) {
+                    newSal = match.salary || 0;
+                    newAllow = match.position_allowance || 0;
+                    table1.setValueFromCoords(8, y, newSal, true);
+                    table1.setValueFromCoords(9, y, newAllow, true);
+                } else {
+                    if (!newSal) table1.setValueFromCoords(8, y, 0, true);
+                    if (!newAllow) table1.setValueFromCoords(9, y, 0, true);
+                }
             }
 
             // Manual Salary/Allowance Changed
@@ -474,10 +551,10 @@
             
             for (let i = 0; i < rows.length; i++) {
                 let row = rows[i];
-                let adjustmentType = row[0];
-                let oldPos = row[1];
+                let adjustmentType = (row[0] || '').trim();
+                let oldPos = (row[1] || '').trim();
                 let oldDetail = row[2];
-                let newPos = row[3];
+                let newPos = (row[3] || '').trim();
                 let newDetail = row[4];
                 let oldSal = getNum(row[5]);
                 let oldAllow = getNum(row[6]);

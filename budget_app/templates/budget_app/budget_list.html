@@ -360,6 +360,9 @@
                 <option value="CAR">CAR</option>
                 <option value="Renovate">Renovate</option>
                 <option value="Software">Software</option>
+                <option value="GL Entry">EXPENSE</option>
+                <option value="Revenue">Revenue</option>
+                <option value="GL Actual Template">GL Actual Template</option>
             </select>
             {% if is_privileged_user %}
             <select id="filterCreateName" class="form-select form-select-sm w-auto ms-2" style="display: none; cursor: pointer;" onchange="applyFilters()">
@@ -814,5 +817,5 @@
         needsBranchSelection: {{ needs_branch_selection|yesno:'true,false' }}
     };
 </script>
-<script src="{% static 'budget_app/js/budget_list.js' %}"></script>
+<script src="{% static 'budget_app/js/budget_list.js' %}?v=20261024_05"></script>
 {% endblock %}

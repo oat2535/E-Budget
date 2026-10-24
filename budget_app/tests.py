@@ -228,3 +228,244 @@ class MetropolisFontConsistencyTests(SimpleTestCase):
         for block in metropolis_blocks:
             with self.subTest(block=block):
                 self.assertIn('font-display: optional', block)
+
+
+class EquipmentGlCodeResolutionTests(SimpleTestCase):
+    """Unit tests for fixed GL code resolution on CAR, Renovate, and Software."""
+
+    def test_resolve_equipment_gl_code_returns_correct_constants(self):
+        from budget_app.constants import CAR_GL_CODE, RENOVATE_GL_CODE, SOFTWARE_GL_CODE
+        from budget_app.views import resolve_equipment_gl_code
+
+        self.assertEqual(CAR_GL_CODE, '61300013')
+        self.assertEqual(RENOVATE_GL_CODE, '61300008')
+        self.assertEqual(SOFTWARE_GL_CODE, '61300005')
+
+        self.assertEqual(resolve_equipment_gl_code('CAR', 500000), '61300013')
+        self.assertEqual(resolve_equipment_gl_code('Renovate', 150000), '61300008')
+        self.assertEqual(resolve_equipment_gl_code('Software', 25000), '61300005')
+
+
+class FixAssetStaticTextUnitTests(SimpleTestCase):
+    """Unit tests verifying all Fix Asset equipment static text entry, datalist editor in templates, and NULL item_master resolution."""
+
+    def test_all_fix_asset_templates_contain_custom_editor_and_datalist(self):
+        templates_to_check = [
+            ('budget_add_car.html', 'car-item-datalist', 'carEditor'),
+            ('budget_add_medical_equipment.html', 'medical-item-datalist', 'medicalEditor'),
+            ('budget_add_computer_equipment.html', 'computer-item-datalist', 'computerEditor'),
+            ('budget_add_furniture.html', 'furniture-item-datalist', 'furnitureEditor'),
+            ('budget_add_tools_equipment.html', 'tools-item-datalist', 'toolsEditor'),
+            ('budget_add_renovate.html', 'renovate-item-datalist', 'renovateEditor'),
+            ('budget_add_software.html', 'software-item-datalist', 'softwareEditor'),
+        ]
+        for template_name, datalist_id, editor_name in templates_to_check:
+            template_path = os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', template_name)
+            with open(template_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            self.assertIn(datalist_id, content, f"Missing {datalist_id} in {template_name}")
+            self.assertIn(editor_name, content, f"Missing {editor_name} in {template_name}")
+            self.assertIn(f'editor: {editor_name}', content, f"Missing editor: {editor_name} in {template_name}")
+
+    def test_budget_list_js_contains_modal_equipment_editor_and_datalist(self):
+        js_path = os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'budget_list.js')
+        with open(js_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        self.assertIn('modal-equipment-item-datalist', content)
+        self.assertIn('modalEquipmentEditor', content)
+
+    @patch('master_data.models.ebudget_budget_item_master.objects.filter')
+    def test_bulk_lookup_returns_none_for_static_custom_items(self, mock_filter):
+        from budget_app.services import BudgetService
+        mock_filter.return_value = []
+        custom_items = [
+            'รถตู้สั่งทำพิเศษ 4x4',
+            'เตียงตรวจสั่งทำพิเศษ',
+            'คอมพิวเตอร์สเปกพิเศษ AI',
+            'โต๊ะประชุมสั่งทำ',
+            'เครื่องมือช่างเฉพาะทาง',
+            'ปรับปรุงระบบดูดควันพิเศษ',
+            'Custom AI Training Suite'
+        ]
+        master_fks = BudgetService.get_master_fks_bulk(custom_items)
+        for item in custom_items:
+            master_obj, gl_code = master_fks.get(item, (None, None))
+            self.assertIsNone(master_obj, f"Expected master_obj to be None for {item}")
+            self.assertIsNone(gl_code, f"Expected gl_code to be None for {item}")
+
+
+class BudgetListC03FilterUnitTests(SimpleTestCase):
+    """Unit tests verifying that Budget Plan (Category C03) includes GL Actual Template in its type filter."""
+
+    def test_budget_list_html_contains_gl_actual_template_option(self):
+        html_path = os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'budget_list.html')
+        with open(html_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        self.assertIn('<option value="GL Actual Template">GL Actual Template</option>', content)
+        self.assertNotIn('<option value="Budget Plan">Budget Plan</option>', content)
+
+    def test_budget_list_js_populates_gl_actual_template_in_c03_filter(self):
+        js_path = os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'budget_list.js')
+        with open(js_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Verify C03 block contains GL Actual Template
+        self.assertIn('<option value="GL Actual Template">GL Actual Template</option>', content)
+        # Verify C03 branch sets up GL Actual Template and does NOT include Budget Plan
+        c03_idx = content.find("categoryCode === 'C03'")
+        self.assertNotEqual(c03_idx, -1)
+        c03_snippet = content[c03_idx:c03_idx + 400]
+        self.assertIn('GL Actual Template', c03_snippet)
+        self.assertIn('EXPENSE', c03_snippet)
+        self.assertIn('Revenue', c03_snippet)
+        self.assertNotIn('<option value="Budget Plan">', c03_snippet)
+
+
+class EquipmentGlCodeSaveTests(TestCase):
+    """Integration tests verifying CAR, Renovate, and Software add views save their fixed GL codes."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='test_officer', password='x')
+        SystemSettings.objects.create(is_frozen=0, active_budget_year=2026)
+        self.client.force_login(self.user)
+
+    @patch('budget_app.services.BudgetService.get_branch_info_from_imedx', return_value={'branches': ['B001'], 'needs_selection': False, 'department_id': None})
+    def test_car_add_view_saves_correct_gl_code(self, mock_branch):
+        from budget_app.models import ebudget_car
+        payload = json.dumps([{
+            'cost_center_name': 'CC_LOGISTICS',
+            'item_name': 'รถกระบะขนส่ง',
+            'description': 'รถกระบะ 4 ประตู',
+            'purchase_price': 850000,
+            'monthly_data': {'jan': {'headcount': 1, 'cost': 850000}},
+        }])
+        response = self.client.post(reverse('budget_add_car'), data=payload, content_type='application/json')
+        self.assertEqual(response.json()['status'], 'success')
+        car_item = ebudget_car.objects.get()
+        self.assertEqual(car_item.item_name, 'รถกระบะขนส่ง')
+        self.assertEqual(car_item.general_ledger_code, '61300013')
+        self.assertIsNone(car_item.item_master)
+
+    @patch('budget_app.services.BudgetService.get_branch_info_from_imedx', return_value={'branches': ['B001'], 'needs_selection': False, 'department_id': None})
+    def test_renovate_add_view_saves_correct_gl_code(self, mock_branch):
+        from budget_app.models import ebudget_renovate
+        payload = json.dumps([{
+            'cost_center_name': 'CC_FACILITY',
+            'item_name': 'ปรับปรุงห้องผ่าตัด',
+            'description': 'กั้นห้องและปูกระเบื้องใหม่',
+            'purchase_price': 120000,
+            'monthly_data': {'feb': {'headcount': 1, 'cost': 120000}},
+        }])
+        response = self.client.post(reverse('budget_add_renovate'), data=payload, content_type='application/json')
+        self.assertEqual(response.json()['status'], 'success')
+        renovate_item = ebudget_renovate.objects.get()
+        self.assertEqual(renovate_item.item_name, 'ปรับปรุงห้องผ่าตัด')
+        self.assertEqual(renovate_item.general_ledger_code, '61300008')
+
+    @patch('budget_app.services.BudgetService.get_branch_info_from_imedx', return_value={'branches': ['B001'], 'needs_selection': False, 'department_id': None})
+    def test_software_add_view_saves_correct_gl_code(self, mock_branch):
+        from budget_app.models import ebudget_software
+        payload = json.dumps([{
+            'cost_center_name': 'CC_IT',
+            'item_name': 'Antivirus Enterprise',
+            'description': 'ลิขสิทธิ์ 1 ปี',
+            'purchase_price': 45000,
+            'monthly_data': {'mar': {'headcount': 1, 'cost': 45000}},
+        }])
+        response = self.client.post(reverse('budget_add_software'), data=payload, content_type='application/json')
+        self.assertEqual(response.json()['status'], 'success')
+        software_item = ebudget_software.objects.get()
+        self.assertEqual(software_item.item_name, 'Antivirus Enterprise')
+        self.assertEqual(software_item.general_ledger_code, '61300005')
+
+
+class StaticTextPositionTests(TestCase):
+    """Tests verifying VET, NON VET, and Position Adjustment support static text positions,
+    leaving item_master_id NULL when the position is not in master data."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='test_officer2', password='x')
+        SystemSettings.objects.create(is_frozen=0, active_budget_year=2026)
+        self.client.force_login(self.user)
+
+    @patch('budget_app.services.BudgetService.get_branch_info_from_imedx', return_value={'branches': ['B001'], 'needs_selection': False, 'department_id': None})
+    def test_vet_manpower_static_text_saves_null_item_master(self, mock_branch):
+        payload = json.dumps([{
+            'cost_center_name': 'CC_VET',
+            'position_name': 'สัตวแพทย์ที่ปรึกษาพิเศษ',
+            'description': 'ตำแหน่งชั่วคราว',
+            'salary': 65000,
+            'monthly_data': {'jan': {'headcount': 1, 'cost': 65000}},
+        }])
+        response = self.client.post(reverse('budget_add'), data=payload, content_type='application/json')
+        self.assertEqual(response.json()['status'], 'success')
+        vet_obj = ebudget_vet_manpower.objects.get()
+        self.assertEqual(vet_obj.position_name, 'สัตวแพทย์ที่ปรึกษาพิเศษ')
+        self.assertIsNone(vet_obj.item_master)
+        self.assertIsNone(vet_obj.item_master_id)
+        self.assertEqual(vet_obj.general_ledger_code, '61300001')
+
+    @patch('budget_app.services.BudgetService.get_branch_info_from_imedx', return_value={'branches': ['B001'], 'needs_selection': False, 'department_id': None})
+    def test_non_vet_manpower_static_text_saves_null_item_master(self, mock_branch):
+        from budget_app.models import ebudget_non_vet_manpower
+        payload = json.dumps([{
+            'cost_center_name': 'CC_ADMIN',
+            'position_name': 'เจ้าหน้าที่ประสานงานโครงการพิเศษ',
+            'description': 'งานโครงการเฉพาะกิจ',
+            'salary': 30000,
+            'position_allowance': 5000,
+            'monthly_data': {'feb': {'headcount': 1, 'cost': 35000}},
+        }])
+        response = self.client.post(reverse('budget_add_non_vet'), data=payload, content_type='application/json')
+        self.assertEqual(response.json()['status'], 'success')
+        non_vet_obj = ebudget_non_vet_manpower.objects.get()
+        self.assertEqual(non_vet_obj.position_name, 'เจ้าหน้าที่ประสานงานโครงการพิเศษ')
+        self.assertIsNone(non_vet_obj.item_master)
+        self.assertIsNone(non_vet_obj.item_master_id)
+        self.assertEqual(non_vet_obj.salary_general_ledger_code, '61300002')
+        self.assertEqual(non_vet_obj.position_allowance_general_ledger_code, '61300003')
+
+    @patch('budget_app.services.BudgetService.get_branch_info_from_imedx', return_value={'branches': ['B001'], 'needs_selection': False, 'department_id': None})
+    def test_position_adjustment_static_text_saves_null_item_master(self, mock_branch):
+        from budget_app.models import ebudget_position_adjustment
+        payload = json.dumps([{
+            'cost_center_name': 'CC_HR',
+            'adjustment_type': 'NON VET',
+            'old_position_name': 'เจ้าหน้าที่การตลาดเดิม',
+            'old_description': 'ตำแหน่งเดิม',
+            'new_position_name': 'ผู้จัดการฝ่ายกลยุทธ์ใหม่',
+            'new_description': 'ตำแหน่งใหม่เฉพาะกิจ',
+            'old_salary': 25000,
+            'old_allowance': 3000,
+            'new_salary': 40000,
+            'new_allowance': 7000,
+            'monthly_data': {'mar': {'headcount': 1, 'cost': 19000, 'salary_diff_cost': 15000, 'allowance_diff_cost': 4000}},
+        }])
+        response = self.client.post(reverse('budget_add_adjustment'), data=payload, content_type='application/json')
+        self.assertEqual(response.json()['status'], 'success')
+        adj_obj = ebudget_position_adjustment.objects.get()
+        self.assertEqual(adj_obj.old_position_name, 'เจ้าหน้าที่การตลาดเดิม')
+        self.assertEqual(adj_obj.new_position_name, 'ผู้จัดการฝ่ายกลยุทธ์ใหม่')
+        self.assertIsNone(adj_obj.item_master)
+        self.assertIsNone(adj_obj.item_master_id)
+        self.assertEqual(adj_obj.salary_general_ledger_code, '61300002')
+        self.assertEqual(adj_obj.allowance_general_ledger_code, '61300003')
+
+    def test_templates_and_js_have_datalists_and_text_editors(self):
+        vet_html = open(os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'budget_add.html'), encoding='utf-8').read()
+        self.assertIn('vet-position-datalist', vet_html)
+        self.assertIn('vetEditor', vet_html)
+
+        non_vet_html = open(os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'budget_add_non_vet.html'), encoding='utf-8').read()
+        self.assertIn('non-vet-position-datalist', non_vet_html)
+        self.assertIn('nonVetEditor', non_vet_html)
+
+        adj_html = open(os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'budget_add_adjustment.html'), encoding='utf-8').read()
+        self.assertIn('adj-vet-positions-datalist', adj_html)
+        self.assertIn('adj-non-vet-positions-datalist', adj_html)
+        self.assertIn('adjPositionEditor', adj_html)
+
+        budget_list_js = open(os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'budget_list.js'), encoding='utf-8').read()
+        self.assertIn('modal-vet-position-datalist', budget_list_js)
+        self.assertIn('modal-non-vet-position-datalist', budget_list_js)
+        self.assertIn('modalAdjPositionEditor', budget_list_js)
+

@@ -13,7 +13,17 @@ from master_data.models import ebudget_budget_item_master, ebudget_budget_catego
 from django.core.cache import cache
 from budget_app.models import ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment, ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_car, ebudget_renovate, ebudget_software, ebudget_gl_entry, ebudget_revenue, ebudget_budget_plan_item, ebudget_gl_actual_template, SystemSettings, SYSTEM_SETTINGS_CACHE_KEY
 from budget_app.services import BudgetService
-from budget_app.constants import ALL_BRANCH_USERNAMES, STATUS_PENDING, STATUS_APPROVED, STATUS_CANCELLED, EXPENSE_PAGE_EXCLUDED_GL_CODES, VET_CUSTOM_POSITION_GL_CODE, NON_VET_SALARY_GL_CODE, NON_VET_ALLOWANCE_GL_CODE, MEDICAL_EQUIPMENT_GL_CODE_HIGH, MEDICAL_EQUIPMENT_GL_CODE_LOW, MEDICAL_EQUIPMENT_GL_PRICE_THRESHOLD, COMPUTER_EQUIPMENT_GL_CODE_HIGH, COMPUTER_EQUIPMENT_GL_CODE_LOW, COMPUTER_EQUIPMENT_GL_PRICE_THRESHOLD, FURNITURE_GL_CODE_HIGH, FURNITURE_GL_CODE_LOW, FURNITURE_GL_PRICE_THRESHOLD, TOOLS_EQUIPMENT_GL_CODE_HIGH, TOOLS_EQUIPMENT_GL_CODE_LOW, TOOLS_EQUIPMENT_GL_PRICE_THRESHOLD, GL_ACTUAL_TEMPLATE_BRANCHES
+from budget_app.constants import (
+    ALL_BRANCH_USERNAMES, STATUS_PENDING, STATUS_APPROVED, STATUS_CANCELLED,
+    EXPENSE_PAGE_EXCLUDED_GL_CODES, VET_CUSTOM_POSITION_GL_CODE,
+    NON_VET_SALARY_GL_CODE, NON_VET_ALLOWANCE_GL_CODE,
+    MEDICAL_EQUIPMENT_GL_CODE_HIGH, MEDICAL_EQUIPMENT_GL_CODE_LOW, MEDICAL_EQUIPMENT_GL_PRICE_THRESHOLD,
+    COMPUTER_EQUIPMENT_GL_CODE_HIGH, COMPUTER_EQUIPMENT_GL_CODE_LOW, COMPUTER_EQUIPMENT_GL_PRICE_THRESHOLD,
+    FURNITURE_GL_CODE_HIGH, FURNITURE_GL_CODE_LOW, FURNITURE_GL_PRICE_THRESHOLD,
+    TOOLS_EQUIPMENT_GL_CODE_HIGH, TOOLS_EQUIPMENT_GL_CODE_LOW, TOOLS_EQUIPMENT_GL_PRICE_THRESHOLD,
+    CAR_GL_CODE, RENOVATE_GL_CODE, SOFTWARE_GL_CODE,
+    GL_ACTUAL_TEMPLATE_BRANCHES
+)
 
 def resolve_adjustment_gl_codes(adjustment_type):
     """Maps an explicit per-row VET/NON VET choice (not a master lookup —
@@ -66,6 +76,26 @@ def resolve_tools_equipment_gl_code(purchase_price):
         purchase_price, TOOLS_EQUIPMENT_GL_CODE_HIGH, TOOLS_EQUIPMENT_GL_CODE_LOW,
         TOOLS_EQUIPMENT_GL_PRICE_THRESHOLD,
     )
+
+def resolve_equipment_gl_code(doc_type, purchase_price, fallback_gl_code=None):
+    """Resolves the general ledger code for equipment documents (Category 2).
+    Medical/Computer/Furniture/Tools use capitalization price-threshold policy.
+    CAR, Renovate, Software use fixed accounting policy GL codes."""
+    if doc_type == 'Medical Equipment':
+        return resolve_medical_equipment_gl_code(purchase_price)
+    elif doc_type == 'Computer Equipment':
+        return resolve_computer_equipment_gl_code(purchase_price)
+    elif doc_type == 'Furniture':
+        return resolve_furniture_gl_code(purchase_price)
+    elif doc_type == 'Tools & Equipment':
+        return resolve_tools_equipment_gl_code(purchase_price)
+    elif doc_type == 'CAR':
+        return CAR_GL_CODE
+    elif doc_type == 'Renovate':
+        return RENOVATE_GL_CODE
+    elif doc_type == 'Software':
+        return SOFTWARE_GL_CODE
+    return fallback_gl_code
 from budget_app.decorators import require_not_frozen
 
 def login_required_json(view_func):
@@ -1170,14 +1200,7 @@ def update_document_api(request, doc_type, doc_no):
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
                 elif doc_type == 'Medical Equipment' or doc_type == 'Computer Equipment' or doc_type == 'Furniture' or doc_type == 'Tools & Equipment' or doc_type == 'CAR' or doc_type == 'Renovate' or doc_type == 'Software':
                     master_obj, gl_code = master_fks.get(item['item_name'], (None, None))
-                    if doc_type == 'Medical Equipment':
-                        gl_code = resolve_medical_equipment_gl_code(item['purchase_price'])
-                    elif doc_type == 'Computer Equipment':
-                        gl_code = resolve_computer_equipment_gl_code(item['purchase_price'])
-                    elif doc_type == 'Furniture':
-                        gl_code = resolve_furniture_gl_code(item['purchase_price'])
-                    elif doc_type == 'Tools & Equipment':
-                        gl_code = resolve_tools_equipment_gl_code(item['purchase_price'])
+                    gl_code = resolve_equipment_gl_code(doc_type, item['purchase_price'], fallback_gl_code=gl_code)
                     obj = model_class.objects.create(
                         item_name=item['item_name'],
                         description=item.get('description') or None,
@@ -1486,14 +1509,7 @@ def _budget_add_equipment_view(request, model_class, doc_type, template_name, su
             with transaction.atomic():
                 for item in data:
                     master_obj, gl_code = master_fks.get(item['item_name'], (None, None))
-                    if doc_type == 'Medical Equipment':
-                        gl_code = resolve_medical_equipment_gl_code(item['purchase_price'])
-                    elif doc_type == 'Computer Equipment':
-                        gl_code = resolve_computer_equipment_gl_code(item['purchase_price'])
-                    elif doc_type == 'Furniture':
-                        gl_code = resolve_furniture_gl_code(item['purchase_price'])
-                    elif doc_type == 'Tools & Equipment':
-                        gl_code = resolve_tools_equipment_gl_code(item['purchase_price'])
+                    gl_code = resolve_equipment_gl_code(doc_type, item['purchase_price'], fallback_gl_code=gl_code)
                     obj = model_class.objects.create(
                         item_name=item['item_name'],
                         description=item.get('description') or None,

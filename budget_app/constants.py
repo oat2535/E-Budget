@@ -92,6 +92,12 @@ TOOLS_EQUIPMENT_GL_CODE_HIGH = '61300011'  # ค่าเสื่อมรา�
 TOOLS_EQUIPMENT_GL_CODE_LOW = '60300002'   # ค่าอุปกรณ์สำนักงาน-ของใช้สิ้นเปลือง (purchase_price < 5000)
 TOOLS_EQUIPMENT_GL_PRICE_THRESHOLD = 5000
 
+# Fixed GL codes for Category 2 equipment types (CAR, Renovate, Software)
+# stamped onto each line item upon saving:
+CAR_GL_CODE = '61300013'       # ค่าเสื่อมราคา - ยานพาหนะ
+RENOVATE_GL_CODE = '61300008'  # ค่าเสื่อมราคา - ส่วนต่อเติมตกแต่ง
+SOFTWARE_GL_CODE = '61300005'  # ค่าเสื่อมราคา - ระบบ software
+
 # The 22-branch picker for the "GL Actual Template" page specifically. Every
 # other add-budget page resolves the CURRENT USER's own branch live from
 # imedx (BudgetService.get_branch_info_from_imedx) — there is no canonical

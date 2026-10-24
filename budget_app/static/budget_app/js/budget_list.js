@@ -345,12 +345,25 @@ const BudgetApp = (function() {
             // If position changed, update salary
             if (x === 0) {
                 const match = itemsList.find(i => i.name === value);
-                const salary = match ? (isEquipment ? match.purchase_price : match.salary) : 0;
-                modalTable1.setValueFromCoords(priceCol, y, salary, true);
+                if (match) {
+                    const salary = isEquipment ? match.purchase_price : match.salary;
+                    modalTable1.setValueFromCoords(priceCol, y, salary, true);
+                } else {
+                    const currentPrice = getNum(modalTable1.getValueFromCoords(priceCol, y));
+                    if (!currentPrice) {
+                        modalTable1.setValueFromCoords(priceCol, y, 0, true);
+                    }
+                }
 
                 if (isNonVet) {
-                    const allowance = match ? match.position_allowance : 0;
-                    modalTable1.setValueFromCoords(allowanceCol, y, allowance, true);
+                    if (match) {
+                        modalTable1.setValueFromCoords(allowanceCol, y, match.position_allowance || 0, true);
+                    } else {
+                        const currentAllowance = getNum(modalTable1.getValueFromCoords(allowanceCol, y));
+                        if (!currentAllowance) {
+                            modalTable1.setValueFromCoords(allowanceCol, y, 0, true);
+                        }
+                    }
                 }
             }
 
@@ -542,6 +555,14 @@ const BudgetApp = (function() {
         const createNameEl = document.getElementById('filterCreateName');
         const branchEl = document.getElementById('filterBranch');
         const costCenterEl = document.getElementById('filterCostCenter');
+
+        // GL Actual Template documents do not have a cost center (cost_center_name is '-').
+        // If the user selects GL Actual Template while a specific cost center was chosen,
+        // reset cost center to 'ALL' to avoid returning an unintentionally empty list.
+        if (selectedType === 'GL Actual Template' && costCenterEl && costCenterEl.value !== 'ALL') {
+            costCenterEl.value = 'ALL';
+        }
+
         const selectedCreateName = createNameEl ? createNameEl.value : 'ALL';
         const selectedBranch = branchEl ? branchEl.value : 'ALL';
         const selectedCostCenter = costCenterEl ? costCenterEl.value : 'ALL';
@@ -643,6 +664,7 @@ const BudgetApp = (function() {
             filterSelect.innerHTML += `
                 <option value="GL Entry">EXPENSE</option>
                 <option value="Revenue">Revenue</option>
+                <option value="GL Actual Template">GL Actual Template</option>
             `;
         }
         
@@ -963,9 +985,73 @@ const BudgetApp = (function() {
             buildBranchSelect('modalDocBranch', currentBranchCode, (value) => { currentBranchCode = value; });
 
             // Re-create Table 1 for Edit
-            let columns = [
-                { type: 'dropdown', align: 'left', title: isEquipment ? 'เครื่องมือ' : 'ตำแหน่ง', width: 250, source: itemNames, autocomplete: true }
-            ];
+            let col0;
+            if (isEquipment || isVet || isNonVet) {
+                let datalistId = 'modal-equipment-item-datalist';
+                if (isVet) datalistId = 'modal-vet-position-datalist';
+                else if (isNonVet) datalistId = 'modal-non-vet-position-datalist';
+
+                let itemDatalist = document.getElementById(datalistId);
+                if (!itemDatalist) {
+                    itemDatalist = document.createElement('datalist');
+                    itemDatalist.id = datalistId;
+                    document.body.appendChild(itemDatalist);
+                }
+                itemDatalist.innerHTML = '';
+                itemNames.forEach(name => {
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    itemDatalist.appendChild(opt);
+                });
+                const modalItemEditor = {
+                    createCell: function(cell) { return cell; },
+                    updateCell: function(cell, value) { cell.innerText = value || ''; return value; },
+                    setValue: function(cell, value) { cell.innerText = value || ''; },
+                    openEditor: function(cell, el, empty) {
+                        const rect = cell.getBoundingClientRect();
+                        const input = document.createElement('input');
+                        input.setAttribute('list', datalistId);
+                        input.className = 'jexcel_editor';
+                        input.style.width = rect.width + 'px';
+                        input.style.height = (rect.height - 2) + 'px';
+                        input.style.minHeight = (rect.height - 2) + 'px';
+                        input.style.boxSizing = 'border-box';
+                        input.style.border = 'none';
+                        input.style.outline = 'none';
+                        input.style.padding = '0 4px';
+                        input.style.font = 'inherit';
+                        input.value = empty ? '' : (cell.innerText || '');
+                        cell.classList.add('editor');
+                        cell.innerHTML = '';
+                        cell.appendChild(input);
+                        input.focus();
+                        input.onkeydown = function(e) {
+                            if (e.which === 13) {
+                                if (modalTable1 && modalTable1.edition) modalTable1.closeEditor(cell, true);
+                            } else if (e.which === 27) {
+                                if (modalTable1 && modalTable1.edition) modalTable1.closeEditor(cell, false);
+                            }
+                        };
+                        input.onblur = function() {
+                            if (modalTable1 && modalTable1.edition) modalTable1.closeEditor(cell, true);
+                        };
+                    },
+                    closeEditor: function(cell) {
+                        const input = cell.querySelector('input');
+                        return input ? input.value.trim() : (cell.innerText || '').trim();
+                    }
+                };
+                let colTitle = 'ตำแหน่ง';
+                if (isCar) colTitle = 'รถยนต์';
+                else if (isRenovate) colTitle = 'ปรับปรุง';
+                else if (isSoftware) colTitle = 'Software';
+                else if (isEquipment) colTitle = 'เครื่องมือ';
+
+                col0 = { type: 'text', align: 'left', title: colTitle, width: 250, editor: modalItemEditor };
+            } else {
+                col0 = { type: 'dropdown', align: 'left', title: 'ตำแหน่ง', width: 250, source: itemNames, autocomplete: true };
+            }
+            let columns = [col0];
             if (isEquipment || isVet || isNonVet) {
                 columns.push({ type: 'text', align: 'left', title: 'รายละเอียด', width: 200 });
             }
@@ -1091,12 +1177,19 @@ const BudgetApp = (function() {
 
         for (let i = 0; i < rows.length; i++) {
             let row = rows[i];
-            let position = row[0];
+            let position = (row[0] || '').trim();
             let description = hasDetailCol ? row[1] : undefined;
             let salary = getNum(row[priceCol]);
             let allowance = isNonVet ? getNum(row[allowanceCol]) : 0;
 
-            if (position && (salary > 0 || allowance > 0)) {
+            if (position) {
+                if (isEquipment && salary <= 0) {
+                    Swal.fire('แจ้งเตือน', `กรุณาระบุราคาซื้อสำหรับ "${position}" (แถวที่ ${i + 1})`, 'warning');
+                    return;
+                }
+                if (!isEquipment && salary <= 0 && allowance <= 0) {
+                    continue;
+                }
                 const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
                 const monthCounts = [];
                 for (let c = startCol; c <= startCol + 11; c++) monthCounts.push(getNum(row[c]));
@@ -2177,16 +2270,28 @@ const BudgetApp = (function() {
             let newAllow = getNum(adjTable1.getValueFromCoords(9, y));
 
             if (x === 1) {
-                oldSal = getSalary(value);
-                oldAllow = getAllowance(value);
-                adjTable1.setValueFromCoords(5, y, oldSal, true);
-                adjTable1.setValueFromCoords(6, y, oldAllow, true);
+                const match = allAdjItems.find(i => i.name === value);
+                if (match) {
+                    oldSal = match.salary || 0;
+                    oldAllow = match.position_allowance || 0;
+                    adjTable1.setValueFromCoords(5, y, oldSal, true);
+                    adjTable1.setValueFromCoords(6, y, oldAllow, true);
+                } else {
+                    if (!oldSal) adjTable1.setValueFromCoords(5, y, 0, true);
+                    if (!oldAllow) adjTable1.setValueFromCoords(6, y, 0, true);
+                }
             }
             if (x === 3) {
-                newSal = getSalary(value);
-                newAllow = getAllowance(value);
-                adjTable1.setValueFromCoords(8, y, newSal, true);
-                adjTable1.setValueFromCoords(9, y, newAllow, true);
+                const match = allAdjItems.find(i => i.name === value);
+                if (match) {
+                    newSal = match.salary || 0;
+                    newAllow = match.position_allowance || 0;
+                    adjTable1.setValueFromCoords(8, y, newSal, true);
+                    adjTable1.setValueFromCoords(9, y, newAllow, true);
+                } else {
+                    if (!newSal) adjTable1.setValueFromCoords(8, y, 0, true);
+                    if (!newAllow) adjTable1.setValueFromCoords(9, y, 0, true);
+                }
             }
             if (x === 5) oldSal = getNum(value);
             if (x === 6) oldAllow = getNum(value);
@@ -2290,11 +2395,77 @@ const BudgetApp = (function() {
             buildCostCenterSelect('adjModalDocCostCenter', currentAdjCostCenterName, (value) => { currentAdjCostCenterName = value; });
             buildBranchSelect('adjModalDocBranch', currentAdjBranchCode, (value) => { currentAdjBranchCode = value; });
 
+            const createAdjModalDatalist = (id, itemList) => {
+                let dl = document.getElementById(id);
+                if (!dl) {
+                    dl = document.createElement('datalist');
+                    dl.id = id;
+                    document.body.appendChild(dl);
+                }
+                dl.innerHTML = '';
+                itemList.forEach(item => {
+                    const opt = document.createElement('option');
+                    opt.value = item.name;
+                    dl.appendChild(opt);
+                });
+                return dl;
+            };
+
+            createAdjModalDatalist('modal-adj-vet-positions-datalist', vetItems);
+            createAdjModalDatalist('modal-adj-non-vet-positions-datalist', nonVetItems);
+            createAdjModalDatalist('modal-adj-all-positions-datalist', allAdjItems);
+
+            const modalAdjPositionEditor = {
+                createCell: function(cell) { return cell; },
+                updateCell: function(cell, value) { cell.innerText = value || ''; return value; },
+                setValue: function(cell, value) { cell.innerText = value || ''; },
+                openEditor: function(cell, el, empty) {
+                    const rect = cell.getBoundingClientRect();
+                    const input = document.createElement('input');
+
+                    const y = parseInt(cell.getAttribute('data-y'));
+                    const rowType = (!isNaN(y) && adjTable1) ? adjTable1.getValueFromCoords(0, y) : '';
+                    let listId = 'modal-adj-all-positions-datalist';
+                    if (rowType === 'VET') listId = 'modal-adj-vet-positions-datalist';
+                    else if (rowType === 'NON VET') listId = 'modal-adj-non-vet-positions-datalist';
+
+                    input.setAttribute('list', listId);
+                    input.className = 'jexcel_editor';
+                    input.style.width = rect.width + 'px';
+                    input.style.height = (rect.height - 2) + 'px';
+                    input.style.minHeight = (rect.height - 2) + 'px';
+                    input.style.boxSizing = 'border-box';
+                    input.style.border = 'none';
+                    input.style.outline = 'none';
+                    input.style.padding = '0 4px';
+                    input.style.font = 'inherit';
+                    input.value = empty ? '' : (cell.innerText || '');
+                    cell.classList.add('editor');
+                    cell.innerHTML = '';
+                    cell.appendChild(input);
+                    input.focus();
+                    input.onkeydown = function(e) {
+                        if (e.which === 13) {
+                            if (adjTable1 && adjTable1.edition) adjTable1.closeEditor(cell, true);
+                        } else if (e.which === 27) {
+                            if (adjTable1 && adjTable1.edition) adjTable1.closeEditor(cell, false);
+                        }
+                    };
+                    input.onblur = function() {
+                        if (adjTable1 && adjTable1.edition) adjTable1.closeEditor(cell, true);
+                    };
+                },
+                closeEditor: function(cell) {
+                    const input = cell.querySelector('input');
+                    return input ? input.value.trim() : (cell.innerText || '').trim();
+                }
+            };
+
             const cols1 = [
                 { type: 'dropdown', align: 'left', title: 'ประเภท', width: 100, source: ['VET', 'NON VET'], autocomplete: false },
-                { type: 'dropdown', align: 'left', title: 'ตำแหน่งเดิม', width: 200, source: allAdjItems, autocomplete: true, filter: filterAdjPositionsByType },
+                { type: 'text', align: 'left', title: 'ตำแหน่งเดิม', width: 200, editor: modalAdjPositionEditor },
                 { type: 'text', align: 'left', title: 'รายละเอียดตำแหน่งเดิม', width: 180 },
-                { type: 'dropdown', align: 'left', title: 'ตำแหน่งใหม่', width: 200, source: allAdjItems, autocomplete: true, filter: filterAdjPositionsByType },
+                { type: 'text', align: 'left', title: 'ตำแหน่งใหม่', width: 200, editor: modalAdjPositionEditor },
                 { type: 'text', align: 'left', title: 'รายละเอียดตำแหน่งใหม่', width: 180 },
                 { type: 'numeric', title: 'เงินเดือนเดิม', width: 100, mask: '#,##0' },
                 { type: 'numeric', title: 'ค่าตำแหน่งเดิม', width: 120, mask: '#,##0' },
@@ -2381,10 +2552,10 @@ const BudgetApp = (function() {
 
         for (let i = 0; i < rows.length; i++) {
             let row = rows[i];
-            let adjustmentType = row[0];
-            let oldPos = row[1];
+            let adjustmentType = (row[0] || '').trim();
+            let oldPos = (row[1] || '').trim();
             let oldDetail = row[2];
-            let newPos = row[3];
+            let newPos = (row[3] || '').trim();
             let newDetail = row[4];
             let oldSal = getNum(row[5]);
             let oldAllow = getNum(row[6]);

@@ -131,6 +131,68 @@
             return match ? match.position_allowance : 0;
         };
 
+        // Datalist for NON VET position suggestions: allows free static text while
+        // still presenting autocomplete suggestions from item master.
+        const nonVetDatalist = document.createElement('datalist');
+        nonVetDatalist.id = 'non-vet-position-datalist';
+        itemNames.forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            nonVetDatalist.appendChild(opt);
+        });
+        document.body.appendChild(nonVetDatalist);
+
+        const nonVetEditor = {
+            createCell: function(cell) {
+                return cell;
+            },
+            updateCell: function(cell, value, force) {
+                cell.innerText = value || '';
+                return value;
+            },
+            setValue: function(cell, value) {
+                cell.innerText = value || '';
+            },
+            openEditor: function(cell, el, empty, def) {
+                const rect = cell.getBoundingClientRect();
+                const input = document.createElement('input');
+                input.setAttribute('list', 'non-vet-position-datalist');
+                input.className = 'jexcel_editor';
+                input.style.width = rect.width + 'px';
+                input.style.height = (rect.height - 2) + 'px';
+                input.style.minHeight = (rect.height - 2) + 'px';
+                input.style.boxSizing = 'border-box';
+                input.style.border = 'none';
+                input.style.outline = 'none';
+                input.style.padding = '0 4px';
+                input.style.font = 'inherit';
+
+                const currentValue = cell.innerText || '';
+                input.value = empty ? '' : currentValue;
+
+                cell.classList.add('editor');
+                cell.innerHTML = '';
+                cell.appendChild(input);
+                input.focus();
+
+                input.onkeydown = function(e) {
+                    if (e.which === 13) {
+                        if (table1 && table1.edition) table1.closeEditor(cell, true);
+                    } else if (e.which === 27) {
+                        if (table1 && table1.edition) table1.closeEditor(cell, false);
+                    }
+                };
+
+                input.onblur = function() {
+                    if (table1 && table1.edition) table1.closeEditor(cell, true);
+                };
+            },
+            closeEditor: function(cell, save) {
+                const input = cell.querySelector('input');
+                return input ? input.value.trim() : (cell.innerText || '').trim();
+            }
+        };
+
         // Cost center select: chosen once for the whole document, stamped
         // onto every row on save (not a per-row jspreadsheet column).
         const costCenters = JSON.parse(document.getElementById('cost-centers-data').textContent);
@@ -162,7 +224,7 @@
 
         // Columns definition
         const columns = [
-            { type: 'dropdown', align: 'left', title: 'ตำแหน่ง', width: 150, source: itemNames, autocomplete: true },
+            { type: 'text', align: 'left', title: 'ตำแหน่ง', width: 200, editor: nonVetEditor },
             // For a position typed in free-hand (not in master data) —
             // mirrors VET's own รายละเอียด column (budget_add.html).
             { type: 'text', align: 'left', title: 'รายละเอียด', width: 200 },
@@ -236,10 +298,20 @@
 
                 // If position changed, update salary
                 if (x === 0) {
-                    const salary = getSalary(value);
-                    const allowance = getAllowance(value);
-                    table1.setValueFromCoords(2, y, salary, true);
-                    table1.setValueFromCoords(3, y, allowance, true);
+                    const match = items.find(i => i.name === value);
+                    if (match) {
+                        table1.setValueFromCoords(2, y, match.salary, true);
+                        table1.setValueFromCoords(3, y, match.position_allowance || 0, true);
+                    } else {
+                        const currentSalary = getNum(table1.getValueFromCoords(2, y));
+                        if (!currentSalary) {
+                            table1.setValueFromCoords(2, y, 0, true);
+                        }
+                        const currentAllowance = getNum(table1.getValueFromCoords(3, y));
+                        if (!currentAllowance) {
+                            table1.setValueFromCoords(3, y, 0, true);
+                        }
+                    }
                 }
 
                 // Calculate total for this row in table1
@@ -347,12 +419,17 @@
 
             for (let i = 0; i < rows.length; i++) {
                 let row = rows[i];
-                let position = row[0];
+                let position = (row[0] || '').trim();
                 let detail = row[1];
                 let salary = getNum(row[2]);
                 let allowance = getNum(row[3]);
 
-                if (position && (salary > 0 || allowance > 0)) {
+                if (position) {
+                    if (salary <= 0 && allowance <= 0) {
+                        Swal.fire('แจ้งเตือน', `กรุณาระบุเงินเดือนหรือค่าวัดระดับ/ตำแหน่งสำหรับ "${position}" (แถวที่ ${i + 1})`, 'warning');
+                        return;
+                    }
+
                     const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
                     const monthCounts = [];
                     for (let i = 4; i <= 15; i++) monthCounts.push(getNum(row[i]));
@@ -376,7 +453,7 @@
             }
             
             if (dataToSave.length === 0) {
-                Swal.fire('แจ้งเตือน', 'ไม่มีข้อมูลสำหรับบันทึก กรุณาเลือกตำแหน่งก่อนครับ', 'warning');
+                Swal.fire('แจ้งเตือน', 'ไม่มีข้อมูลสำหรับบันทึก กรุณาระบุข้อมูลตำแหน่งก่อนครับ', 'warning');
                 return;
             }
             
