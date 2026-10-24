@@ -1004,14 +1004,24 @@ const BudgetApp = (function() {
                     itemDatalist.appendChild(opt);
                 });
                 const modalItemEditor = {
-                    createCell: function(cell) { return cell; },
-                    updateCell: function(cell, value) { cell.innerText = value || ''; return value; },
-                    setValue: function(cell, value) { cell.innerText = value || ''; },
+                    createCell: function(cell) {
+                        cell.classList.add('eb-dropdown-cell');
+                        return cell;
+                    },
+                    updateCell: function(cell, value) {
+                        cell.classList.add('eb-dropdown-cell');
+                        cell.innerText = value || '';
+                        return value;
+                    },
+                    setValue: function(cell, value) {
+                        cell.classList.add('eb-dropdown-cell');
+                        cell.innerText = value || '';
+                    },
                     openEditor: function(cell, el, empty) {
                         const rect = cell.getBoundingClientRect();
                         const input = document.createElement('input');
                         input.setAttribute('list', datalistId);
-                        input.className = 'jexcel_editor';
+                        input.className = 'jexcel_editor eb-dropdown-input';
                         input.style.width = rect.width + 'px';
                         input.style.height = (rect.height - 2) + 'px';
                         input.style.minHeight = (rect.height - 2) + 'px';
@@ -1025,6 +1035,11 @@ const BudgetApp = (function() {
                         cell.innerHTML = '';
                         cell.appendChild(input);
                         input.focus();
+                        try {
+                            if (typeof input.showPicker === 'function') {
+                                input.showPicker();
+                            }
+                        } catch (e) {}
                         input.onkeydown = function(e) {
                             if (e.which === 13) {
                                 if (modalTable1 && modalTable1.edition) modalTable1.closeEditor(cell, true);
@@ -1078,6 +1093,14 @@ const BudgetApp = (function() {
                 allowDeleteColumn: false,
                 tableOverflow: true,
                 onchange: onSpreadsheetChange,
+                onselection: function(instance, x1, y1, x2, y2, origin) {
+                    if (x1 === 0 && x2 === 0 && y1 === y2) {
+                        const cell = instance.getCellFromCoords(0, y1);
+                        if (cell && !instance.edition) {
+                            instance.openEditor(cell, false);
+                        }
+                    }
+                },
                 contextMenu: function() { return true; },
                 // modalTable1 can gain a row through more than just the
                 // "เพิ่มรายการ" button — e.g. pressing Enter on its last row —
@@ -1445,11 +1468,98 @@ const BudgetApp = (function() {
         };
     }
 
+    function ensureModalGlDatalist() {
+        let dl = document.getElementById('modal-gl-item-datalist');
+        if (!dl) {
+            dl = document.createElement('datalist');
+            dl.id = 'modal-gl-item-datalist';
+            document.body.appendChild(dl);
+        }
+        dl.innerHTML = '';
+        glNames.forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            dl.appendChild(opt);
+        });
+        return dl;
+    }
+
+    const modalGlEditor = {
+        createCell: function(cell) {
+            cell.classList.add('eb-dropdown-cell');
+            return cell;
+        },
+        updateCell: function(cell, value) {
+            cell.classList.add('eb-dropdown-cell');
+            cell.innerText = value || '';
+            return value;
+        },
+        setValue: function(cell, value) {
+            cell.classList.add('eb-dropdown-cell');
+            cell.innerText = value || '';
+        },
+        openEditor: function(cell, el, empty) {
+            ensureModalGlDatalist();
+            const rect = cell.getBoundingClientRect();
+            const input = document.createElement('input');
+            input.setAttribute('list', 'modal-gl-item-datalist');
+            input.className = 'jexcel_editor eb-dropdown-input';
+            input.style.width = rect.width + 'px';
+            input.style.height = (rect.height - 2) + 'px';
+            input.style.minHeight = (rect.height - 2) + 'px';
+            input.style.boxSizing = 'border-box';
+            input.style.border = 'none';
+            input.style.outline = 'none';
+            input.style.padding = '0 4px';
+            input.style.font = 'inherit';
+            input.value = empty ? '' : (cell.innerText || '');
+            cell.classList.add('editor');
+            cell.innerHTML = '';
+            cell.appendChild(input);
+            input.focus();
+            try {
+                if (typeof input.showPicker === 'function') {
+                    input.showPicker();
+                }
+            } catch (e) {}
+            input.onkeydown = function(e) {
+                if (e.which === 13) {
+                    if (glDetailTables[0] && glDetailTables[0].edition) glDetailTables[0].closeEditor(cell, true);
+                } else if (e.which === 27) {
+                    if (glDetailTables[0] && glDetailTables[0].edition) glDetailTables[0].closeEditor(cell, false);
+                }
+            };
+            input.onblur = function() {
+                if (glDetailTables[0] && glDetailTables[0].edition) glDetailTables[0].closeEditor(cell, true);
+            };
+        },
+        closeEditor: function(cell) {
+            const input = cell.querySelector('input');
+            const val = input ? input.value.trim() : (cell.innerText || '').trim();
+            if (!val) return '';
+            const match = generalLedgers.find(g => g.gl_name === val);
+            if (match) return match.gl_name;
+            const ciMatch = generalLedgers.find(g => g.gl_name.toLowerCase() === val.toLowerCase());
+            if (ciMatch) return ciMatch.gl_name;
+            if (typeof Swal !== 'undefined') {
+                Swal.fire({
+                    toast: true,
+                    position: 'top-end',
+                    icon: 'warning',
+                    title: 'กรุณาเลือกรายการ GL จาก Master ที่กำหนดเท่านั้น',
+                    showConfirmButton: false,
+                    timer: 2500
+                });
+            }
+            return '';
+        }
+    };
+
     function glEntryColumns(editable) {
         const monthColumns = monthTitlesShort.map(m => ({ type: 'numeric', title: m, width: 100, readOnly: !editable, mask: '#,##0' }));
         return [
             editable
-                ? { type: 'dropdown', align: 'left', title: 'GL', width: 220, source: glNames, autocomplete: true }
+                ? { type: 'text', align: 'left', title: 'GL', width: 220, editor: modalGlEditor }
                 : { type: 'text', align: 'left', title: 'GL', width: 220, readOnly: true },
             { type: 'text', align: 'left', title: 'รายละเอียด', width: 150, readOnly: !editable },
             ...monthColumns,
@@ -1636,7 +1746,18 @@ const BudgetApp = (function() {
             // ไม่มี onchange เดิมอยู่แล้วจึงแค่ใส่ของเราเข้าไป. oninsertrow/
             // ondeleterow ไม่เคยมีมาก่อนในตารางนี้เลย (ไม่เคยต้องคำนวณอะไร
             // ตอนแถวเปลี่ยนจำนวน) เพิ่มใหม่เฉพาะที่นี่.
-            const extraOptions = editable ? { minDimensions: [columns.length, 1], onchange: makeGlOnchange(() => glDetailTables[0], 2, 14) } : {};
+            const extraOptions = editable ? {
+                minDimensions: [columns.length, 1],
+                onchange: makeGlOnchange(() => glDetailTables[0], 2, 14),
+                onselection: function(instance, x1, y1, x2, y2, origin) {
+                    if (x1 === 0 && x2 === 0 && y1 === y2) {
+                        const cell = instance.getCellFromCoords(0, y1);
+                        if (cell && !instance.edition) {
+                            instance.openEditor(cell, false);
+                        }
+                    }
+                }
+            } : {};
             const baseOnchange = extraOptions.onchange;
             extraOptions.onchange = baseOnchange
                 ? function() { baseOnchange(); updateGlEntryMonthlyTotals(); }
@@ -2414,23 +2535,28 @@ const BudgetApp = (function() {
             createAdjModalDatalist('modal-adj-vet-positions-datalist', vetItems);
             createAdjModalDatalist('modal-adj-non-vet-positions-datalist', nonVetItems);
             createAdjModalDatalist('modal-adj-all-positions-datalist', allAdjItems);
+            createAdjModalDatalist('modal-adj-type-datalist', [{ name: 'VET' }, { name: 'NON VET' }]);
 
-            const modalAdjPositionEditor = {
-                createCell: function(cell) { return cell; },
-                updateCell: function(cell, value) { cell.innerText = value || ''; return value; },
-                setValue: function(cell, value) { cell.innerText = value || ''; },
+            const modalAdjTypeEditor = {
+                createCell: function(cell) {
+                    cell.classList.add('eb-dropdown-cell');
+                    return cell;
+                },
+                updateCell: function(cell, value) {
+                    cell.classList.add('eb-dropdown-cell');
+                    cell.innerText = value || '';
+                    return value;
+                },
+                setValue: function(cell, value) {
+                    cell.classList.add('eb-dropdown-cell');
+                    cell.innerText = value || '';
+                },
                 openEditor: function(cell, el, empty) {
                     const rect = cell.getBoundingClientRect();
                     const input = document.createElement('input');
 
-                    const y = parseInt(cell.getAttribute('data-y'));
-                    const rowType = (!isNaN(y) && adjTable1) ? adjTable1.getValueFromCoords(0, y) : '';
-                    let listId = 'modal-adj-all-positions-datalist';
-                    if (rowType === 'VET') listId = 'modal-adj-vet-positions-datalist';
-                    else if (rowType === 'NON VET') listId = 'modal-adj-non-vet-positions-datalist';
-
-                    input.setAttribute('list', listId);
-                    input.className = 'jexcel_editor';
+                    input.setAttribute('list', 'modal-adj-type-datalist');
+                    input.className = 'jexcel_editor eb-dropdown-input';
                     input.style.width = rect.width + 'px';
                     input.style.height = (rect.height - 2) + 'px';
                     input.style.minHeight = (rect.height - 2) + 'px';
@@ -2444,6 +2570,77 @@ const BudgetApp = (function() {
                     cell.innerHTML = '';
                     cell.appendChild(input);
                     input.focus();
+                    try {
+                        if (typeof input.showPicker === 'function') {
+                            input.showPicker();
+                        }
+                    } catch (e) {}
+                    input.onkeydown = function(e) {
+                        if (e.which === 13) {
+                            if (adjTable1 && adjTable1.edition) adjTable1.closeEditor(cell, true);
+                        } else if (e.which === 27) {
+                            if (adjTable1 && adjTable1.edition) adjTable1.closeEditor(cell, false);
+                        }
+                    };
+                    input.onblur = function() {
+                        if (adjTable1 && adjTable1.edition) adjTable1.closeEditor(cell, true);
+                    };
+                },
+                closeEditor: function(cell) {
+                    const input = cell.querySelector('input');
+                    const val = (input ? input.value : (cell.innerText || '')).trim();
+                    if (!val) return '';
+                    const upper = val.toUpperCase();
+                    if (upper === 'VET') return 'VET';
+                    if (upper === 'NON VET' || upper === 'NON-VET' || upper === 'NONVET') return 'NON VET';
+                    return '';
+                }
+            };
+
+            const modalAdjPositionEditor = {
+                createCell: function(cell) {
+                    cell.classList.add('eb-dropdown-cell');
+                    return cell;
+                },
+                updateCell: function(cell, value) {
+                    cell.classList.add('eb-dropdown-cell');
+                    cell.innerText = value || '';
+                    return value;
+                },
+                setValue: function(cell, value) {
+                    cell.classList.add('eb-dropdown-cell');
+                    cell.innerText = value || '';
+                },
+                openEditor: function(cell, el, empty) {
+                    const rect = cell.getBoundingClientRect();
+                    const input = document.createElement('input');
+
+                    const y = parseInt(cell.getAttribute('data-y'));
+                    const rowType = (!isNaN(y) && adjTable1) ? adjTable1.getValueFromCoords(0, y) : '';
+                    let listId = 'modal-adj-all-positions-datalist';
+                    if (rowType === 'VET') listId = 'modal-adj-vet-positions-datalist';
+                    else if (rowType === 'NON VET') listId = 'modal-adj-non-vet-positions-datalist';
+
+                    input.setAttribute('list', listId);
+                    input.className = 'jexcel_editor eb-dropdown-input';
+                    input.style.width = rect.width + 'px';
+                    input.style.height = (rect.height - 2) + 'px';
+                    input.style.minHeight = (rect.height - 2) + 'px';
+                    input.style.boxSizing = 'border-box';
+                    input.style.border = 'none';
+                    input.style.outline = 'none';
+                    input.style.padding = '0 4px';
+                    input.style.font = 'inherit';
+                    input.value = empty ? '' : (cell.innerText || '');
+                    cell.classList.add('editor');
+                    cell.innerHTML = '';
+                    cell.appendChild(input);
+                    input.focus();
+                    try {
+                        if (typeof input.showPicker === 'function') {
+                            input.showPicker();
+                        }
+                    } catch (e) {}
                     input.onkeydown = function(e) {
                         if (e.which === 13) {
                             if (adjTable1 && adjTable1.edition) adjTable1.closeEditor(cell, true);
@@ -2462,7 +2659,7 @@ const BudgetApp = (function() {
             };
 
             const cols1 = [
-                { type: 'dropdown', align: 'left', title: 'ประเภท', width: 100, source: ['VET', 'NON VET'], autocomplete: false },
+                { type: 'text', align: 'left', title: 'ประเภท', width: 100, editor: modalAdjTypeEditor },
                 { type: 'text', align: 'left', title: 'ตำแหน่งเดิม', width: 200, editor: modalAdjPositionEditor },
                 { type: 'text', align: 'left', title: 'รายละเอียดตำแหน่งเดิม', width: 180 },
                 { type: 'text', align: 'left', title: 'ตำแหน่งใหม่', width: 200, editor: modalAdjPositionEditor },
@@ -2504,6 +2701,14 @@ const BudgetApp = (function() {
                 tableOverflow: true,
                 freezeColumns: 5,
                 onchange: onAdjSpreadsheetChange,
+                onselection: function(instance, x1, y1, x2, y2, origin) {
+                    if ((x1 === 0 || x1 === 1 || x1 === 3) && x1 === x2 && y1 === y2) {
+                        const cell = instance.getCellFromCoords(x1, y1);
+                        if (cell && !instance.edition) {
+                            instance.openEditor(cell, false);
+                        }
+                    }
+                },
                 contextMenu: function() { return true; },
                 // adjTable1 can gain a row through more than just the
                 // "เพิ่มรายการ" button — e.g. pressing Enter on its last row —

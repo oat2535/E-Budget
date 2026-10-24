@@ -162,30 +162,28 @@
         createDatalist('adj-vet-positions-datalist', vetPositions);
         createDatalist('adj-non-vet-positions-datalist', nonVetPositions);
         createDatalist('adj-all-positions-datalist', items);
+        createDatalist('adj-type-datalist', [{ name: 'VET' }, { name: 'NON VET' }]);
 
-        const adjPositionEditor = {
+        const adjTypeEditor = {
             createCell: function(cell) {
+                cell.classList.add('eb-dropdown-cell');
                 return cell;
             },
             updateCell: function(cell, value, force) {
+                cell.classList.add('eb-dropdown-cell');
                 cell.innerText = value || '';
                 return value;
             },
             setValue: function(cell, value) {
+                cell.classList.add('eb-dropdown-cell');
                 cell.innerText = value || '';
             },
             openEditor: function(cell, el, empty, def) {
                 const rect = cell.getBoundingClientRect();
                 const input = document.createElement('input');
 
-                const y = parseInt(cell.getAttribute('data-y'));
-                const rowType = (!isNaN(y) && table1) ? table1.getValueFromCoords(0, y) : '';
-                let listId = 'adj-all-positions-datalist';
-                if (rowType === 'VET') listId = 'adj-vet-positions-datalist';
-                else if (rowType === 'NON VET') listId = 'adj-non-vet-positions-datalist';
-
-                input.setAttribute('list', listId);
-                input.className = 'jexcel_editor';
+                input.setAttribute('list', 'adj-type-datalist');
+                input.className = 'jexcel_editor eb-dropdown-input';
                 input.style.width = rect.width + 'px';
                 input.style.height = (rect.height - 2) + 'px';
                 input.style.minHeight = (rect.height - 2) + 'px';
@@ -202,6 +200,84 @@
                 cell.innerHTML = '';
                 cell.appendChild(input);
                 input.focus();
+
+                try {
+                    if (typeof input.showPicker === 'function') {
+                        input.showPicker();
+                    }
+                } catch (e) {}
+
+                input.onkeydown = function(e) {
+                    if (e.which === 13) {
+                        if (table1 && table1.edition) table1.closeEditor(cell, true);
+                    } else if (e.which === 27) {
+                        if (table1 && table1.edition) table1.closeEditor(cell, false);
+                    }
+                };
+
+                input.onblur = function() {
+                    if (table1 && table1.edition) table1.closeEditor(cell, true);
+                };
+            },
+            closeEditor: function(cell, save) {
+                const input = cell.querySelector('input');
+                const val = (input ? input.value : (cell.innerText || '')).trim();
+                if (!val) return '';
+                const upper = val.toUpperCase();
+                if (upper === 'VET') return 'VET';
+                if (upper === 'NON VET' || upper === 'NON-VET' || upper === 'NONVET') return 'NON VET';
+                return '';
+            }
+        };
+
+        const adjPositionEditor = {
+            createCell: function(cell) {
+                cell.classList.add('eb-dropdown-cell');
+                return cell;
+            },
+            updateCell: function(cell, value, force) {
+                cell.classList.add('eb-dropdown-cell');
+                cell.innerText = value || '';
+                return value;
+            },
+            setValue: function(cell, value) {
+                cell.classList.add('eb-dropdown-cell');
+                cell.innerText = value || '';
+            },
+            openEditor: function(cell, el, empty, def) {
+                const rect = cell.getBoundingClientRect();
+                const input = document.createElement('input');
+
+                const y = parseInt(cell.getAttribute('data-y'));
+                const rowType = (!isNaN(y) && table1) ? table1.getValueFromCoords(0, y) : '';
+                let listId = 'adj-all-positions-datalist';
+                if (rowType === 'VET') listId = 'adj-vet-positions-datalist';
+                else if (rowType === 'NON VET') listId = 'adj-non-vet-positions-datalist';
+
+                input.setAttribute('list', listId);
+                input.className = 'jexcel_editor eb-dropdown-input';
+                input.style.width = rect.width + 'px';
+                input.style.height = (rect.height - 2) + 'px';
+                input.style.minHeight = (rect.height - 2) + 'px';
+                input.style.boxSizing = 'border-box';
+                input.style.border = 'none';
+                input.style.outline = 'none';
+                input.style.padding = '0 4px';
+                input.style.font = 'inherit';
+
+                const currentValue = cell.innerText || '';
+                input.value = empty ? '' : currentValue;
+
+                cell.classList.add('editor');
+                cell.innerHTML = '';
+                cell.appendChild(input);
+                input.focus();
+
+                try {
+                    if (typeof input.showPicker === 'function') {
+                        input.showPicker();
+                    }
+                } catch (e) {}
 
                 input.onkeydown = function(e) {
                     if (e.which === 13) {
@@ -281,7 +357,7 @@
             // nothing else marking which type a row is) since GL coding
             // depends on it and must work even for a custom position typed
             // in free-hand, not found in master data at all.
-            { type: 'dropdown', align: 'left', title: 'ประเภท', width: 100, source: ['VET', 'NON VET'], autocomplete: false },
+            { type: 'text', align: 'left', title: 'ประเภท', width: 100, editor: adjTypeEditor },
             { type: 'text', align: 'left', title: 'ตำแหน่งเดิม', width: 200, editor: adjPositionEditor },
             { type: 'text', align: 'left', title: 'รายละเอียดตำแหน่งเดิม', width: 180 },
             { type: 'text', align: 'left', title: 'ตำแหน่งใหม่', width: 200, editor: adjPositionEditor },
@@ -496,6 +572,14 @@
             oninsertrow: function(el, rowNumber, numOfRows, rowRecords, insertBefore) {
                 if (table2) table2.insertRow(numOfRows, rowNumber, insertBefore);
                 if (table3) table3.insertRow(numOfRows, rowNumber, insertBefore);
+            },
+            onselection: function(instance, x1, y1, x2, y2, origin) {
+                if ((x1 === 0 || x1 === 1 || x1 === 3) && x1 === x2 && y1 === y2) {
+                    const cell = instance.getCellFromCoords(x1, y1);
+                    if (cell && !instance.edition) {
+                        instance.openEditor(cell, false);
+                    }
+                }
             },
         });
 

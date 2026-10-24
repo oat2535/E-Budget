@@ -215,8 +215,97 @@
             }
         };
 
+        // GL datalist & editor: matches the exact CAR datalist dropdown UI pattern.
+        // Clicking the cell opens the editor and pops up the option list immediately.
+        // Static text not in GL master is strictly disallowed.
+        const glDatalist = document.createElement('datalist');
+        glDatalist.id = 'gl-item-datalist';
+        glNames.forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            glDatalist.appendChild(opt);
+        });
+        document.body.appendChild(glDatalist);
+
+        const glEditor = {
+            createCell: function(cell) {
+                cell.classList.add('eb-dropdown-cell');
+                return cell;
+            },
+            updateCell: function(cell, value, force) {
+                cell.classList.add('eb-dropdown-cell');
+                cell.innerText = value || '';
+                return value;
+            },
+            setValue: function(cell, value) {
+                cell.classList.add('eb-dropdown-cell');
+                cell.innerText = value || '';
+            },
+            openEditor: function(cell, el, empty, def) {
+                const rect = cell.getBoundingClientRect();
+                const input = document.createElement('input');
+                input.setAttribute('list', 'gl-item-datalist');
+                input.className = 'jexcel_editor eb-dropdown-input';
+                input.style.width = rect.width + 'px';
+                input.style.height = (rect.height - 2) + 'px';
+                input.style.minHeight = (rect.height - 2) + 'px';
+                input.style.boxSizing = 'border-box';
+                input.style.border = 'none';
+                input.style.outline = 'none';
+                input.style.padding = '0 4px';
+                input.style.font = 'inherit';
+
+                const currentValue = cell.innerText || '';
+                input.value = empty ? '' : currentValue;
+
+                cell.classList.add('editor');
+                cell.innerHTML = '';
+                cell.appendChild(input);
+                input.focus();
+
+                try {
+                    if (typeof input.showPicker === 'function') {
+                        input.showPicker();
+                    }
+                } catch (e) {}
+
+                input.onkeydown = function(e) {
+                    if (e.which === 13) {
+                        if (table1 && table1.edition) table1.closeEditor(cell, true);
+                    } else if (e.which === 27) {
+                        if (table1 && table1.edition) table1.closeEditor(cell, false);
+                    }
+                };
+
+                input.onblur = function() {
+                    if (table1 && table1.edition) table1.closeEditor(cell, true);
+                };
+            },
+            closeEditor: function(cell, save) {
+                const input = cell.querySelector('input');
+                const val = input ? input.value.trim() : (cell.innerText || '').trim();
+                if (!val) return '';
+                // Validate that the entered value exists in GL master (no static text allowed)
+                const match = generalLedgers.find(g => g.gl_name === val);
+                if (match) return match.gl_name;
+                const ciMatch = generalLedgers.find(g => g.gl_name.toLowerCase() === val.toLowerCase());
+                if (ciMatch) return ciMatch.gl_name;
+                if (typeof Swal !== 'undefined') {
+                    Swal.fire({
+                        toast: true,
+                        position: 'top-end',
+                        icon: 'warning',
+                        title: 'กรุณาเลือกรายการ GL จาก Master ที่กำหนดเท่านั้น',
+                        showConfirmButton: false,
+                        timer: 2500
+                    });
+                }
+                return '';
+            }
+        };
+
         const columns = [
-            { type: 'dropdown', align: 'left', title: 'GL', width: 220, source: glNames, autocomplete: true },
+            { type: 'text', align: 'left', title: 'GL', width: 220, editor: glEditor },
             { type: 'text', align: 'left', title: 'รายละเอียด', width: 150 },
         ];
         monthTitles.forEach(m => {
@@ -263,6 +352,14 @@
             onchange: onchange,
             oninsertrow: oninsertrow,
             ondeleterow: ondeleterow,
+            onselection: function(instance, x1, y1, x2, y2, origin) {
+                if (x1 === 0 && x2 === 0 && y1 === y2) {
+                    const cell = instance.getCellFromCoords(0, y1);
+                    if (cell && !instance.edition) {
+                        instance.openEditor(cell, false);
+                    }
+                }
+            },
             allowInsertColumn: false,
             allowManualInsertColumn: false,
             allowDeleteColumn: false,

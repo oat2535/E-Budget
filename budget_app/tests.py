@@ -383,8 +383,11 @@ class StaticTextPositionTests(TestCase):
     leaving item_master_id NULL when the position is not in master data."""
 
     def setUp(self):
-        self.user = User.objects.create_user(username='test_officer2', password='x')
-        SystemSettings.objects.create(is_frozen=0, active_budget_year=2026)
+        self.user, _ = User.objects.get_or_create(username='test_officer2')
+        self.user.set_password('x')
+        self.user.save()
+        if not SystemSettings.objects.exists():
+            SystemSettings.objects.create(is_frozen=0, active_budget_year=2026)
         self.client.force_login(self.user)
 
     @patch('budget_app.services.BudgetService.get_branch_info_from_imedx', return_value={'branches': ['B001'], 'needs_selection': False, 'department_id': None})
@@ -454,18 +457,79 @@ class StaticTextPositionTests(TestCase):
         vet_html = open(os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'budget_add.html'), encoding='utf-8').read()
         self.assertIn('vet-position-datalist', vet_html)
         self.assertIn('vetEditor', vet_html)
+        self.assertIn('eb-dropdown-cell', vet_html)
 
         non_vet_html = open(os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'budget_add_non_vet.html'), encoding='utf-8').read()
         self.assertIn('non-vet-position-datalist', non_vet_html)
         self.assertIn('nonVetEditor', non_vet_html)
+        self.assertIn('eb-dropdown-cell', non_vet_html)
 
         adj_html = open(os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'budget_add_adjustment.html'), encoding='utf-8').read()
         self.assertIn('adj-vet-positions-datalist', adj_html)
         self.assertIn('adj-non-vet-positions-datalist', adj_html)
+        self.assertIn('adj-type-datalist', adj_html)
+        self.assertIn('adjTypeEditor', adj_html)
         self.assertIn('adjPositionEditor', adj_html)
+        self.assertIn('eb-dropdown-cell', adj_html)
 
         budget_list_js = open(os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'budget_list.js'), encoding='utf-8').read()
         self.assertIn('modal-vet-position-datalist', budget_list_js)
         self.assertIn('modal-non-vet-position-datalist', budget_list_js)
+        self.assertIn('modal-adj-type-datalist', budget_list_js)
+        self.assertIn('modalAdjTypeEditor', budget_list_js)
         self.assertIn('modalAdjPositionEditor', budget_list_js)
+        self.assertIn('modalItemEditor', budget_list_js)
+        self.assertIn('eb-dropdown-cell', budget_list_js)
+
+        car_html = open(os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'budget_add_car.html'), encoding='utf-8').read()
+        self.assertIn('eb-dropdown-cell', car_html)
+
+    def test_dropdown_indicator_styling_and_page_constraints(self):
+        # 1. Global CSS in polish.css has .eb-dropdown-cell and .jexcel_dropdown styling
+        polish_css = open(os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'css', 'polish.css'), encoding='utf-8').read()
+        self.assertIn('.eb-dropdown-cell', polish_css)
+        self.assertIn('.jexcel_dropdown', polish_css)
+        self.assertIn('.eb-dropdown-input', polish_css)
+
+        # 2. All equipment pages have eb-dropdown-cell
+        equipment_templates = [
+            'budget_add_car.html',
+            'budget_add_medical_equipment.html',
+            'budget_add_computer_equipment.html',
+            'budget_add_furniture.html',
+            'budget_add_tools_equipment.html',
+            'budget_add_renovate.html',
+            'budget_add_software.html',
+        ]
+        for tpl in equipment_templates:
+            content = open(os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', tpl), encoding='utf-8').read()
+            self.assertIn('eb-dropdown-cell', content, f"{tpl} should have eb-dropdown-cell")
+
+        # 3. EXPENSE and Revenue now use CAR-style datalist dropdown with validation against GL master
+        expense_html = open(os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'budget_add_gl_entry.html'), encoding='utf-8').read()
+        self.assertIn('gl-item-datalist', expense_html)
+        self.assertIn('glEditor', expense_html)
+        self.assertIn('eb-dropdown-cell', expense_html)
+        self.assertIn('onselection', expense_html)
+
+        revenue_html = open(os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'budget_add_revenue.html'), encoding='utf-8').read()
+        self.assertIn('gl-item-datalist', revenue_html)
+        self.assertIn('glEditor', revenue_html)
+        self.assertIn('eb-dropdown-cell', revenue_html)
+        self.assertIn('onselection', revenue_html)
+
+        # 4. GL Actual Template must NOT have any modifications
+        glat_html = open(os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'budget_add_gl_actual_template.html'), encoding='utf-8').read()
+        self.assertNotIn('eb-dropdown-cell', glat_html)
+        self.assertNotIn('datalist', glat_html)
+
+    @patch('budget_app.services.BudgetService.get_branch_info_from_imedx', return_value={'branches': ['B001'], 'needs_selection': False, 'department_id': None, 'is_manager': False})
+    def test_position_adjustment_renders_with_type_editor(self, mock_branch):
+        response = self.client.get(reverse('budget_add_adjustment'), SERVER_NAME='192.168.1.40')
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode('utf-8')
+        self.assertIn('adj-type-datalist', content)
+        self.assertIn('adjTypeEditor', content)
+        self.assertIn('editor: adjTypeEditor', content)
+
 

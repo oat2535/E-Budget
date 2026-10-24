@@ -140,20 +140,23 @@
 
         const medicalEditor = {
             createCell: function(cell) {
+                cell.classList.add('eb-dropdown-cell');
                 return cell;
             },
             updateCell: function(cell, value, force) {
+                cell.classList.add('eb-dropdown-cell');
                 cell.innerText = value || '';
                 return value;
             },
             setValue: function(cell, value) {
+                cell.classList.add('eb-dropdown-cell');
                 cell.innerText = value || '';
             },
             openEditor: function(cell, el, empty, def) {
                 const rect = cell.getBoundingClientRect();
                 const input = document.createElement('input');
                 input.setAttribute('list', 'medical-item-datalist');
-                input.className = 'jexcel_editor';
+                input.className = 'jexcel_editor eb-dropdown-input';
                 input.style.width = rect.width + 'px';
                 input.style.height = (rect.height - 2) + 'px';
                 input.style.minHeight = (rect.height - 2) + 'px';
@@ -170,6 +173,12 @@
                 cell.innerHTML = '';
                 cell.appendChild(input);
                 input.focus();
+
+                try {
+                    if (typeof input.showPicker === 'function') {
+                        input.showPicker();
+                    }
+                } catch (e) {}
 
                 input.onkeydown = function(e) {
                     if (e.which === 13) {
@@ -343,6 +352,14 @@
             // was added.
             oninsertrow: function(el, rowNumber, numOfRows, rowRecords, insertBefore) {
                 if (table2) table2.insertRow(numOfRows, rowNumber, insertBefore);
+            },
+            onselection: function(instance, x1, y1, x2, y2, origin) {
+                if (x1 === 0 && x2 === 0 && y1 === y2) {
+                    const cell = instance.getCellFromCoords(0, y1);
+                    if (cell && !instance.edition) {
+                        instance.openEditor(cell, false);
+                    }
+                }
             },
             freezeColumns: 2,
         });

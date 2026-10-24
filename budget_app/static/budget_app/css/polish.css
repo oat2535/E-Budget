@@ -194,3 +194,39 @@ table,
     background-color: var(--bs-primary);
     color: #fff;
 }
+
+/* --- Dropdown indicator styling (Approach 1) ---
+   Gives both custom datalist dropdown cells (.eb-dropdown-cell) and
+   native jexcel dropdown cells (.jexcel_dropdown) a clean, modern SVG
+   chevron indicator pointing down on the right side of the cell.
+   Scoped to editable cells (:not(.readonly)) so read-only detail grids
+   remain clean text displays. */
+.jexcel > tbody > tr > td.eb-dropdown-cell:not(.readonly),
+.jexcel > tbody > tr > td.jexcel_dropdown:not(.readonly) {
+    background-repeat: no-repeat !important;
+    background-position: right 8px center !important;
+    background-size: 14px 14px !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236c757d' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") !important;
+    padding-right: 26px !important;
+    cursor: pointer;
+}
+
+.jexcel > tbody > tr > td.eb-dropdown-cell:not(.readonly):hover,
+.jexcel > tbody > tr > td.jexcel_dropdown:not(.readonly):hover {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230061f2' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") !important;
+}
+
+.jexcel > tbody > tr > td.readonly.eb-dropdown-cell,
+.jexcel > tbody > tr > td.readonly.jexcel_dropdown {
+    background-image: none !important;
+    cursor: default !important;
+}
+
+.eb-dropdown-input::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: 0.6;
+}
+
+.eb-dropdown-input::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+}
