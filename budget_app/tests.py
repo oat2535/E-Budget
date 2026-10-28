@@ -1381,3 +1381,48 @@ class BudgetListDocumentPermissionTests(SimpleTestCase):
         self.assertIn('.eb-sticky-header', css_content)
         self.assertIn('position: sticky;', css_content)
         self.assertIn('top: 3.625rem;', css_content)
+
+    def test_budget_list_detail_modal_calculation_tables_readonly_contract(self):
+        """In Budget List document detail modals, when entering edit mode, Table 2 (and Table 3
+        in Position Adjustment) must strictly be read-only calculation tables that sync from
+        Table 1, matching the Add Budget pages (calcColumns). They must not allow direct edits."""
+        js_path = os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'budget_list.js')
+        with open(js_path, 'r', encoding='utf-8') as f:
+            js_content = f.read()
+
+        # 1. Standard Detail Modal (toggleEditMode) Table 2:
+        self.assertIn('modalTable2 = jspreadsheet(document.getElementById(\'modalSpreadsheet2\'), {', js_content)
+        self.assertIn('columns: calcColumns,', js_content)
+        self.assertIn('calcColumns.push({ type: \'numeric\', title: m, width: 85, readOnly: true, mask: \'#,##0\' });', js_content)
+
+        # 2. Position Adjustment Modal (toggleAdjEditMode) Table 2 and Table 3:
+        self.assertIn('adjTable2 = jspreadsheet(document.getElementById(\'adjModalSpreadsheet2\'), {', js_content)
+        self.assertIn('columns: cols2,', js_content)
+        self.assertIn('adjTable3 = jspreadsheet(document.getElementById(\'adjModalSpreadsheet3\'), {', js_content)
+        self.assertIn('columns: cols3,', js_content)
+
+        # Check cols2 and cols3 definitions have readOnly: true on all columns
+        self.assertIn('{ type: \'numeric\', title: \'ผลต่างเงินเดือน\', width: 110, readOnly: true, mask: \'#,##0\' }', js_content)
+        self.assertIn('{ type: \'numeric\', title: \'ผลต่างค่าตำแหน่ง\', width: 120, readOnly: true, mask: \'#,##0\' }', js_content)
+
+        # 3. Both insert and delete row hooks must sync Table 1 to Table 2 and Table 3
+        self.assertIn('if (adjTable2) adjTable2.deleteRow(rowNumber, numOfRows);', js_content)
+        self.assertIn('if (adjTable3) adjTable3.deleteRow(rowNumber, numOfRows);', js_content)
+
+    def test_budget_list_detail_modal_no_auto_open_dropdown_on_selection(self):
+        """In Budget List detail modals, entering edit mode must not auto-open the dropdown
+        via onselection or trap keyboard/mouse clicks in column 0 when clicking other columns."""
+        js_path = os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'budget_list.js')
+        with open(js_path, 'r', encoding='utf-8') as f:
+            js_content = f.read()
+
+        # Must NOT have onselection auto-opening editors in modalTable1 or adjTable1
+        self.assertNotIn("onselection: function(el, x1, y1, x2, y2, origin) {\n                    const sheet = (el && el.jexcel) || modalTable1;", js_content)
+        self.assertNotIn("onselection: function(el, x1, y1, x2, y2, origin) {\n                    const sheet = (el && el.jexcel) || adjTable1;", js_content)
+
+        # Must have resetSelection and clean click listener bound for dropdown cells
+        self.assertIn('modalTable1.resetSelection(true);', js_content)
+        self.assertIn('adjTable1.resetSelection(true);', js_content)
+        self.assertIn("e.target.closest('td.eb-dropdown-cell')", js_content)
+
+

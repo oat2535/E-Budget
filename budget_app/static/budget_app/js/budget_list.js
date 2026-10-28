@@ -1284,16 +1284,6 @@ const BudgetApp = (function() {
                 allowDeleteColumn: false,
                 tableOverflow: true,
                 onchange: onSpreadsheetChange,
-                onselection: function(el, x1, y1, x2, y2, origin) {
-                    const sheet = (el && el.jexcel) || modalTable1;
-                    if (!sheet || typeof sheet.getCellFromCoords !== 'function') return;
-                    if (x1 === 0 && x2 === 0 && y1 === y2) {
-                        const cell = sheet.getCellFromCoords(0, y1);
-                        if (cell && !sheet.edition) {
-                            sheet.openEditor(cell, false);
-                        }
-                    }
-                },
                 contextMenu: function() { return true; },
                 // modalTable1 can gain a row through more than just the
                 // "เพิ่มรายการ" button — e.g. pressing Enter on its last row —
@@ -1314,21 +1304,37 @@ const BudgetApp = (function() {
                 },
             });
 
-            // modalTable2 was still stuck with allowInsertRow/allowDeleteRow
-            // false from viewDocumentDetails' read-only init — jexcel's
-            // insertRow()/deleteRow() are guarded no-ops (even called
-            // programmatically) when those flags are false, so
-            // modalTable1's oninsertrow hook above was silently failing to
-            // mirror new rows into table2. Rebuild table2 the same way as
-            // table1, reusing the identical `columns` shape (view-mode init
-            // already uses the same columns array for both tables — see
-            // viewDocumentDetails).
+            // Build strictly readOnly columns for Table 2 (Calculation Table).
+            // Matches Add Budget pages (calcColumns): all columns are readOnly: true,
+            // with no dropdowns/item editors, keeping Table 2 strictly driven by Table 1
+            // via onSpreadsheetChange and insert/delete mirrors.
+            let calcColTitle = 'ตำแหน่ง';
+            if (isCar) calcColTitle = 'รถยนต์';
+            else if (isRenovate) calcColTitle = 'ปรับปรุง';
+            else if (isSoftware) calcColTitle = 'Software';
+            else if (isEquipment) calcColTitle = 'เครื่องมือ';
+
+            let calcColumns = [
+                { type: 'text', align: 'left', title: calcColTitle, width: 250, readOnly: true }
+            ];
+            if (isEquipment || isVet || isNonVet) {
+                calcColumns.push({ type: 'text', align: 'left', title: 'รายละเอียด', width: 200, readOnly: true });
+            }
+            calcColumns.push({ type: 'numeric', title: isEquipment ? 'ราคาซื้อ' : 'เงินเดือน', width: 100, readOnly: true, mask: '#,##0' });
+            if (isNonVet) {
+                calcColumns.push({ type: 'numeric', title: 'ค่าวัดระดับ/ตำแหน่ง', width: 150, readOnly: true, mask: '#,##0' });
+            }
+            months.forEach(m => {
+                calcColumns.push({ type: 'numeric', title: m, width: 85, readOnly: true, mask: '#,##0' });
+            });
+            calcColumns.push({ type: 'numeric', title: 'รวม', width: 100, readOnly: true, mask: '#,##0' });
+
             const currentData2 = modalTable2.getData();
             modalTable2.destroy();
 
             modalTable2 = jspreadsheet(document.getElementById('modalSpreadsheet2'), {
                 data: currentData2,
-                columns: columns,
+                columns: calcColumns,
                 allowInsertRow: true,
                 allowDeleteRow: true,
                 allowInsertColumn: false,
@@ -1347,6 +1353,19 @@ const BudgetApp = (function() {
             sheetContainer.classList.remove('eb-edit-flash');
             void sheetContainer.offsetWidth;
             sheetContainer.classList.add('eb-edit-flash');
+            if (modalTable1 && typeof modalTable1.resetSelection === 'function') {
+                modalTable1.resetSelection(true);
+            }
+
+            if (!sheetContainer._dropdownClickBound) {
+                sheetContainer._dropdownClickBound = true;
+                sheetContainer.addEventListener('click', function(e) {
+                    const cell = e.target.closest('td.eb-dropdown-cell');
+                    if (cell && !cell.classList.contains('editor') && modalTable1 && !modalTable1.edition) {
+                        modalTable1.openEditor(cell, false);
+                    }
+                });
+            }
 
         } else {
             // Cancel Edit -> Reload document details
@@ -1988,16 +2007,6 @@ const BudgetApp = (function() {
             const extraOptions = editable ? {
                 minDimensions: [columns.length, 1],
                 onchange: makeGlOnchange(() => glDetailTables[0], 2, 14),
-                onselection: function(el, x1, y1, x2, y2, origin) {
-                    const sheet = (el && el.jexcel) || (glDetailTables && glDetailTables[0]);
-                    if (!sheet || typeof sheet.getCellFromCoords !== 'function') return;
-                    if (x1 === 0 && x2 === 0 && y1 === y2) {
-                        const cell = sheet.getCellFromCoords(0, y1);
-                        if (cell && !sheet.edition) {
-                            sheet.openEditor(cell, false);
-                        }
-                    }
-                }
             } : {};
             const baseOnchange = extraOptions.onchange;
             extraOptions.onchange = baseOnchange
@@ -2013,6 +2022,22 @@ const BudgetApp = (function() {
                 freezeColumns: 2,
             }, extraOptions));
             glDetailTables[0] = table;
+
+            if (editable) {
+                if (table && typeof table.resetSelection === 'function') {
+                    table.resetSelection(true);
+                }
+                if (!mountEl._dropdownClickBound) {
+                    mountEl._dropdownClickBound = true;
+                    mountEl.addEventListener('click', function(e) {
+                        const cell = e.target.closest('td.eb-dropdown-cell');
+                        const curTable = glDetailTables && glDetailTables[0];
+                        if (cell && !cell.classList.contains('editor') && curTable && !curTable.edition) {
+                            curTable.openEditor(cell, false);
+                        }
+                    });
+                }
+            }
 
             injectGlEntryMonthlyTotalsRow(mountEl, columns);
             updateGlEntryMonthlyTotals();
@@ -3086,33 +3111,109 @@ const BudgetApp = (function() {
                 tableOverflow: true,
                 freezeColumns: 5,
                 onchange: onAdjSpreadsheetChange,
-                onselection: function(el, x1, y1, x2, y2, origin) {
-                    const sheet = (el && el.jexcel) || adjTable1;
-                    if (!sheet || typeof sheet.getCellFromCoords !== 'function') return;
-                    if ((x1 === 0 || x1 === 1 || x1 === 3) && x1 === x2 && y1 === y2) {
-                        const cell = sheet.getCellFromCoords(x1, y1);
-                        if (cell && !sheet.edition) {
-                            sheet.openEditor(cell, false);
-                        }
-                    }
-                },
                 contextMenu: function() { return true; },
-                // adjTable1 can gain a row through more than just the
-                // "เพิ่มรายการ" button — e.g. pressing Enter on its last row —
-                // and adjTable2/adjTable3 must always mirror it row-for-row or
-                // onAdjSpreadsheetChange's cross-table writes land on a row
-                // that doesn't exist yet and throw, wedging isAdjUpdating
-                // stuck true.
+                // adjTable1 can gain or lose rows through the "เพิ่มรายการ" button,
+                // pressing Enter on the last row, or right-click context menu delete row.
+                // adjTable2/adjTable3 must always mirror row-for-row or onAdjSpreadsheetChange
+                // cross-table writes land on invalid rows.
                 oninsertrow: function(el, rowNumber, numOfRows, rowRecords, insertBefore) {
                     if (adjTable2) adjTable2.insertRow(numOfRows, rowNumber, insertBefore);
                     if (adjTable3) adjTable3.insertRow(numOfRows, rowNumber, insertBefore);
                 },
+                ondeleterow: function(el, rowNumber, numOfRows) {
+                    if (adjTable2) adjTable2.deleteRow(rowNumber, numOfRows);
+                    if (adjTable3) adjTable3.deleteRow(rowNumber, numOfRows);
+                },
+            });
+
+            // Rebuild adjTable2 and adjTable3 with allowInsertRow/allowDeleteRow: true
+            // and strictly read-only columns (matching budget_add_adjustment.html).
+            // In view mode, allowInsertRow/allowDeleteRow are false, which blocks programmatic
+            // insertRow/deleteRow. Rebuilding ensures Table 2 & Table 3 stay synced from Table 1
+            // without allowing direct user edits.
+            const cols2 = [
+                { type: 'text', align: 'left', title: 'ตำแหน่งเดิม', width: 200, readOnly: true },
+                { type: 'text', align: 'left', title: 'ตำแหน่งใหม่', width: 200, readOnly: true },
+                { type: 'numeric', title: 'ผลต่างเงินเดือน', width: 110, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Jan', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Feb', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Mar', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Apr', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'May', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Jun', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Jul', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Aug', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Sep', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Oct', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Nov', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Dec', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'รวม (เงิน)', width: 110, readOnly: true, mask: '#,##0' }
+            ];
+
+            const cols3 = [
+                { type: 'text', align: 'left', title: 'ตำแหน่งเดิม', width: 200, readOnly: true },
+                { type: 'text', align: 'left', title: 'ตำแหน่งใหม่', width: 200, readOnly: true },
+                { type: 'numeric', title: 'ผลต่างค่าตำแหน่ง', width: 120, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Jan', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Feb', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Mar', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Apr', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'May', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Jun', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Jul', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Aug', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Sep', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Oct', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Nov', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'Dec', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'numeric', title: 'รวม (เงิน)', width: 110, readOnly: true, mask: '#,##0' }
+            ];
+
+            const currentData2 = adjTable2.getData();
+            adjTable2.destroy();
+            adjTable2 = jspreadsheet(document.getElementById('adjModalSpreadsheet2'), {
+                data: currentData2,
+                columns: cols2,
+                allowInsertRow: true,
+                allowDeleteRow: true,
+                allowInsertColumn: false,
+                allowManualInsertColumn: false,
+                allowDeleteColumn: false,
+                tableOverflow: true,
+                contextMenu: function() { return false; },
+            });
+
+            const currentData3 = adjTable3.getData();
+            adjTable3.destroy();
+            adjTable3 = jspreadsheet(document.getElementById('adjModalSpreadsheet3'), {
+                data: currentData3,
+                columns: cols3,
+                allowInsertRow: true,
+                allowDeleteRow: true,
+                allowInsertColumn: false,
+                allowManualInsertColumn: false,
+                allowDeleteColumn: false,
+                tableOverflow: true,
+                contextMenu: function() { return false; },
             });
 
             const adjSheetContainer = document.getElementById('adjModalSpreadsheet1');
             adjSheetContainer.classList.remove('eb-edit-flash');
             void adjSheetContainer.offsetWidth;
             adjSheetContainer.classList.add('eb-edit-flash');
+            if (adjTable1 && typeof adjTable1.resetSelection === 'function') {
+                adjTable1.resetSelection(true);
+            }
+
+            if (!adjSheetContainer._dropdownClickBound) {
+                adjSheetContainer._dropdownClickBound = true;
+                adjSheetContainer.addEventListener('click', function(e) {
+                    const cell = e.target.closest('td.eb-dropdown-cell');
+                    if (cell && !cell.classList.contains('editor') && adjTable1 && !adjTable1.edition) {
+                        adjTable1.openEditor(cell, false);
+                    }
+                });
+            }
 
         } else {
             viewAdjustmentDetails(currentAdjDocNo);
