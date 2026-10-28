@@ -230,3 +230,22 @@ table,
 .eb-dropdown-input::-webkit-calendar-picker-indicator:hover {
     opacity: 1;
 }
+
+/* --- Sticky Card Header on Add Budget pages ---
+   Sticks directly below the fixed topnav (.topnav height: 3.625rem / 58px)
+   so the Back, Add Row, and Save buttons remain accessible no matter how many
+   rows are added or how far down the user scrolls. */
+.eb-sticky-header {
+    position: sticky;
+    top: 3.625rem;
+    z-index: 1020;
+    background-color: var(--bs-card-bg, #ffffff) !important;
+    border-bottom: 1px solid var(--bs-card-border-color, rgba(33, 40, 50, 0.125));
+    box-shadow: 0 0.15rem 0.5rem rgba(33, 40, 50, 0.08);
+    border-radius: var(--bs-card-border-radius, 0.35rem) var(--bs-card-border-radius, 0.35rem) 0 0;
+}
+.theme-dark .eb-sticky-header {
+    background-color: #212832 !important;
+    border-bottom-color: rgba(255, 255, 255, 0.125);
+    box-shadow: 0 0.15rem 0.5rem rgba(0, 0, 0, 0.3);
+}

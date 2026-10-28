@@ -126,7 +126,7 @@ class BudgetService:
         return None, None
 
     @staticmethod
-    def get_master_fks_bulk(item_names):
+    def get_master_fks_bulk(item_names, category_id=None, sub_category_id=None):
         """Batch version of get_master_fks: one query for a whole submitted
         document instead of one per line item. Returns
         {item_name: (master_obj, gl_code)}; a name with no master record is
@@ -136,6 +136,10 @@ class BudgetService:
             masters = ebudget_budget_item_master.objects.filter(
                 item_name__in=set(item_names)
             )
+            if category_id is not None:
+                masters = masters.filter(category_id=category_id)
+            if sub_category_id is not None:
+                masters = masters.filter(sub_category_id=sub_category_id)
             return {m.item_name: (m, m.general_ledger_code) for m in masters}
         except Exception:
             return {}
@@ -240,6 +244,15 @@ class BudgetService:
                 continue
                 
             headcount = data.get('headcount') or data.get('count') or 0
+            if doc_type in (
+                'VET', 'NON VET', 'Position Adjustment',
+                'Medical Equipment', 'Computer Equipment', 'Furniture',
+                'Tools & Equipment', 'CAR', 'Renovate', 'Software'
+            ):
+                try:
+                    headcount = int(round(float(headcount)))
+                except (ValueError, TypeError):
+                    headcount = 0
             cost = data.get('cost') or 0
             
             BudgetMonthlyDetail.objects.create(

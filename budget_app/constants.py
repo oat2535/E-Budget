@@ -1,10 +1,7 @@
 # Usernames allowed to view/edit budget documents across every branch,
-# freeze the system, and change the active budget year — the one and only
-# permission tier that exists in this app today (no Django Groups/is_staff
-# in use anywhere). Lives here (not in views.py) so both views.py and
-# context_processors.py can import it without a backwards views->context
-# import.
-ALL_BRANCH_USERNAMES = {'nattchai_u', 'kanchana_a', 'pattida_y'}
+# freeze the system, and change the active budget year — the privileged
+# user tier (nattchai_u, kanchana / kanchana_a, pattida_y).
+ALL_BRANCH_USERNAMES = {'nattchai_u', 'kanchana', 'kanchana_a', 'pattida_y'}
 
 DEFAULT_FROZEN_MESSAGE = (
     "ระบบอยู่ระหว่างปิดงบประมาณชั่วคราว ไม่สามารถเพิ่มหรือแก้ไขข้อมูลได้ในขณะนี้ "
@@ -97,6 +94,9 @@ TOOLS_EQUIPMENT_GL_PRICE_THRESHOLD = 5000
 CAR_GL_CODE = '61300013'       # ค่าเสื่อมราคา - ยานพาหนะ
 RENOVATE_GL_CODE = '61300008'  # ค่าเสื่อมราคา - ส่วนต่อเติมตกแต่ง
 SOFTWARE_GL_CODE = '61300005'  # ค่าเสื่อมราคา - ระบบ software
+
+# Minimum purchase price threshold for Category 2 (Fix Asset / ครุภัณฑ์ / สินทรัพย์ถาวร)
+FIX_ASSET_MIN_PURCHASE_PRICE = 5000
 
 # The 22-branch picker for the "GL Actual Template" page specifically. Every
 # other add-budget page resolves the CURRENT USER's own branch live from

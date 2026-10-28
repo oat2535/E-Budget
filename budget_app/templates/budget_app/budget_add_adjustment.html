@@ -61,10 +61,6 @@
                         Position Adjustment (ปรับตำแหน่ง)
                     </h1>
                 </div>
-                <div class="col-auto mt-4">
-                    <a href="{% url 'budget_list' %}" class="btn btn-light text-dark me-2 shadow-sm fw-500" style="width: 120px;"><i data-feather="arrow-left" class="me-1"></i> กลับ</a>
-                    <button id="save-budget-btn" class="btn btn-success shadow-sm fw-500" style="width: 120px;"><i data-feather="save" class="me-1"></i> บันทึก</button>
-                </div>
             </div>
         </div>
     </div>
@@ -90,9 +86,13 @@
 
     <!-- Table 1: Headcount -->
     <div class="card mb-4 shadow-sm border-0 card-soft">
-        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+        <div class="card-header d-flex justify-content-between align-items-center bg-white py-3 eb-sticky-header">
             <h6 class="m-0 font-weight-bold text-primary">ตารางที่ 1 (จำนวนคน)</h6>
-            <button id="add-row-btn" class="btn btn-sm btn-primary"><i data-feather="plus" class="me-1"></i> เพิ่มรายการ</button>
+            <div class="d-flex align-items-center gap-2">
+                <a href="{% url 'budget_list' %}" class="btn btn-sm btn-outline-secondary shadow-xs fw-500" style="min-width: 90px;"><i data-feather="arrow-left" class="me-1"></i> กลับ</a>
+                <button id="add-row-btn" class="btn btn-sm btn-primary shadow-xs fw-500"><i data-feather="plus" class="me-1"></i> เพิ่มรายการ</button>
+                <button id="save-budget-btn" class="btn btn-sm btn-success shadow-xs fw-500" style="min-width: 95px;"><i data-feather="save" class="me-1"></i> บันทึก</button>
+            </div>
         </div>
         <div class="card-body p-0">
             <div id="table1-spreadsheet"></div>
@@ -210,6 +210,7 @@
                 input.onkeydown = function(e) {
                     if (e.which === 13) {
                         if (table1 && table1.edition) table1.closeEditor(cell, true);
+                        setTimeout(syncTableRows, 0);
                     } else if (e.which === 27) {
                         if (table1 && table1.edition) table1.closeEditor(cell, false);
                     }
@@ -221,12 +222,7 @@
             },
             closeEditor: function(cell, save) {
                 const input = cell.querySelector('input');
-                const val = (input ? input.value : (cell.innerText || '')).trim();
-                if (!val) return '';
-                const upper = val.toUpperCase();
-                if (upper === 'VET') return 'VET';
-                if (upper === 'NON VET' || upper === 'NON-VET' || upper === 'NONVET') return 'NON VET';
-                return '';
+                return (input ? input.value : (cell.innerText || '')).trim();
             }
         };
 
@@ -282,6 +278,7 @@
                 input.onkeydown = function(e) {
                     if (e.which === 13) {
                         if (table1 && table1.edition) table1.closeEditor(cell, true);
+                        setTimeout(syncTableRows, 0);
                     } else if (e.which === 27) {
                         if (table1 && table1.edition) table1.closeEditor(cell, false);
                     }
@@ -428,6 +425,23 @@
         let table1, table2, table3;
         let isUpdating = false;
 
+        const syncTableRows = function() {
+            if (!table1 || !table2 || !table3) return;
+            const count1 = (table1.rows && table1.rows.length) || 0;
+            while (table2.rows.length < count1) {
+                table2.insertRow();
+            }
+            while (table2.rows.length > count1 && table2.rows.length > 1) {
+                table2.deleteRow(table2.rows.length - 1);
+            }
+            while (table3.rows.length < count1) {
+                table3.insertRow();
+            }
+            while (table3.rows.length > count1 && table3.rows.length > 1) {
+                table3.deleteRow(table3.rows.length - 1);
+            }
+        };
+
         const onchange = function(instance, cell, x, y, value) {
             if (!table1 || !table2 || !table3 || isUpdating) return;
             isUpdating = true;
@@ -441,38 +455,101 @@
             // the oninsertrow hook below, which keeps them synced regardless of
             // how the row was added — but guard here too in case a future
             // jspreadsheet interaction (e.g. paste) still slips a row past it.
-            if (y >= table2.rows.length || y >= table3.rows.length) return;
+            if (y >= table2.rows.length || y >= table3.rows.length) {
+                syncTableRows();
+                if (y >= table2.rows.length || y >= table3.rows.length) return;
+            }
 
             let oldSal = getNum(table1.getValueFromCoords(5, y));
             let oldAllow = getNum(table1.getValueFromCoords(6, y));
             let newSal = getNum(table1.getValueFromCoords(8, y));
             let newAllow = getNum(table1.getValueFromCoords(9, y));
 
+            // Type (ประเภท) Changed
+            if (x === 0) {
+                const trimmedVal = (value || '').trim();
+                if (trimmedVal !== '') {
+                    const upper = trimmedVal.toUpperCase();
+                    if (upper === 'VET') {
+                        if (trimmedVal !== 'VET') table1.setValueFromCoords(0, y, 'VET', true);
+                    } else if (upper === 'NON VET' || upper === 'NON-VET' || upper === 'NONVET') {
+                        if (trimmedVal !== 'NON VET') table1.setValueFromCoords(0, y, 'NON VET', true);
+                    } else {
+                        table1.setValueFromCoords(0, y, '', true);
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'แจ้งเตือน',
+                            text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกประเภท (VET หรือ NON VET) จากรายการ Dropdown เท่านั้น ("${trimmedVal}" ไม่ถูกต้อง)`,
+                            timer: 3000,
+                            showConfirmButton: false,
+                            toast: true,
+                            position: 'top-end'
+                        });
+                    }
+                }
+            }
+
             // Old Position Changed
             if (x === 1) {
-                const match = items.find(i => i.name === value);
-                if (match) {
-                    oldSal = match.salary || 0;
-                    oldAllow = match.position_allowance || 0;
-                    table1.setValueFromCoords(5, y, oldSal, true);
-                    table1.setValueFromCoords(6, y, oldAllow, true);
+                const trimmedVal = (value || '').trim();
+                if (trimmedVal !== '') {
+                    const match = items.find(i => i.name === trimmedVal);
+                    if (match) {
+                        oldSal = match.salary || 0;
+                        oldAllow = match.position_allowance || 0;
+                        table1.setValueFromCoords(5, y, oldSal, true);
+                        table1.setValueFromCoords(6, y, oldAllow, true);
+                    } else {
+                        oldSal = 0;
+                        oldAllow = 0;
+                        table1.setValueFromCoords(1, y, '', true);
+                        table1.setValueFromCoords(5, y, 0, true);
+                        table1.setValueFromCoords(6, y, 0, true);
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'แจ้งเตือน',
+                            text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งเดิมจากรายการ Dropdown เท่านั้น ("${trimmedVal}" ไม่มีอยู่ในรายการตัวเลือก)`,
+                            timer: 3000,
+                            showConfirmButton: false,
+                            toast: true,
+                            position: 'top-end'
+                        });
+                    }
                 } else {
-                    if (!oldSal) table1.setValueFromCoords(5, y, 0, true);
-                    if (!oldAllow) table1.setValueFromCoords(6, y, 0, true);
+                    table1.setValueFromCoords(5, y, 0, true);
+                    table1.setValueFromCoords(6, y, 0, true);
                 }
             }
 
             // New Position Changed
             if (x === 3) {
-                const match = items.find(i => i.name === value);
-                if (match) {
-                    newSal = match.salary || 0;
-                    newAllow = match.position_allowance || 0;
-                    table1.setValueFromCoords(8, y, newSal, true);
-                    table1.setValueFromCoords(9, y, newAllow, true);
+                const trimmedVal = (value || '').trim();
+                if (trimmedVal !== '') {
+                    const match = items.find(i => i.name === trimmedVal);
+                    if (match) {
+                        newSal = match.salary || 0;
+                        newAllow = match.position_allowance || 0;
+                        table1.setValueFromCoords(8, y, newSal, true);
+                        table1.setValueFromCoords(9, y, newAllow, true);
+                    } else {
+                        newSal = 0;
+                        newAllow = 0;
+                        table1.setValueFromCoords(3, y, '', true);
+                        table1.setValueFromCoords(8, y, 0, true);
+                        table1.setValueFromCoords(9, y, 0, true);
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'แจ้งเตือน',
+                            text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น ("${trimmedVal}" ไม่มีอยู่ในรายการตัวเลือก)`,
+                            timer: 3000,
+                            showConfirmButton: false,
+                            toast: true,
+                            position: 'top-end'
+                        });
+                    }
                 } else {
-                    if (!newSal) table1.setValueFromCoords(8, y, 0, true);
-                    if (!newAllow) table1.setValueFromCoords(9, y, 0, true);
+                    table1.setValueFromCoords(8, y, 0, true);
+                    table1.setValueFromCoords(9, y, 0, true);
                 }
             }
 
@@ -491,6 +568,35 @@
 
                 table1.setValueFromCoords(11, y, newSal - oldSal, true);
                 table1.setValueFromCoords(12, y, newAllow - oldAllow, true);
+            }
+
+            // Enforce integer headcount without leading zeros in month columns (x = 13 to 24)
+            if (x >= 13 && x <= 24) {
+                const rawVal = String(value || '').trim();
+                if (rawVal !== '') {
+                    const cleanStr = rawVal.replace(/,/g, '');
+                    const hasLeadingZero = /^0\d+/.test(cleanStr);
+                    const num = parseFloat(cleanStr);
+                    const isDecimal = !isNaN(num) && !Number.isInteger(num);
+
+                    if (isDecimal || hasLeadingZero) {
+                        const intVal = isNaN(num) ? 0 : Math.floor(num);
+                        table1.setValueFromCoords(x, y, intVal, false);
+                        let warnMsg = 'จำนวนคนต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม';
+                        if (hasLeadingZero) {
+                            warnMsg = 'ไม่อนุญาตให้กรอกตัวเลขที่มี 0 นำหน้า (เช่น 03, 04) ระบบปรับเป็น ' + intVal + ' ให้เรียบร้อยแล้ว';
+                        }
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'แจ้งเตือน',
+                            text: warnMsg,
+                            timer: 2500,
+                            showConfirmButton: false,
+                            toast: true,
+                            position: 'top-end'
+                        });
+                    }
+                }
             }
 
             // Get updated values for sync
@@ -572,12 +678,20 @@
             oninsertrow: function(el, rowNumber, numOfRows, rowRecords, insertBefore) {
                 if (table2) table2.insertRow(numOfRows, rowNumber, insertBefore);
                 if (table3) table3.insertRow(numOfRows, rowNumber, insertBefore);
+                syncTableRows();
             },
-            onselection: function(instance, x1, y1, x2, y2, origin) {
+            ondeleterow: function(el, rowNumber, numOfRows) {
+                if (table2) table2.deleteRow(rowNumber, numOfRows);
+                if (table3) table3.deleteRow(rowNumber, numOfRows);
+                syncTableRows();
+            },
+            onselection: function(el, x1, y1, x2, y2, origin) {
+                const sheet = (el && el.jexcel) || table1;
+                if (!sheet || typeof sheet.getCellFromCoords !== 'function') return;
                 if ((x1 === 0 || x1 === 1 || x1 === 3) && x1 === x2 && y1 === y2) {
-                    const cell = instance.getCellFromCoords(x1, y1);
-                    if (cell && !instance.edition) {
-                        instance.openEditor(cell, false);
+                    const cell = sheet.getCellFromCoords(x1, y1);
+                    if (cell && !sheet.edition) {
+                        sheet.openEditor(cell, false);
                     }
                 }
             },
@@ -614,6 +728,38 @@
         document.getElementById('add-row-btn').addEventListener('click', function() {
             table1.insertRow();
         });
+
+        // Ensure table2 and table3 synchronize whenever Enter is pressed to create a new row
+        // And block decimal point (.) and minus (-) in month headcount columns (Jan - Dec: x = 13 to 24)
+        const table1SpreadsheetEl = document.getElementById('table1-spreadsheet');
+        table1SpreadsheetEl.addEventListener('keydown', function(e) {
+            if (e.which === 13) {
+                setTimeout(syncTableRows, 0);
+            }
+            if (table1 && table1.selectedCell) {
+                const x = table1.selectedCell[0];
+                if (x >= 13 && x <= 24) {
+                    if (e.key === '.' || e.key === ',' || e.keyCode === 190 || e.keyCode === 110 || e.key === '-' || e.keyCode === 189) {
+                        e.preventDefault();
+                    }
+                }
+            }
+        }, true);
+
+        table1SpreadsheetEl.addEventListener('input', function(e) {
+            if (table1 && table1.selectedCell) {
+                const x = table1.selectedCell[0];
+                if (x >= 13 && x <= 24 && e.target && e.target.classList.contains('jexcel_editor')) {
+                    if (e.target.value) {
+                        let clean = e.target.value.replace(/[^0-9]/g, '');
+                        clean = clean.replace(/^0+(?=\d)/, '');
+                        if (clean !== e.target.value) {
+                            e.target.value = clean;
+                        }
+                    }
+                }
+            }
+        }, true);
 
         // Save logic
         document.getElementById('save-budget-btn').addEventListener('click', function() {
@@ -659,12 +805,43 @@
                 }
 
                 if (hasAllRequired) {
+                    if (adjustmentType !== 'VET' && adjustmentType !== 'NON VET') {
+                        Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกประเภท (VET หรือ NON VET) จากรายการ Dropdown เท่านั้น\n(แถวที่ ${i + 1}: "${adjustmentType}" ไม่ถูกต้อง)`, 'warning');
+                        return;
+                    }
+                    const isOldValid = items.some(it => it.name === oldPos);
+                    if (!isOldValid) {
+                        Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งเดิมจากรายการ Dropdown เท่านั้น\n(แถวที่ ${i + 1}: "${oldPos}" ไม่มีอยู่ในรายการตัวเลือก)`, 'warning');
+                        return;
+                    }
+                    const isNewValid = items.some(it => it.name === newPos);
+                    if (!isNewValid) {
+                        Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น\n(แถวที่ ${i + 1}: "${newPos}" ไม่มีอยู่ในรายการตัวเลือก)`, 'warning');
+                        return;
+                    }
+
                     let diffSal = newSal - oldSal;
                     let diffAllow = newAllow - oldAllow;
 
                     const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+                    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
                     const monthCounts = [];
-                    for (let i = 13; i <= 24; i++) monthCounts.push(getNum(row[i]));
+                    for (let c = 13; c <= 24; c++) {
+                        const val = row[c];
+                        const rawStr = String(val !== null && val !== undefined ? val : '').trim().replace(/,/g, '');
+                        const count = getNum(val);
+                        if (rawStr !== '') {
+                            if (/^0\d+/.test(rawStr)) {
+                                Swal.fire('แจ้งเตือน', `จำนวนคนในเดือน ${monthNames[c - 13]} ไม่อนุญาตให้กรอกรูปแบบที่มีเลข 0 นำหน้า เช่น "${rawStr}" (แถวที่ ${i + 1}: ${oldPos} -> ${newPos}) กรุณาระบุเป็นตัวเลขจำนวนเต็มปกติ`, 'warning');
+                                return;
+                            }
+                            if (count % 1 !== 0 || count < 0) {
+                                Swal.fire('แจ้งเตือน', `จำนวนคนในเดือน ${monthNames[c - 13]} ต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม (แถวที่ ${i + 1}: ${oldPos} -> ${newPos})`, 'warning');
+                                return;
+                            }
+                        }
+                        monthCounts.push(count);
+                    }
                     const salaryBudget = computeMonthlyBudget(monthCounts, diffSal);
                     const allowanceBudget = computeMonthlyBudget(monthCounts, diffAllow);
 

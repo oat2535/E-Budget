@@ -57,10 +57,6 @@
                         NON VET Manpower
                     </h1>
                 </div>
-                <div class="col-auto mt-4">
-                    <a href="{% url 'budget_list' %}" class="btn btn-light text-dark me-2 shadow-sm fw-500" style="width: 120px;"><i data-feather="arrow-left" class="me-1"></i> กลับ</a>
-                    <button id="save-budget-btn" class="btn btn-success shadow-sm fw-500" style="width: 120px;"><i data-feather="save" class="me-1"></i> บันทึก</button>
-                </div>
             </div>
         </div>
     </div>
@@ -85,9 +81,13 @@
     </div>
 
     <div class="card mb-4 shadow-sm border-0 card-soft">
-        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+        <div class="card-header d-flex justify-content-between align-items-center bg-white py-3 eb-sticky-header">
             <h6 class="m-0 font-weight-bold text-primary">ตารางส่วนแรก (กรอกจำนวนคน)</h6>
-            <button id="add-row-btn" class="btn btn-sm btn-primary"><i data-feather="plus" class="me-1"></i> เพิ่มรายการ</button>
+            <div class="d-flex align-items-center gap-2">
+                <a href="{% url 'budget_list' %}" class="btn btn-sm btn-outline-secondary shadow-xs fw-500" style="min-width: 90px;"><i data-feather="arrow-left" class="me-1"></i> กลับ</a>
+                <button id="add-row-btn" class="btn btn-sm btn-primary shadow-xs fw-500"><i data-feather="plus" class="me-1"></i> เพิ่มรายการ</button>
+                <button id="save-budget-btn" class="btn btn-sm btn-success shadow-xs fw-500" style="min-width: 95px;"><i data-feather="save" class="me-1"></i> บันทึก</button>
+            </div>
         </div>
         <div class="card-body">
             <div id="spreadsheet"></div>
@@ -187,6 +187,7 @@
                 input.onkeydown = function(e) {
                     if (e.which === 13) {
                         if (table1 && table1.edition) table1.closeEditor(cell, true);
+                        setTimeout(syncTableRows, 0);
                     } else if (e.which === 27) {
                         if (table1 && table1.edition) table1.closeEditor(cell, false);
                     }
@@ -277,6 +278,17 @@
         let table1, table2;
         let isUpdating = false;
 
+        const syncTableRows = function() {
+            if (!table1 || !table2) return;
+            const count1 = (table1.rows && table1.rows.length) || 0;
+            while (table2.rows.length < count1) {
+                table2.insertRow();
+            }
+            while (table2.rows.length > count1 && table2.rows.length > 1) {
+                table2.deleteRow(table2.rows.length - 1);
+            }
+        };
+
         const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
 
         // Carry-forward budget: every month's cost is the running headcount total
@@ -303,22 +315,64 @@
                 // oninsertrow hook below, which keeps them synced regardless of
                 // how the row was added — but guard here too in case a future
                 // jspreadsheet interaction (e.g. paste) still slips a row past it.
-                if (y >= table2.rows.length) return;
+                if (y >= table2.rows.length) {
+                    syncTableRows();
+                    if (y >= table2.rows.length) return;
+                }
 
                 // If position changed, update salary
                 if (x === 0) {
-                    const match = items.find(i => i.name === value);
-                    if (match) {
-                        table1.setValueFromCoords(2, y, match.salary, true);
-                        table1.setValueFromCoords(3, y, match.position_allowance || 0, true);
-                    } else {
-                        const currentSalary = getNum(table1.getValueFromCoords(2, y));
-                        if (!currentSalary) {
+                    const trimmedVal = (value || '').trim();
+                    if (trimmedVal !== '') {
+                        const match = items.find(i => i.name === trimmedVal);
+                        if (match) {
+                            table1.setValueFromCoords(2, y, match.salary, true);
+                            table1.setValueFromCoords(3, y, match.position_allowance || 0, true);
+                        } else {
+                            table1.setValueFromCoords(0, y, '', true);
                             table1.setValueFromCoords(2, y, 0, true);
-                        }
-                        const currentAllowance = getNum(table1.getValueFromCoords(3, y));
-                        if (!currentAllowance) {
                             table1.setValueFromCoords(3, y, 0, true);
+                            Swal.fire({
+                                icon: 'warning',
+                                title: 'แจ้งเตือน',
+                                text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งจากรายการ Dropdown เท่านั้น ("${trimmedVal}" ไม่มีอยู่ในรายการตัวเลือก)`,
+                                timer: 3000,
+                                showConfirmButton: false,
+                                toast: true,
+                                position: 'top-end'
+                            });
+                        }
+                    } else {
+                        table1.setValueFromCoords(2, y, 0, true);
+                        table1.setValueFromCoords(3, y, 0, true);
+                    }
+                }
+
+                // Enforce integer headcount without leading zeros in month columns (x = 4 to 15)
+                if (x >= 4 && x <= 15) {
+                    const rawVal = String(value || '').trim();
+                    if (rawVal !== '') {
+                        const cleanStr = rawVal.replace(/,/g, '');
+                        const hasLeadingZero = /^0\d+/.test(cleanStr);
+                        const num = parseFloat(cleanStr);
+                        const isDecimal = !isNaN(num) && !Number.isInteger(num);
+
+                        if (isDecimal || hasLeadingZero) {
+                            const intVal = isNaN(num) ? 0 : Math.floor(num);
+                            table1.setValueFromCoords(x, y, intVal, false);
+                            let warnMsg = 'จำนวนคนต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม';
+                            if (hasLeadingZero) {
+                                warnMsg = 'ไม่อนุญาตให้กรอกตัวเลขที่มี 0 นำหน้า (เช่น 03, 04) ระบบปรับเป็น ' + intVal + ' ให้เรียบร้อยแล้ว';
+                            }
+                            Swal.fire({
+                                icon: 'warning',
+                                title: 'แจ้งเตือน',
+                                text: warnMsg,
+                                timer: 2500,
+                                showConfirmButton: false,
+                                toast: true,
+                                position: 'top-end'
+                            });
                         }
                     }
                 }
@@ -384,12 +438,19 @@
             // was added.
             oninsertrow: function(el, rowNumber, numOfRows, rowRecords, insertBefore) {
                 if (table2) table2.insertRow(numOfRows, rowNumber, insertBefore);
+                syncTableRows();
             },
-            onselection: function(instance, x1, y1, x2, y2, origin) {
+            ondeleterow: function(el, rowNumber, numOfRows) {
+                if (table2) table2.deleteRow(rowNumber, numOfRows);
+                syncTableRows();
+            },
+            onselection: function(el, x1, y1, x2, y2, origin) {
+                const sheet = (el && el.jexcel) || table1;
+                if (!sheet || typeof sheet.getCellFromCoords !== 'function') return;
                 if (x1 === 0 && x2 === 0 && y1 === y2) {
-                    const cell = instance.getCellFromCoords(0, y1);
-                    if (cell && !instance.edition) {
-                        instance.openEditor(cell, false);
+                    const cell = sheet.getCellFromCoords(0, y1);
+                    if (cell && !sheet.edition) {
+                        sheet.openEditor(cell, false);
                     }
                 }
             },
@@ -415,6 +476,38 @@
         document.getElementById('add-row-btn').addEventListener('click', function() {
             table1.insertRow();
         });
+
+        // Ensure table2 synchronizes whenever Enter is pressed to create a new row
+        // And block decimal point (.) and minus (-) in month headcount columns (Jan - Dec: x = 4 to 15)
+        const spreadsheetEl = document.getElementById('spreadsheet');
+        spreadsheetEl.addEventListener('keydown', function(e) {
+            if (e.which === 13) {
+                setTimeout(syncTableRows, 0);
+            }
+            if (table1 && table1.selectedCell) {
+                const x = table1.selectedCell[0];
+                if (x >= 4 && x <= 15) {
+                    if (e.key === '.' || e.key === ',' || e.keyCode === 190 || e.keyCode === 110 || e.key === '-' || e.keyCode === 189) {
+                        e.preventDefault();
+                    }
+                }
+            }
+        }, true);
+
+        spreadsheetEl.addEventListener('input', function(e) {
+            if (table1 && table1.selectedCell) {
+                const x = table1.selectedCell[0];
+                if (x >= 4 && x <= 15 && e.target && e.target.classList.contains('jexcel_editor')) {
+                    if (e.target.value) {
+                        let clean = e.target.value.replace(/[^0-9]/g, '');
+                        clean = clean.replace(/^0+(?=\d)/, '');
+                        if (clean !== e.target.value) {
+                            e.target.value = clean;
+                        }
+                    }
+                }
+            }
+        }, true);
 
         // Save button logic
         document.getElementById('save-budget-btn').addEventListener('click', function() {
@@ -442,14 +535,36 @@
                 let allowance = getNum(row[3]);
 
                 if (position) {
+                    const isPositionInMaster = items.some(it => it.name === position);
+                    if (!isPositionInMaster) {
+                        Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งจากรายการ Dropdown เท่านั้น\n(แถวที่ ${i + 1}: "${position}" ไม่มีอยู่ในรายการตัวเลือก)`, 'warning');
+                        return;
+                    }
+
                     if (salary <= 0 && allowance <= 0) {
                         Swal.fire('แจ้งเตือน', `กรุณาระบุเงินเดือนหรือค่าวัดระดับ/ตำแหน่งสำหรับ "${position}" (แถวที่ ${i + 1})`, 'warning');
                         return;
                     }
 
                     const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+                    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
                     const monthCounts = [];
-                    for (let i = 4; i <= 15; i++) monthCounts.push(getNum(row[i]));
+                    for (let c = 4; c <= 15; c++) {
+                        const val = row[c];
+                        const rawStr = String(val !== null && val !== undefined ? val : '').trim().replace(/,/g, '');
+                        const count = getNum(val);
+                        if (rawStr !== '') {
+                            if (/^0\d+/.test(rawStr)) {
+                                Swal.fire('แจ้งเตือน', `จำนวนคนในเดือน ${monthNames[c - 4]} ไม่อนุญาตให้กรอกรูปแบบที่มีเลข 0 นำหน้า เช่น "${rawStr}" (แถวที่ ${i + 1}: ${position}) กรุณาระบุเป็นตัวเลขจำนวนเต็มปกติ`, 'warning');
+                                return;
+                            }
+                            if (count % 1 !== 0 || count < 0) {
+                                Swal.fire('แจ้งเตือน', `จำนวนคนในเดือน ${monthNames[c - 4]} ต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม (แถวที่ ${i + 1}: ${position})`, 'warning');
+                                return;
+                            }
+                        }
+                        monthCounts.push(count);
+                    }
                     const monthlyBudget = computeMonthlyBudget(monthCounts, salary + allowance);
 
                     let monthlyData = {};

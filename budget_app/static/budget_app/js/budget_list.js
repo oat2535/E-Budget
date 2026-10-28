@@ -55,6 +55,96 @@ const BudgetApp = (function() {
         // By now every deferred <script> (including sweetalert2) has run —
         // safe to read window.Swal here, unlike at module-load time above.
         Swal = window.Swal.mixin({ heightAuto: false });
+
+        const modalSheetEl = document.getElementById('modalSpreadsheet1');
+        if (modalSheetEl) {
+            modalSheetEl.addEventListener('keydown', function(e) {
+                if (modalTable1 && modalTable1.selectedCell && isEditMode) {
+                    const x = modalTable1.selectedCell[0];
+                    const isNonVet = currentDocType === 'NON VET';
+                    const isMed = currentDocType === 'Medical Equipment';
+                    const isComp = currentDocType === 'Computer Equipment';
+                    const isFurniture = currentDocType === 'Furniture';
+                    const isTools = currentDocType === 'Tools & Equipment';
+                    const isCar = currentDocType === 'CAR';
+                    const isRenovate = currentDocType === 'Renovate';
+                    const isSoftware = currentDocType === 'Software';
+                    const isEquipment = isMed || isComp || isFurniture || isTools || isCar || isRenovate || isSoftware;
+                    const isVet = currentDocType === 'VET';
+                    if (isEquipment || isVet || isNonVet) {
+                        const hasDetailCol = isEquipment || isVet || isNonVet;
+                        const priceCol = hasDetailCol ? 2 : 1;
+                        const startCol = priceCol + 1 + (isNonVet ? 1 : 0);
+                        const endCol = startCol + 11;
+                        if (x >= startCol && x <= endCol) {
+                            if (e.key === '.' || e.key === ',' || e.keyCode === 190 || e.keyCode === 110 || e.key === '-' || e.keyCode === 189) {
+                                e.preventDefault();
+                            }
+                        }
+                    }
+                }
+            }, true);
+
+            modalSheetEl.addEventListener('input', function(e) {
+                if (modalTable1 && modalTable1.selectedCell && isEditMode) {
+                    const x = modalTable1.selectedCell[0];
+                    const isNonVet = currentDocType === 'NON VET';
+                    const isMed = currentDocType === 'Medical Equipment';
+                    const isComp = currentDocType === 'Computer Equipment';
+                    const isFurniture = currentDocType === 'Furniture';
+                    const isTools = currentDocType === 'Tools & Equipment';
+                    const isCar = currentDocType === 'CAR';
+                    const isRenovate = currentDocType === 'Renovate';
+                    const isSoftware = currentDocType === 'Software';
+                    const isEquipment = isMed || isComp || isFurniture || isTools || isCar || isRenovate || isSoftware;
+                    const isVet = currentDocType === 'VET';
+                    if (isEquipment || isVet || isNonVet) {
+                        const hasDetailCol = isEquipment || isVet || isNonVet;
+                        const priceCol = hasDetailCol ? 2 : 1;
+                        const startCol = priceCol + 1 + (isNonVet ? 1 : 0);
+                        const endCol = startCol + 11;
+                        if (x >= startCol && x <= endCol && e.target && e.target.classList.contains('jexcel_editor')) {
+                            if (e.target.value) {
+                                let clean = e.target.value.replace(/[^0-9]/g, '');
+                                clean = clean.replace(/^0+(?=\d)/, '');
+                                if (clean !== e.target.value) {
+                                    e.target.value = clean;
+                                }
+                            }
+                        }
+                    }
+                }
+            }, true);
+        }
+
+        const adjModalSheetEl = document.getElementById('adjModalSpreadsheet1');
+        if (adjModalSheetEl) {
+            adjModalSheetEl.addEventListener('keydown', function(e) {
+                if (adjTable1 && adjTable1.selectedCell && isAdjEditMode) {
+                    const x = adjTable1.selectedCell[0];
+                    if (x >= 13 && x <= 24) {
+                        if (e.key === '.' || e.key === ',' || e.keyCode === 190 || e.keyCode === 110 || e.key === '-' || e.keyCode === 189) {
+                            e.preventDefault();
+                        }
+                    }
+                }
+            }, true);
+
+            adjModalSheetEl.addEventListener('input', function(e) {
+                if (adjTable1 && adjTable1.selectedCell && isAdjEditMode) {
+                    const x = adjTable1.selectedCell[0];
+                    if (x >= 13 && x <= 24 && e.target && e.target.classList.contains('jexcel_editor')) {
+                        if (e.target.value) {
+                            let clean = e.target.value.replace(/[^0-9]/g, '');
+                            clean = clean.replace(/^0+(?=\d)/, '');
+                            if (clean !== e.target.value) {
+                                e.target.value = clean;
+                            }
+                        }
+                    }
+                }
+            }, true);
+        }
     });
 
     const vetItems = JSON.parse(document.getElementById('vet-items-data').textContent);
@@ -204,7 +294,7 @@ const BudgetApp = (function() {
     // is clicked (see the matching lock check in update_document_api).
     function applyEditButtonVisibility(btnEl, createEid, status) {
         if (!btnEl) return;
-        const ownsOrPrivileged = isPrivilegedUser || createEid === currentUsername;
+        const ownsOrPrivileged = isPrivilegedUser || (createEid && currentUsername && createEid.toLowerCase() === currentUsername.toLowerCase());
         btnEl.style.display = (ownsOrPrivileged && status !== 'APPROVED' && status !== 'CANCELLED') ? '' : 'none';
     }
 
@@ -216,12 +306,10 @@ const BudgetApp = (function() {
         btnEl.style.display = (status === 'PENDING') ? '' : 'none';
     }
 
-    // Cancel shares its DOM-presence gate with Edit (can_edit_own_documents
-    // in budget_list.html — privileged or MANAGER-tier), so it needs the
-    // same per-document ownership narrowing Edit does, plus the status gate.
+    // Cancel allows creators or privileged users to cancel documents in PENDING state
     function applyCancelButtonVisibility(btnEl, createEid, status) {
         if (!btnEl) return;
-        const ownsOrPrivileged = isPrivilegedUser || createEid === currentUsername;
+        const ownsOrPrivileged = isPrivilegedUser || (createEid && currentUsername && createEid.toLowerCase() === currentUsername.toLowerCase());
         btnEl.style.display = (ownsOrPrivileged && status === 'PENDING') ? '' : 'none';
     }
 
@@ -241,6 +329,25 @@ const BudgetApp = (function() {
             return '<span class="badge bg-danger d-flex align-items-center px-2 py-1" style="width:fit-content;"><i data-feather="x-circle" style="width:14px;height:14px;" class="me-1"></i>ยกเลิก</span>';
         }
         return '<span class="badge d-flex align-items-center px-2 py-1" style="background-color:#daa520; color:#212529; width:fit-content;"><i data-feather="clock" style="width:14px;height:14px;" class="me-1"></i>รออนุมัติ</span>';
+    }
+
+    // In document detail modals, only show the status column if the document is CANCELLED.
+    // If not cancelled (PENDING, APPROVED, etc.), keep the column hidden.
+    function renderModalDocStatus(thEl, tdEl, status) {
+        if (!thEl && !tdEl) return;
+        if (status === 'CANCELLED') {
+            if (thEl) thEl.style.display = '';
+            if (tdEl) {
+                tdEl.style.display = '';
+                tdEl.innerHTML = statusBadge('CANCELLED');
+            }
+        } else {
+            if (thEl) thEl.style.display = 'none';
+            if (tdEl) {
+                tdEl.style.display = 'none';
+                tdEl.innerHTML = '';
+            }
+        }
     }
 
     // Shared response handler for every fetch() call in this module: an
@@ -344,25 +451,62 @@ const BudgetApp = (function() {
 
             // If position changed, update salary
             if (x === 0) {
-                const match = itemsList.find(i => i.name === value);
+                const trimmedVal = (value || '').trim();
+                const match = trimmedVal !== '' ? itemsList.find(i => i.name === trimmedVal) : null;
                 if (match) {
                     const salary = isEquipment ? match.purchase_price : match.salary;
                     modalTable1.setValueFromCoords(priceCol, y, salary, true);
+                    if (isNonVet) {
+                        modalTable1.setValueFromCoords(allowanceCol, y, match.position_allowance || 0, true);
+                    }
                 } else {
-                    const currentPrice = getNum(modalTable1.getValueFromCoords(priceCol, y));
-                    if (!currentPrice) {
-                        modalTable1.setValueFromCoords(priceCol, y, 0, true);
+                    if (trimmedVal !== '') {
+                        modalTable1.setValueFromCoords(0, y, '', true);
+                    }
+                    modalTable1.setValueFromCoords(priceCol, y, 0, true);
+                    if (isNonVet) {
+                        modalTable1.setValueFromCoords(allowanceCol, y, 0, true);
+                    }
+                    if (trimmedVal !== '') {
+                        const label = isEquipment ? 'รายการ' : 'ตำแหน่ง';
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'แจ้งเตือน',
+                            text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือก${label}จากรายการ Dropdown เท่านั้น ("${trimmedVal}" ไม่มีอยู่ในรายการตัวเลือก)`,
+                            timer: 3000,
+                            showConfirmButton: false,
+                            toast: true,
+                            position: 'top-end'
+                        });
                     }
                 }
+            }
 
-                if (isNonVet) {
-                    if (match) {
-                        modalTable1.setValueFromCoords(allowanceCol, y, match.position_allowance || 0, true);
-                    } else {
-                        const currentAllowance = getNum(modalTable1.getValueFromCoords(allowanceCol, y));
-                        if (!currentAllowance) {
-                            modalTable1.setValueFromCoords(allowanceCol, y, 0, true);
+            // Enforce integer headcount/quantity without leading zeros in month columns
+            if (x >= startCol && x <= endCol) {
+                const rawVal = String(value || '').trim();
+                if (rawVal !== '') {
+                    const cleanStr = rawVal.replace(/,/g, '');
+                    const hasLeadingZero = /^0\d+/.test(cleanStr);
+                    const num = parseFloat(cleanStr);
+                    const isDecimal = !isNaN(num) && !Number.isInteger(num);
+
+                    if (isDecimal || hasLeadingZero) {
+                        const intVal = isNaN(num) ? 0 : Math.floor(num);
+                        modalTable1.setValueFromCoords(x, y, intVal, false);
+                        let warnMsg = (isEquipment ? 'จำนวนรายการ' : 'จำนวนคน') + 'ต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม';
+                        if (hasLeadingZero) {
+                            warnMsg = 'ไม่อนุญาตให้กรอกตัวเลขที่มี 0 นำหน้า (เช่น 03, 04) ระบบปรับเป็น ' + intVal + ' ให้เรียบร้อยแล้ว';
                         }
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'แจ้งเตือน',
+                            text: warnMsg,
+                            timer: 2500,
+                            showConfirmButton: false,
+                            toast: true,
+                            position: 'top-end'
+                        });
                     }
                 }
             }
@@ -449,7 +593,7 @@ const BudgetApp = (function() {
                         <th>Date Created</th>
                         <th>Created By</th>
                         <!-- <th>สถานะ</th> -->
-                        <th>Action</th>
+                        <th class="text-center text-nowrap" style="width: 80px;">Action</th>
                     </tr>
                 </thead>
                 <tbody id="tableBody"></tbody>
@@ -483,22 +627,33 @@ const BudgetApp = (function() {
                     `javascript:viewGeneralLedgerDocumentDetails('${doc.document_no}', '${doc.type}')` :
                     `javascript:viewDocumentDetails('${doc.document_no}', '${doc.type}')`;
 
+                const isCancelled = doc.status === 'CANCELLED';
+
+                const docNoCell = isCancelled ? `
+                    <div class="d-inline-flex align-items-center flex-wrap gap-2">
+                        <span class="fw-semibold text-dark">${doc.document_no}</span>
+                        <span class="badge d-inline-flex align-items-center px-2 py-0.5" style="background-color: #fee2e2; color: #dc2626; border: 1px solid #fecaca; font-size: 0.72rem; font-weight: 600; border-radius: 9999px; letter-spacing: 0.2px;" title="รายการนี้ถูกยกเลิกแล้ว">
+                            <i data-feather="x-circle" style="width: 11px; height: 11px; stroke-width: 2.5;" class="me-1"></i>ยกเลิก
+                        </span>
+                    </div>
+                ` : `${doc.document_no}`;
+
                 // Per-row stagger delay is handled entirely in CSS via
                 // nth-child (see polish.css) — simple-datatables rebuilds
                 // this markup on init and drops any inline style we'd set
                 // here, so a JS-computed animation-delay would be discarded.
                 rowsHtml += `
-                    <tr>
-                        <td>${doc.document_no}</td>
+                    <tr class="${isCancelled ? 'table-light' : ''}">
+                        <td>${docNoCell}</td>
                         <td>${catBadge}</td>
                         <td>${doc.base_branch_id || '-'}</td>
                         <td>${doc.budget_year}</td>
-                        <td>${Number(doc.total_budget || 0).toLocaleString('en-US', {maximumFractionDigits: 0})}</td>
+                        <td>${isCancelled ? `<span class="text-decoration-line-through text-muted" title="ยอดงบประมาณที่ยกเลิก">${Number(doc.total_budget || 0).toLocaleString('en-US', {maximumFractionDigits: 0})}</span>` : Number(doc.total_budget || 0).toLocaleString('en-US', {maximumFractionDigits: 0})}</td>
                         <td>${doc.create_date}</td>
                         <td>${doc.create_eid}</td>
                         <!-- <td>${statusBadge(doc.status)}</td> -->
-                        <td>
-                            <a class="btn btn-datatable btn-icon btn-transparent-dark me-2" href="${actionUrl}"><i data-feather="eye"></i></a>
+                        <td class="text-center text-nowrap">
+                            <a class="btn btn-datatable btn-icon btn-transparent-dark" href="${actionUrl}" title="ดูรายละเอียด"><i data-feather="eye"></i></a>
                         </td>
                     </tr>
                 `;
@@ -527,6 +682,13 @@ const BudgetApp = (function() {
                 info: "แสดงรายการที่ {start} ถึง {end} จากทั้งหมด {rows} รายการ"
             }
         });
+
+        // Ensure feather icons are rendered on any pagination, sort, search, or init
+        const reRenderFeather = () => { if (typeof feather !== 'undefined') feather.replace(); };
+        dataTable.on('datatable.init', reRenderFeather);
+        dataTable.on('datatable.page', reRenderFeather);
+        dataTable.on('datatable.sort', reRenderFeather);
+        dataTable.on('datatable.search', reRenderFeather);
 
         // Best Practice: Handle the native 'search' and 'input' events for the browser's clear (X) button
         setTimeout(() => {
@@ -779,7 +941,17 @@ const BudgetApp = (function() {
                     applyEditButtonVisibility(document.getElementById('btnEditMode'), result.doc_info.create_eid, result.doc_info.status);
                     applyApproveButtonVisibility(document.getElementById('btnApproveDocument'), result.doc_info.status);
                     applyCancelButtonVisibility(document.getElementById('btnCancelDocument'), result.doc_info.create_eid, result.doc_info.status);
-                    // document.getElementById('modalDocStatus').innerHTML = statusBadge(result.doc_info.status); — column hidden, see budget_list.html
+                    renderModalDocStatus(document.getElementById('modalDocStatusTh'), document.getElementById('modalDocStatus'), result.doc_info.status);
+                    const reasonAlert = document.getElementById('modalCancelReasonAlert');
+                    const reasonText = document.getElementById('modalCancelReasonText');
+                    if (reasonAlert && reasonText) {
+                        if (result.doc_info.status === 'CANCELLED' && result.doc_info.cancel_reason) {
+                            reasonText.innerText = result.doc_info.cancel_reason;
+                            reasonAlert.style.display = 'block';
+                        } else {
+                            reasonAlert.style.display = 'none';
+                        }
+                    }
                     if (typeof feather !== 'undefined') feather.replace();
                     document.getElementById('modalDocDate').innerText = result.doc_info.create_date;
 
@@ -980,6 +1152,8 @@ const BudgetApp = (function() {
             btnAddRow.style.display = 'block';
             btnSave.style.display = 'inline-block';
             if (btnClose) btnClose.style.display = 'none';
+            const btnCancel = document.getElementById('btnCancelDocument');
+            if (btnCancel) btnCancel.style.display = 'none';
 
             buildCostCenterSelect('modalDocCostCenter', currentCostCenterName, (value) => { currentCostCenterName = value; });
             buildBranchSelect('modalDocBranch', currentBranchCode, (value) => { currentBranchCode = value; });
@@ -1041,11 +1215,14 @@ const BudgetApp = (function() {
                             }
                         } catch (e) {}
                         input.onkeydown = function(e) {
-                            if (e.which === 13) {
+                            if (e.which === 13 || e.key === 'Enter') {
                                 if (modalTable1 && modalTable1.edition) modalTable1.closeEditor(cell, true);
-                            } else if (e.which === 27) {
+                            } else if (e.which === 27 || e.key === 'Escape') {
                                 if (modalTable1 && modalTable1.edition) modalTable1.closeEditor(cell, false);
                             }
+                        };
+                        input.onchange = function() {
+                            if (modalTable1 && modalTable1.edition) modalTable1.closeEditor(cell, true);
                         };
                         input.onblur = function() {
                             if (modalTable1 && modalTable1.edition) modalTable1.closeEditor(cell, true);
@@ -1053,7 +1230,21 @@ const BudgetApp = (function() {
                     },
                     closeEditor: function(cell) {
                         const input = cell.querySelector('input');
-                        return input ? input.value.trim() : (cell.innerText || '').trim();
+                        const val = (input ? input.value : (cell.innerText || '')).trim();
+                        if (val !== '' && !itemsList.some(i => i.name === val)) {
+                            const label = isEquipment ? 'รายการ' : 'ตำแหน่ง';
+                            Swal.fire({
+                                icon: 'warning',
+                                title: 'แจ้งเตือน',
+                                text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือก${label}จากรายการ Dropdown เท่านั้น ("${val}" ไม่มีอยู่ในรายการตัวเลือก)`,
+                                timer: 3000,
+                                showConfirmButton: false,
+                                toast: true,
+                                position: 'top-end'
+                            });
+                            return '';
+                        }
+                        return val;
                     }
                 };
                 let colTitle = 'ตำแหน่ง';
@@ -1093,11 +1284,13 @@ const BudgetApp = (function() {
                 allowDeleteColumn: false,
                 tableOverflow: true,
                 onchange: onSpreadsheetChange,
-                onselection: function(instance, x1, y1, x2, y2, origin) {
+                onselection: function(el, x1, y1, x2, y2, origin) {
+                    const sheet = (el && el.jexcel) || modalTable1;
+                    if (!sheet || typeof sheet.getCellFromCoords !== 'function') return;
                     if (x1 === 0 && x2 === 0 && y1 === y2) {
-                        const cell = instance.getCellFromCoords(0, y1);
-                        if (cell && !instance.edition) {
-                            instance.openEditor(cell, false);
+                        const cell = sheet.getCellFromCoords(0, y1);
+                        if (cell && !sheet.edition) {
+                            sheet.openEditor(cell, false);
                         }
                     }
                 },
@@ -1172,6 +1365,9 @@ const BudgetApp = (function() {
 
     function saveDocument() {
         if (!modalTable1 || !isEditMode) return;
+        if (modalTable1.edition) {
+            modalTable1.closeEditor(modalTable1.edition[0], true);
+        }
 
         const costCenterName = currentCostCenterName;
         if (!costCenterName) {
@@ -1195,6 +1391,16 @@ const BudgetApp = (function() {
         const allowanceCol = priceCol + 1; // only meaningful when isNonVet
         const startCol = priceCol + 1 + (isNonVet ? 1 : 0);
 
+        let itemsList = vetItems;
+        if (isNonVet) itemsList = nonVetItems;
+        else if (isMed) itemsList = medItems;
+        else if (isComp) itemsList = compItems;
+        else if (isFurniture) itemsList = furnitureItems;
+        else if (isTools) itemsList = toolsItems;
+        else if (isCar) itemsList = carItems;
+        else if (isRenovate) itemsList = renovateItems;
+        else if (isSoftware) itemsList = softwareItems;
+
         let rows = modalTable1.getData();
         let dataToSave = [];
 
@@ -1206,8 +1412,21 @@ const BudgetApp = (function() {
             let allowance = isNonVet ? getNum(row[allowanceCol]) : 0;
 
             if (position) {
+                if (isEquipment || isVet || isNonVet) {
+                    const isItemInMaster = itemsList.some(it => it.name === position);
+                    if (!isItemInMaster) {
+                        const label = isEquipment ? 'รายการ' : 'ตำแหน่ง';
+                        Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือก${label}จากรายการ Dropdown เท่านั้น\n(แถวที่ ${i + 1}: "${position}" ไม่มีอยู่ในรายการตัวเลือก)`, 'warning');
+                        return;
+                    }
+                }
+
                 if (isEquipment && salary <= 0) {
                     Swal.fire('แจ้งเตือน', `กรุณาระบุราคาซื้อสำหรับ "${position}" (แถวที่ ${i + 1})`, 'warning');
+                    return;
+                }
+                if (isEquipment && salary < 5000) {
+                    Swal.fire('แจ้งเตือน', `ราคาซื้อในหมวดสินทรัพย์ถาวร (Fix Asset) ต้องมีมูลค่าตั้งแต่ 5,000 บาทขึ้นไป กรุณาตรวจสอบราคาสำหรับ "${position}" (แถวที่ ${i + 1})`, 'warning');
                     return;
                 }
                 if (!isEquipment && salary <= 0 && allowance <= 0) {
@@ -1216,6 +1435,20 @@ const BudgetApp = (function() {
                 const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
                 const monthCounts = [];
                 for (let c = startCol; c <= startCol + 11; c++) monthCounts.push(getNum(row[c]));
+
+                const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                for (let c = 0; c < 12; c++) {
+                    const cellVal = row[startCol + c];
+                    const rawStr = String(cellVal !== null && cellVal !== undefined ? cellVal : '').trim().replace(/,/g, '');
+                    if (rawStr !== '' && /^0\d+/.test(rawStr)) {
+                        Swal.fire('แจ้งเตือน', `จำนวนในเดือน ${monthNames[c]} ไม่อนุญาตให้กรอกรูปแบบที่มีเลข 0 นำหน้า เช่น "${rawStr}" (แถวที่ ${i + 1}: ${position}) กรุณาระบุเป็นตัวเลขจำนวนเต็มปกติ`, 'warning');
+                        return;
+                    }
+                    if (monthCounts[c] % 1 !== 0 || monthCounts[c] < 0) {
+                        Swal.fire('แจ้งเตือน', `จำนวนในเดือน ${monthNames[c]} ต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม (แถวที่ ${i + 1}: ${position})`, 'warning');
+                        return;
+                    }
+                }
 
                 // Cost must match whatever modalTable2 showed the user before
                 // they hit Save — equipment is a flat one-off purchase per
@@ -1358,7 +1591,7 @@ const BudgetApp = (function() {
 
     function cancelDocument() {
         Swal.fire({
-            title: 'ยืนยันการยกเลิกเอกสาร?',
+            title: 'ยืนยันการยกเลิกรายการ?',
             input: 'textarea',
             inputLabel: 'เหตุผลการยกเลิก',
             inputPlaceholder: 'กรุณาระบุเหตุผล...',
@@ -1367,7 +1600,7 @@ const BudgetApp = (function() {
             showCancelButton: true,
             confirmButtonColor: '#dc3545',
             cancelButtonColor: '#6c757d',
-            confirmButtonText: 'ยกเลิกเอกสาร',
+            confirmButtonText: 'ยกเลิกรายการ',
             cancelButtonText: 'ปิด',
             // Bootstrap's modal focus trap keeps yanking focus back into
             // #documentDetailModal (still open underneath) since Swal mounts
@@ -1391,7 +1624,7 @@ const BudgetApp = (function() {
             .then(data => {
                 if (data.status === 'success') {
                     updateListRowStatus(currentDocNo, 'CANCELLED');
-                    Swal.fire('สำเร็จ!', 'ยกเลิกเอกสารเรียบร้อยแล้ว', 'success').then(() => {
+                    Swal.fire('สำเร็จ!', 'ยกเลิกรายการเรียบร้อยแล้ว', 'success').then(() => {
                         viewDocumentDetails(currentDocNo, currentDocType);
                     });
                 } else {
@@ -1640,9 +1873,11 @@ const BudgetApp = (function() {
             totalsRow.appendChild(td);
         }
 
-        const fillerTd = document.createElement('td'); // คอลัมน์ "รวม" — เว้นว่าง
-        fillerTd.style.top = `${headerRow.offsetHeight}px`;
-        totalsRow.appendChild(fillerTd);
+        const totalTd = document.createElement('td'); // คอลัมน์ "รวม" — ยอดรวมทั้งหมดของทุกเดือน
+        totalTd.id = 'glEntryMonthlyTotal-grand';
+        totalTd.textContent = '0';
+        totalTd.style.top = `${headerRow.offsetHeight}px`;
+        totalsRow.appendChild(totalTd);
 
         theadEl.appendChild(totalsRow);
     }
@@ -1651,12 +1886,16 @@ const BudgetApp = (function() {
         const table = glDetailTables[0];
         if (!table) return;
         const rows = table.getData();
+        let grandTotal = 0;
         for (let m = 0; m < 12; m++) {
             let sum = 0;
             for (let i = 0; i < rows.length; i++) sum += getNum(rows[i][2 + m]);
             const cell = document.getElementById(`glEntryMonthlyTotal-${m}`);
             if (cell) cell.textContent = sum.toLocaleString('en-US', { maximumFractionDigits: 2 });
+            grandTotal += sum;
         }
+        const grandCell = document.getElementById('glEntryMonthlyTotal-grand');
+        if (grandCell) grandCell.textContent = grandTotal.toLocaleString('en-US', { maximumFractionDigits: 2 });
     }
 
     function buildBudgetPlanViewColumns(columnLabel, editable) {
@@ -1749,11 +1988,13 @@ const BudgetApp = (function() {
             const extraOptions = editable ? {
                 minDimensions: [columns.length, 1],
                 onchange: makeGlOnchange(() => glDetailTables[0], 2, 14),
-                onselection: function(instance, x1, y1, x2, y2, origin) {
+                onselection: function(el, x1, y1, x2, y2, origin) {
+                    const sheet = (el && el.jexcel) || (glDetailTables && glDetailTables[0]);
+                    if (!sheet || typeof sheet.getCellFromCoords !== 'function') return;
                     if (x1 === 0 && x2 === 0 && y1 === y2) {
-                        const cell = instance.getCellFromCoords(0, y1);
-                        if (cell && !instance.edition) {
-                            instance.openEditor(cell, false);
+                        const cell = sheet.getCellFromCoords(0, y1);
+                        if (cell && !sheet.edition) {
+                            sheet.openEditor(cell, false);
                         }
                     }
                 }
@@ -1880,7 +2121,17 @@ const BudgetApp = (function() {
                     applyEditButtonVisibility(document.getElementById('btnGlEditMode'), result.doc_info.create_eid, result.doc_info.status);
                     applyApproveButtonVisibility(document.getElementById('btnGlApproveDocument'), result.doc_info.status);
                     applyCancelButtonVisibility(document.getElementById('btnGlCancelDocument'), result.doc_info.create_eid, result.doc_info.status);
-                    // document.getElementById('glModalDocStatus').innerHTML = statusBadge(result.doc_info.status); — column hidden, see budget_list.html
+                    renderModalDocStatus(document.getElementById('glModalDocStatusTh'), document.getElementById('glModalDocStatus'), result.doc_info.status);
+                    const glReasonAlert = document.getElementById('glModalCancelReasonAlert');
+                    const glReasonText = document.getElementById('glModalCancelReasonText');
+                    if (glReasonAlert && glReasonText) {
+                        if (result.doc_info.status === 'CANCELLED' && result.doc_info.cancel_reason) {
+                            glReasonText.innerText = result.doc_info.cancel_reason;
+                            glReasonAlert.style.display = 'block';
+                        } else {
+                            glReasonAlert.style.display = 'none';
+                        }
+                    }
                     if (typeof feather !== 'undefined') feather.replace();
                     document.getElementById('glModalDocDate').innerText = result.doc_info.create_date;
 
@@ -1927,6 +2178,8 @@ const BudgetApp = (function() {
             }
             if (btnGlSave) btnGlSave.style.display = 'inline-block';
             if (btnGlClose) btnGlClose.style.display = 'none';
+            const btnGlCancel = document.getElementById('btnGlCancelDocument');
+            if (btnGlCancel) btnGlCancel.style.display = 'none';
             buildCostCenterSelect('glModalDocCostCenter', currentGlCostCenterName, (value) => { currentGlCostCenterName = value; });
             buildBranchSelect('glModalDocBranch', currentGlBranchCode, (value) => { currentGlBranchCode = value; });
 
@@ -2100,7 +2353,7 @@ const BudgetApp = (function() {
 
     function cancelGlDocument() {
         Swal.fire({
-            title: 'ยืนยันการยกเลิกเอกสาร?',
+            title: 'ยืนยันการยกเลิกรายการ?',
             input: 'textarea',
             inputLabel: 'เหตุผลการยกเลิก',
             inputPlaceholder: 'กรุณาระบุเหตุผล...',
@@ -2109,7 +2362,7 @@ const BudgetApp = (function() {
             showCancelButton: true,
             confirmButtonColor: '#dc3545',
             cancelButtonColor: '#6c757d',
-            confirmButtonText: 'ยกเลิกเอกสาร',
+            confirmButtonText: 'ยกเลิกรายการ',
             cancelButtonText: 'ปิด',
             didOpen: () => { glModalInstance?._focustrap?.deactivate?.(); },
             didClose: () => { glModalInstance?._focustrap?.activate?.(); },
@@ -2129,7 +2382,7 @@ const BudgetApp = (function() {
             .then(data => {
                 if (data.status === 'success') {
                     updateListRowStatus(currentGlDocNo, 'CANCELLED');
-                    Swal.fire('สำเร็จ!', 'ยกเลิกเอกสารเรียบร้อยแล้ว', 'success').then(() => {
+                    Swal.fire('สำเร็จ!', 'ยกเลิกรายการเรียบร้อยแล้ว', 'success').then(() => {
                         viewGeneralLedgerDocumentDetails(currentGlDocNo, currentGlDocType);
                     });
                 } else {
@@ -2195,7 +2448,17 @@ const BudgetApp = (function() {
                     applyEditButtonVisibility(document.getElementById('btnAdjEditMode'), result.doc_info.create_eid, result.doc_info.status);
                     applyApproveButtonVisibility(document.getElementById('btnAdjApproveDocument'), result.doc_info.status);
                     applyCancelButtonVisibility(document.getElementById('btnAdjCancelDocument'), result.doc_info.create_eid, result.doc_info.status);
-                    // document.getElementById('adjModalDocStatus').innerHTML = statusBadge(result.doc_info.status); — column hidden, see budget_list.html
+                    renderModalDocStatus(document.getElementById('adjModalDocStatusTh'), document.getElementById('adjModalDocStatus'), result.doc_info.status);
+                    const adjReasonAlert = document.getElementById('adjModalCancelReasonAlert');
+                    const adjReasonText = document.getElementById('adjModalCancelReasonText');
+                    if (adjReasonAlert && adjReasonText) {
+                        if (result.doc_info.status === 'CANCELLED' && result.doc_info.cancel_reason) {
+                            adjReasonText.innerText = result.doc_info.cancel_reason;
+                            adjReasonAlert.style.display = 'block';
+                        } else {
+                            adjReasonAlert.style.display = 'none';
+                        }
+                    }
                     if (typeof feather !== 'undefined') feather.replace();
                     document.getElementById('adjModalDocDate').innerText = result.doc_info.create_date;
 
@@ -2390,28 +2653,85 @@ const BudgetApp = (function() {
             let newSal = getNum(adjTable1.getValueFromCoords(8, y));
             let newAllow = getNum(adjTable1.getValueFromCoords(9, y));
 
+            // Type (ประเภท) Changed
+            if (x === 0) {
+                const trimmedVal = (value || '').trim();
+                if (trimmedVal !== '') {
+                    const upper = trimmedVal.toUpperCase();
+                    if (upper === 'VET') {
+                        if (trimmedVal !== 'VET') adjTable1.setValueFromCoords(0, y, 'VET', true);
+                    } else if (upper === 'NON VET' || upper === 'NON-VET' || upper === 'NONVET') {
+                        if (trimmedVal !== 'NON VET') adjTable1.setValueFromCoords(0, y, 'NON VET', true);
+                    } else {
+                        adjTable1.setValueFromCoords(0, y, '', true);
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'แจ้งเตือน',
+                            text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกประเภท (VET หรือ NON VET) จากรายการ Dropdown เท่านั้น ("${trimmedVal}" ไม่ถูกต้อง)`,
+                            timer: 3000,
+                            showConfirmButton: false,
+                            toast: true,
+                            position: 'top-end'
+                        });
+                    }
+                }
+            }
             if (x === 1) {
-                const match = allAdjItems.find(i => i.name === value);
+                const trimmedVal = (value || '').trim();
+                const match = trimmedVal !== '' ? allAdjItems.find(i => i.name === trimmedVal) : null;
                 if (match) {
                     oldSal = match.salary || 0;
                     oldAllow = match.position_allowance || 0;
                     adjTable1.setValueFromCoords(5, y, oldSal, true);
                     adjTable1.setValueFromCoords(6, y, oldAllow, true);
                 } else {
-                    if (!oldSal) adjTable1.setValueFromCoords(5, y, 0, true);
-                    if (!oldAllow) adjTable1.setValueFromCoords(6, y, 0, true);
+                    oldSal = 0;
+                    oldAllow = 0;
+                    if (trimmedVal !== '') {
+                        adjTable1.setValueFromCoords(1, y, '', true);
+                    }
+                    adjTable1.setValueFromCoords(5, y, 0, true);
+                    adjTable1.setValueFromCoords(6, y, 0, true);
+                    if (trimmedVal !== '') {
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'แจ้งเตือน',
+                            text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งเดิมจากรายการ Dropdown เท่านั้น ("${trimmedVal}" ไม่มีอยู่ในรายการตัวเลือก)`,
+                            timer: 3000,
+                            showConfirmButton: false,
+                            toast: true,
+                            position: 'top-end'
+                        });
+                    }
                 }
             }
             if (x === 3) {
-                const match = allAdjItems.find(i => i.name === value);
+                const trimmedVal = (value || '').trim();
+                const match = trimmedVal !== '' ? allAdjItems.find(i => i.name === trimmedVal) : null;
                 if (match) {
                     newSal = match.salary || 0;
                     newAllow = match.position_allowance || 0;
                     adjTable1.setValueFromCoords(8, y, newSal, true);
                     adjTable1.setValueFromCoords(9, y, newAllow, true);
                 } else {
-                    if (!newSal) adjTable1.setValueFromCoords(8, y, 0, true);
-                    if (!newAllow) adjTable1.setValueFromCoords(9, y, 0, true);
+                    newSal = 0;
+                    newAllow = 0;
+                    if (trimmedVal !== '') {
+                        adjTable1.setValueFromCoords(3, y, '', true);
+                    }
+                    adjTable1.setValueFromCoords(8, y, 0, true);
+                    adjTable1.setValueFromCoords(9, y, 0, true);
+                    if (trimmedVal !== '') {
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'แจ้งเตือน',
+                            text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น ("${trimmedVal}" ไม่มีอยู่ในรายการตัวเลือก)`,
+                            timer: 3000,
+                            showConfirmButton: false,
+                            toast: true,
+                            position: 'top-end'
+                        });
+                    }
                 }
             }
             if (x === 5) oldSal = getNum(value);
@@ -2427,6 +2747,35 @@ const BudgetApp = (function() {
 
                 adjTable1.setValueFromCoords(11, y, newSal - oldSal, true);
                 adjTable1.setValueFromCoords(12, y, newAllow - oldAllow, true);
+            }
+
+            // Enforce integer headcount without leading zeros in month columns (x = 13 to 24)
+            if (x >= 13 && x <= 24) {
+                const rawVal = String(value || '').trim();
+                if (rawVal !== '') {
+                    const cleanStr = rawVal.replace(/,/g, '');
+                    const hasLeadingZero = /^0\d+/.test(cleanStr);
+                    const num = parseFloat(cleanStr);
+                    const isDecimal = !isNaN(num) && !Number.isInteger(num);
+
+                    if (isDecimal || hasLeadingZero) {
+                        const intVal = isNaN(num) ? 0 : Math.floor(num);
+                        adjTable1.setValueFromCoords(x, y, intVal, false);
+                        let warnMsg = 'จำนวนคนต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม';
+                        if (hasLeadingZero) {
+                            warnMsg = 'ไม่อนุญาตให้กรอกตัวเลขที่มี 0 นำหน้า (เช่น 03, 04) ระบบปรับเป็น ' + intVal + ' ให้เรียบร้อยแล้ว';
+                        }
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'แจ้งเตือน',
+                            text: warnMsg,
+                            timer: 2500,
+                            showConfirmButton: false,
+                            toast: true,
+                            position: 'top-end'
+                        });
+                    }
+                }
             }
 
             const rowData1 = adjTable1.getRowData(y);
@@ -2512,6 +2861,10 @@ const BudgetApp = (function() {
             btnAddRow.style.display = 'block';
             btnSave.style.display = 'inline-block';
             if (btnClose) btnClose.style.display = 'none';
+            const btnAdjCancel = document.getElementById('btnAdjCancelDocument');
+            if (btnAdjCancel) btnAdjCancel.style.display = 'none';
+            const btnAdjApprove = document.getElementById('btnAdjApproveDocument');
+            if (btnAdjApprove) btnAdjApprove.style.display = 'none';
 
             buildCostCenterSelect('adjModalDocCostCenter', currentAdjCostCenterName, (value) => { currentAdjCostCenterName = value; });
             buildBranchSelect('adjModalDocBranch', currentAdjBranchCode, (value) => { currentAdjBranchCode = value; });
@@ -2576,11 +2929,14 @@ const BudgetApp = (function() {
                         }
                     } catch (e) {}
                     input.onkeydown = function(e) {
-                        if (e.which === 13) {
+                        if (e.which === 13 || e.key === 'Enter') {
                             if (adjTable1 && adjTable1.edition) adjTable1.closeEditor(cell, true);
-                        } else if (e.which === 27) {
+                        } else if (e.which === 27 || e.key === 'Escape') {
                             if (adjTable1 && adjTable1.edition) adjTable1.closeEditor(cell, false);
                         }
+                    };
+                    input.onchange = function() {
+                        if (adjTable1 && adjTable1.edition) adjTable1.closeEditor(cell, true);
                     };
                     input.onblur = function() {
                         if (adjTable1 && adjTable1.edition) adjTable1.closeEditor(cell, true);
@@ -2589,10 +2945,21 @@ const BudgetApp = (function() {
                 closeEditor: function(cell) {
                     const input = cell.querySelector('input');
                     const val = (input ? input.value : (cell.innerText || '')).trim();
-                    if (!val) return '';
-                    const upper = val.toUpperCase();
-                    if (upper === 'VET') return 'VET';
-                    if (upper === 'NON VET' || upper === 'NON-VET' || upper === 'NONVET') return 'NON VET';
+                    if (val !== '') {
+                        const upper = val.toUpperCase();
+                        if (upper === 'VET') return 'VET';
+                        if (upper === 'NON VET' || upper === 'NON-VET' || upper === 'NONVET') return 'NON VET';
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'แจ้งเตือน',
+                            text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกประเภท (VET หรือ NON VET) จากรายการ Dropdown เท่านั้น ("${val}" ไม่ถูกต้อง)`,
+                            timer: 3000,
+                            showConfirmButton: false,
+                            toast: true,
+                            position: 'top-end'
+                        });
+                        return '';
+                    }
                     return '';
                 }
             };
@@ -2642,11 +3009,14 @@ const BudgetApp = (function() {
                         }
                     } catch (e) {}
                     input.onkeydown = function(e) {
-                        if (e.which === 13) {
+                        if (e.which === 13 || e.key === 'Enter') {
                             if (adjTable1 && adjTable1.edition) adjTable1.closeEditor(cell, true);
-                        } else if (e.which === 27) {
+                        } else if (e.which === 27 || e.key === 'Escape') {
                             if (adjTable1 && adjTable1.edition) adjTable1.closeEditor(cell, false);
                         }
+                    };
+                    input.onchange = function() {
+                        if (adjTable1 && adjTable1.edition) adjTable1.closeEditor(cell, true);
                     };
                     input.onblur = function() {
                         if (adjTable1 && adjTable1.edition) adjTable1.closeEditor(cell, true);
@@ -2654,7 +3024,22 @@ const BudgetApp = (function() {
                 },
                 closeEditor: function(cell) {
                     const input = cell.querySelector('input');
-                    return input ? input.value.trim() : (cell.innerText || '').trim();
+                    const val = (input ? input.value : (cell.innerText || '')).trim();
+                    if (val !== '' && !allAdjItems.some(i => i.name === val)) {
+                        const x = parseInt(cell.getAttribute('data-x'));
+                        const label = x === 1 ? 'ตำแหน่งเดิม' : 'ตำแหน่งใหม่';
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'แจ้งเตือน',
+                            text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือก${label}จากรายการ Dropdown เท่านั้น ("${val}" ไม่มีอยู่ในรายการตัวเลือก)`,
+                            timer: 3000,
+                            showConfirmButton: false,
+                            toast: true,
+                            position: 'top-end'
+                        });
+                        return '';
+                    }
+                    return val;
                 }
             };
 
@@ -2701,11 +3086,13 @@ const BudgetApp = (function() {
                 tableOverflow: true,
                 freezeColumns: 5,
                 onchange: onAdjSpreadsheetChange,
-                onselection: function(instance, x1, y1, x2, y2, origin) {
+                onselection: function(el, x1, y1, x2, y2, origin) {
+                    const sheet = (el && el.jexcel) || adjTable1;
+                    if (!sheet || typeof sheet.getCellFromCoords !== 'function') return;
                     if ((x1 === 0 || x1 === 1 || x1 === 3) && x1 === x2 && y1 === y2) {
-                        const cell = instance.getCellFromCoords(x1, y1);
-                        if (cell && !instance.edition) {
-                            instance.openEditor(cell, false);
+                        const cell = sheet.getCellFromCoords(x1, y1);
+                        if (cell && !sheet.edition) {
+                            sheet.openEditor(cell, false);
                         }
                     }
                 },
@@ -2743,6 +3130,9 @@ const BudgetApp = (function() {
 
     function saveAdjDocument() {
         if (!adjTable1 || !isAdjEditMode) return;
+        if (adjTable1.edition) {
+            adjTable1.closeEditor(adjTable1.edition[0], true);
+        }
 
         const costCenterName = currentAdjCostCenterName;
         if (!costCenterName) {
@@ -2778,11 +3168,41 @@ const BudgetApp = (function() {
             }
 
             if (hasAllRequired) {
+                const allAdjItems = [...vetItems, ...nonVetItems];
+                if (adjustmentType !== 'VET' && adjustmentType !== 'NON VET') {
+                    Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกประเภท (VET หรือ NON VET) จากรายการ Dropdown เท่านั้น\n(แถวที่ ${i + 1}: "${adjustmentType}" ไม่ถูกต้อง)`, 'warning');
+                    return;
+                }
+                const isOldValid = allAdjItems.some(it => it.name === oldPos);
+                if (!isOldValid) {
+                    Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งเดิมจากรายการ Dropdown เท่านั้น\n(แถวที่ ${i + 1}: "${oldPos}" ไม่มีอยู่ในรายการตัวเลือก)`, 'warning');
+                    return;
+                }
+                const isNewValid = allAdjItems.some(it => it.name === newPos);
+                if (!isNewValid) {
+                    Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น\n(แถวที่ ${i + 1}: "${newPos}" ไม่มีอยู่ในรายการตัวเลือก)`, 'warning');
+                    return;
+                }
+
                 let diffSal = newSal - oldSal;
                 let diffAllow = newAllow - oldAllow;
                 const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
                 const monthCounts = [];
                 for (let c = 13; c <= 24; c++) monthCounts.push(getNum(row[c]));
+
+                const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                for (let c = 0; c < 12; c++) {
+                    const cellVal = row[13 + c];
+                    const rawStr = String(cellVal !== null && cellVal !== undefined ? cellVal : '').trim().replace(/,/g, '');
+                    if (rawStr !== '' && /^0\d+/.test(rawStr)) {
+                        Swal.fire('แจ้งเตือน', `จำนวนคนในเดือน ${monthNames[c]} ไม่อนุญาตให้กรอกรูปแบบที่มีเลข 0 นำหน้า เช่น "${rawStr}" (แถวที่ ${i + 1}) กรุณาระบุเป็นตัวเลขจำนวนเต็มปกติ`, 'warning');
+                        return;
+                    }
+                    if (monthCounts[c] % 1 !== 0 || monthCounts[c] < 0) {
+                        Swal.fire('แจ้งเตือน', `จำนวนคนในเดือน ${monthNames[c]} ต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม (แถวที่ ${i + 1})`, 'warning');
+                        return;
+                    }
+                }
                 // Cost must accumulate ("ขั้นบันได") the same way the
                 // on-screen preview (adjTable2/adjTable3, via
                 // onAdjSpreadsheetChange) and the create-flow save handler
@@ -2912,7 +3332,7 @@ const BudgetApp = (function() {
 
     function cancelAdjDocument() {
         Swal.fire({
-            title: 'ยืนยันการยกเลิกเอกสาร?',
+            title: 'ยืนยันการยกเลิกรายการ?',
             input: 'textarea',
             inputLabel: 'เหตุผลการยกเลิก',
             inputPlaceholder: 'กรุณาระบุเหตุผล...',
@@ -2921,7 +3341,7 @@ const BudgetApp = (function() {
             showCancelButton: true,
             confirmButtonColor: '#dc3545',
             cancelButtonColor: '#6c757d',
-            confirmButtonText: 'ยกเลิกเอกสาร',
+            confirmButtonText: 'ยกเลิกรายการ',
             cancelButtonText: 'ปิด',
             didOpen: () => { adjModalInstance?._focustrap?.deactivate?.(); },
             didClose: () => { adjModalInstance?._focustrap?.activate?.(); },
@@ -2941,8 +3361,9 @@ const BudgetApp = (function() {
             .then(data => {
                 if (data.status === 'success') {
                     updateListRowStatus(currentAdjDocNo, 'CANCELLED');
-                    Swal.fire('สำเร็จ!', 'ยกเลิกเอกสารเรียบร้อยแล้ว', 'success').then(() => {
+                    Swal.fire('สำเร็จ!', 'ยกเลิกรายการเรียบร้อยแล้ว', 'success').then(() => {
                         viewAdjustmentDetails(currentAdjDocNo);
+                        fetchDocuments();
                     });
                 } else {
                     Swal.fire('ข้อผิดพลาด', 'ไม่สามารถยกเลิกได้: ' + data.message, 'error');
@@ -3186,6 +3607,18 @@ const BudgetApp = (function() {
                     currentGlatGrowthPct3 = result.doc_info.growth_pct_3;
                     document.getElementById('glatModalDocCreator').innerText = result.doc_info.create_eid;
                     applyEditButtonVisibility(document.getElementById('btnGlatEditMode'), result.doc_info.create_eid, result.doc_info.status);
+                    applyCancelButtonVisibility(document.getElementById('btnGlatCancelDocument'), result.doc_info.create_eid, result.doc_info.status);
+                    renderModalDocStatus(document.getElementById('glatModalDocStatusTh'), document.getElementById('glatModalDocStatus'), result.doc_info.status);
+                    const glatReasonAlert = document.getElementById('glatModalCancelReasonAlert');
+                    const glatReasonText = document.getElementById('glatModalCancelReasonText');
+                    if (glatReasonAlert && glatReasonText) {
+                        if (result.doc_info.status === 'CANCELLED' && result.doc_info.cancel_reason) {
+                            glatReasonText.innerText = result.doc_info.cancel_reason;
+                            glatReasonAlert.style.display = 'block';
+                        } else {
+                            glatReasonAlert.style.display = 'none';
+                        }
+                    }
                     if (typeof feather !== 'undefined') feather.replace();
                     document.getElementById('glatModalDocDate').innerText = result.doc_info.create_date;
 
@@ -3227,6 +3660,8 @@ const BudgetApp = (function() {
             }
             if (btnSave) btnSave.style.display = 'inline-block';
             if (btnClose) btnClose.style.display = 'none';
+            const btnGlatCancel = document.getElementById('btnGlatCancelDocument');
+            if (btnGlatCancel) btnGlatCancel.style.display = 'none';
             buildGlatBranchSelect('glatModalDocBranch', currentGlatBranchCode, (value) => { currentGlatBranchCode = value; });
 
             // Month count / growth % become plain number inputs in place of
@@ -3386,6 +3821,53 @@ const BudgetApp = (function() {
         });
     }
 
+    function cancelGlatDocument() {
+        Swal.fire({
+            title: 'ยืนยันการยกเลิกรายการ?',
+            input: 'textarea',
+            inputLabel: 'เหตุผลการยกเลิก',
+            inputPlaceholder: 'กรุณาระบุเหตุผล...',
+            inputValidator: (value) => (!value || !value.trim()) ? 'กรุณาระบุเหตุผลการยกเลิก' : undefined,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#dc3545',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: 'ยกเลิกรายการ',
+            cancelButtonText: 'ปิด',
+            didOpen: () => { glatModalInstance?._focustrap?.deactivate?.(); },
+            didClose: () => { glatModalInstance?._focustrap?.activate?.(); },
+        }).then((result) => {
+            if (!result.isConfirmed) return;
+            Swal.fire({ title: 'กำลังบันทึกข้อมูล...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); }});
+
+            const urlTemplate = window.APP_CONFIG.urls.apiDocumentCancel;
+            const url = urlTemplate.replace('TYPE', encodeURIComponent('GL Actual Template')).replace('DOCNO', encodeURIComponent(currentGlatDocNo));
+
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': window.APP_CONFIG.csrfToken },
+                body: JSON.stringify({ cancel_reason: result.value.trim() })
+            })
+            .then(handleApiResponse)
+            .then(data => {
+                if (data.status === 'success') {
+                    updateListRowStatus(currentGlatDocNo, 'CANCELLED');
+                    Swal.fire('สำเร็จ!', 'ยกเลิกรายการเรียบร้อยแล้ว', 'success').then(() => {
+                        viewGlatDocumentDetails(currentGlatDocNo);
+                        fetchDocuments();
+                    });
+                } else {
+                    Swal.fire('ข้อผิดพลาด', 'ไม่สามารถยกเลิกได้: ' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                if (error.message === SESSION_EXPIRED) return;
+                console.error(error);
+                Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย', 'error');
+            });
+        });
+    }
+
     // ---- Public API ----
     return {
         fetchDocuments: fetchDocuments,
@@ -3410,7 +3892,8 @@ const BudgetApp = (function() {
         cancelAdjDocument: cancelAdjDocument,
         viewGlatDocumentDetails: viewGlatDocumentDetails,
         toggleGlatEditMode: toggleGlatEditMode,
-        saveGlatDocument: saveGlatDocument
+        saveGlatDocument: saveGlatDocument,
+        cancelGlatDocument: cancelGlatDocument
     };
 })();
 
@@ -3438,3 +3921,4 @@ window.cancelAdjDocument = BudgetApp.cancelAdjDocument;
 window.viewGlatDocumentDetails = BudgetApp.viewGlatDocumentDetails;
 window.toggleGlatEditMode = BudgetApp.toggleGlatEditMode;
 window.saveGlatDocument = BudgetApp.saveGlatDocument;
+window.cancelGlatDocument = BudgetApp.cancelGlatDocument;

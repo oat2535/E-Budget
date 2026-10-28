@@ -43,7 +43,7 @@ DEBUG = os.environ.get('DEBUG', 'False').lower() in ['true', '1', 't']
 # 192.168.1.36 is kept as a fallback for environments that haven't set
 # ALLOWED_HOSTS yet; new/updated deployments should rely on the ALLOWED_HOSTS
 # env var instead of adding more environment-specific hosts here.
-ALLOWED_HOSTS = ['192.168.1.40', '127.0.0.1']
+ALLOWED_HOSTS = ['192.168.1.40', '127.0.0.1', 'localhost', 'testserver']
 extra_allowed_hosts = os.environ.get('ALLOWED_HOSTS', '')
 if extra_allowed_hosts:
     ALLOWED_HOSTS += [h.strip() for h in extra_allowed_hosts.split(',') if h.strip()]

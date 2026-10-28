@@ -1,6 +1,7 @@
 from functools import wraps
 from datetime import datetime
 from decimal import Decimal
+import re
 from django.shortcuts import render, redirect
 from django.http import JsonResponse
 import json
@@ -22,6 +23,7 @@ from budget_app.constants import (
     FURNITURE_GL_CODE_HIGH, FURNITURE_GL_CODE_LOW, FURNITURE_GL_PRICE_THRESHOLD,
     TOOLS_EQUIPMENT_GL_CODE_HIGH, TOOLS_EQUIPMENT_GL_CODE_LOW, TOOLS_EQUIPMENT_GL_PRICE_THRESHOLD,
     CAR_GL_CODE, RENOVATE_GL_CODE, SOFTWARE_GL_CODE,
+    FIX_ASSET_MIN_PURCHASE_PRICE,
     GL_ACTUAL_TEMPLATE_BRANCHES
 )
 
@@ -34,6 +36,38 @@ def resolve_adjustment_gl_codes(adjustment_type):
     if adjustment_type == 'NON VET':
         return NON_VET_SALARY_GL_CODE, NON_VET_ALLOWANCE_GL_CODE
     return None, None
+
+def validate_manpower_headcount_integers(data, position_key='position_name'):
+    """Validates that all monthly headcount values for manpower documents
+    (VET, NON VET, Position Adjustment) are non-negative whole numbers (integers)
+    without leading zeros (e.g. 03, 04, 05 are forbidden).
+    Decimals and leading zeros are forbidden as per corporate accounting requirements."""
+    month_names_th = {
+        'jan': 'มกราคม (Jan)', 'feb': 'กุมภาพันธ์ (Feb)', 'mar': 'มีนาคม (Mar)',
+        'apr': 'เมษายน (Apr)', 'may': 'พฤษภาคม (May)', 'jun': 'มิถุนายน (Jun)',
+        'jul': 'กรกฎาคม (Jul)', 'aug': 'สิงหาคม (Aug)', 'sep': 'กันยายน (Sep)',
+        'oct': 'ตุลาคม (Oct)', 'nov': 'พฤศจิกายน (Nov)', 'dec': 'ธันวาคม (Dec)'
+    }
+    for item in data:
+        monthly_data = item.get('monthly_data', {})
+        pos_name = item.get(position_key) or item.get('new_position_name') or 'ไม่ระบุตำแหน่ง'
+        for m_key, m_val in monthly_data.items():
+            headcount = m_val.get('headcount', 0) if isinstance(m_val, dict) else m_val
+            # Check leading zeros if string (e.g. "03", "04", "05")
+            if isinstance(headcount, str):
+                hc_str = headcount.strip().replace(',', '')
+                if re.match(r'^0\d+', hc_str):
+                    m_label = month_names_th.get(m_key.lower(), m_key.upper())
+                    return f'จำนวนในเดือน {m_label} ไม่อนุญาตให้ระบุรูปแบบที่มีเลข 0 นำหน้า เช่น "{hc_str}" (รายการ: {pos_name})'
+            try:
+                hc_float = float(headcount or 0)
+                if hc_float % 1 != 0 or hc_float < 0:
+                    m_label = month_names_th.get(m_key.lower(), m_key.upper())
+                    return f'จำนวนในเดือน {m_label} ต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้ระบุทศนิยม (รายการ: {pos_name})'
+            except (ValueError, TypeError):
+                m_label = month_names_th.get(m_key.lower(), m_key.upper())
+                return f'จำนวนในเดือน {m_label} ไม่ถูกต้อง (รายการ: {pos_name})'
+    return None
 
 def resolve_price_threshold_gl_code(purchase_price, gl_code_high, gl_code_low, threshold):
     """Generic capitalization-threshold GL policy shared by equipment
@@ -124,13 +158,13 @@ def get_branch_info(request):
 
 def get_document_visibility_filter_kwargs(request):
     """Filter kwargs scoping which budget documents a user can see (list +
-    detail). ALL_BRANCH_USERNAMES sees everything (empty dict). Everyone
+    detail). ALL_BRANCH_USERNAMES and superusers see everything (empty dict). Everyone
     else sees only documents they personally created — matched by
     create_eid, the same field/comparison cancel_document_api's ownership
     check already uses (request.user.username), so a document keeps
     showing to its creator even if its branch is later reassigned via the
     edit-mode branch dropdown."""
-    if request.user.username in ALL_BRANCH_USERNAMES:
+    if request.user.username in ALL_BRANCH_USERNAMES or request.user.is_superuser:
         return {}
     return {'create_eid': request.user.username}
 
@@ -368,11 +402,21 @@ def budget_add_view(request):
             data = json.loads(request.body)
             if not data or not data[0].get('cost_center_name'):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
+            err = validate_manpower_headcount_integers(data, 'position_name')
+            if err:
+                return JsonResponse({'status': 'error', 'message': err})
+            master_fks = BudgetService.get_master_fks_bulk([item['position_name'] for item in data], category_id=1, sub_category_id=1)
+            for item in data:
+                pos = (item.get('position_name') or '').strip()
+                if not pos or pos not in master_fks:
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งจากรายการ Dropdown เท่านั้น (ตำแหน่ง: "{pos}" ไม่มีอยู่ในระบบ)'
+                    })
             username = request.user.username
             branch_id, department_id = resolve_branch_for_create(request, data)
             doc_no = BudgetService.generate_document_no('VET')
             budget_year = SystemSettings.load().active_budget_year
-            master_fks = BudgetService.get_master_fks_bulk([item['position_name'] for item in data])
 
             with transaction.atomic():
                 for item in data:
@@ -427,12 +471,21 @@ def budget_add_non_vet_view(request):
             data = json.loads(request.body)
             if not data or not data[0].get('cost_center_name'):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
+            err = validate_manpower_headcount_integers(data, 'position_name')
+            if err:
+                return JsonResponse({'status': 'error', 'message': err})
+            master_fks = BudgetService.get_master_fks_bulk([item['position_name'] for item in data], category_id=1, sub_category_id=2)
+            for item in data:
+                pos = (item.get('position_name') or '').strip()
+                if not pos or pos not in master_fks:
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งจากรายการ Dropdown เท่านั้น (ตำแหน่ง: "{pos}" ไม่มีอยู่ในระบบ)'
+                    })
             username = request.user.username
-
             branch_id, department_id = resolve_branch_for_create(request, data)
             doc_no = BudgetService.generate_document_no('NON VET')
             budget_year = SystemSettings.load().active_budget_year
-            master_fks = BudgetService.get_master_fks_bulk([item['position_name'] for item in data])
 
             with transaction.atomic():
                 for item in data:
@@ -942,7 +995,7 @@ def get_document_detail_api(request, doc_type, doc_no):
         # branch-level summary, not itemized per cost center).
         'cost_center_name': ('' if doc_type == 'GL Actual Template' else (first_item.cost_center_name or '')),
         'budget_year': first_item.budget_year or '-',
-        'status': first_item.status,
+        'status': first_item.status or STATUS_PENDING,
         'cancel_reason': first_item.cancel_reason or ''
     }
     if doc_type == 'GL Actual Template':
@@ -1039,15 +1092,11 @@ def update_document_api(request, doc_type, doc_no):
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
         
-    # Two-stage check: privileged (ALL_BRANCH_USERNAMES) users may edit any
-    # document, same as before. A MANAGER-tier employee (bank_account_note
-    # containing "MANAGER" in imedx) may edit documents they created
-    # themselves — checked further down, once first_item.create_eid is
-    # available, so this first gate only needs to rule out everyone else
-    # without a DB round trip for the document itself.
-    is_privileged = request.user.username in ALL_BRANCH_USERNAMES
-    if not is_privileged and not get_branch_info(request)['is_manager']:
-        return JsonResponse({'status': 'error', 'message': 'ไม่มีสิทธิ์ในการแก้ไขข้อมูล'})
+    # Ownership & permission check:
+    # Privileged users (nattchai_u, kanchana, pattida_y, and superusers) may edit
+    # any document. Other users may edit documents they created themselves —
+    # validated below once first_item.create_eid is loaded.
+    is_privileged = request.user.username in ALL_BRANCH_USERNAMES or request.user.is_superuser
 
     try:
         data = json.loads(request.body)
@@ -1109,10 +1158,8 @@ def update_document_api(request, doc_type, doc_no):
         if first_item.status == STATUS_CANCELLED:
             return JsonResponse({'status': 'error', 'message': 'เอกสารนี้ถูกยกเลิกแล้ว ไม่สามารถแก้ไขได้ กรุณาสร้างเอกสารใหม่แทน'})
 
-        # A MANAGER-tier (non-privileged) user passed the fast-path check
-        # above only because they're a manager somewhere — that doesn't
-        # mean this particular document is theirs to edit.
-        if not is_privileged and create_eid != request.user.username:
+        # Non-privileged users may only edit documents they created themselves
+        if not is_privileged and (not create_eid or create_eid.lower() != request.user.username.lower()):
             return JsonResponse({'status': 'error', 'message': 'คุณแก้ไขได้เฉพาะเอกสารที่ตัวเองสร้างเท่านั้น'})
         # Only multi-branch users can actually change this (see
         # resolve_branch_for_update) — everyone else keeps the branch
@@ -1145,10 +1192,73 @@ def update_document_api(request, doc_type, doc_no):
             lookup_field = None
         else:
             lookup_field = 'position_name'
-        master_fks = BudgetService.get_master_fks_bulk([item[lookup_field] for item in data]) if lookup_field else {}
+        equipment_subcat_map = {
+            'Medical Equipment': 4,
+            'Computer Equipment': 5,
+            'Furniture': 6,
+            'Tools & Equipment': 7,
+            'CAR': 8,
+            'Renovate': 9,
+            'Software': 10,
+        }
+        edit_subcat_id = equipment_subcat_map.get(doc_type)
+        edit_cat_id = 2 if edit_subcat_id else (1 if doc_type in ('VET', 'NON VET') else None)
+        master_fks = BudgetService.get_master_fks_bulk(
+            [item[lookup_field] for item in data],
+            category_id=edit_cat_id,
+            sub_category_id=edit_subcat_id,
+        ) if lookup_field else {}
         gl_master_fields = BudgetService.get_gl_master_fields_bulk([item.get('general_ledger_code') for item in data]) if doc_type in ('GL Entry', 'Revenue') else {}
 
+        # Validate that dropdown items exist in master data
+        if doc_type in ('VET', 'NON VET'):
+            for item in data:
+                pos = (item.get('position_name') or '').strip()
+                if not pos or pos not in master_fks:
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งจากรายการ Dropdown เท่านั้น (ตำแหน่ง: "{pos}" ไม่มีอยู่ในระบบ)'
+                    })
+        elif doc_type == 'Position Adjustment':
+            all_adj_pos = [item.get('old_position_name') for item in data] + [item.get('new_position_name') for item in data]
+            adj_fks = BudgetService.get_master_fks_bulk([p for p in all_adj_pos if p])
+            for item in data:
+                adj_type = (item.get('adjustment_type') or '').strip()
+                if adj_type not in ('VET', 'NON VET'):
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': 'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกประเภท (VET หรือ NON VET) จากรายการ Dropdown เท่านั้น'
+                    })
+                old_p = (item.get('old_position_name') or '').strip()
+                new_p = (item.get('new_position_name') or '').strip()
+                if not old_p or old_p not in adj_fks:
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งเดิมจากรายการ Dropdown เท่านั้น (ตำแหน่ง: "{old_p}" ไม่มีอยู่ในระบบ)'
+                    })
+                if not new_p or new_p not in adj_fks:
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น (ตำแหน่ง: "{new_p}" ไม่มีอยู่ในระบบ)'
+                    })
+        elif doc_type in equipment_subcat_map:
+            for item in data:
+                it_name = (item.get('item_name') or '').strip()
+                if not it_name or it_name not in master_fks:
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกรายการจาก Dropdown เท่านั้น (รายการ: "{it_name}" ไม่มีอยู่ในระบบ)'
+                    })
+
         with transaction.atomic():
+            if doc_type in ('VET', 'NON VET', 'Position Adjustment'):
+                err = validate_manpower_headcount_integers(data, 'new_position_name' if doc_type == 'Position Adjustment' else 'position_name')
+                if err:
+                    return JsonResponse({'status': 'error', 'message': err})
+            elif doc_type in ('Medical Equipment', 'Computer Equipment', 'Furniture', 'Tools & Equipment', 'CAR', 'Renovate', 'Software'):
+                err = validate_manpower_headcount_integers(data, 'item_name')
+                if err:
+                    return JsonResponse({'status': 'error', 'message': err})
             existing_items.delete()
 
             for item in data:
@@ -1199,6 +1309,13 @@ def update_document_api(request, doc_type, doc_no):
 
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
                 elif doc_type == 'Medical Equipment' or doc_type == 'Computer Equipment' or doc_type == 'Furniture' or doc_type == 'Tools & Equipment' or doc_type == 'CAR' or doc_type == 'Renovate' or doc_type == 'Software':
+                    for item in data:
+                        price = float(item.get('purchase_price') or 0)
+                        if price < FIX_ASSET_MIN_PURCHASE_PRICE:
+                            return JsonResponse({
+                                'status': 'error',
+                                'message': f'ราคาซื้อในหมวดสินทรัพย์ถาวร (Fix Asset) ต้องมีมูลค่าตั้งแต่ 5,000 บาทขึ้นไป (รายการ: {item.get("item_name")})'
+                            })
                     master_obj, gl_code = master_fks.get(item['item_name'], (None, None))
                     gl_code = resolve_equipment_gl_code(doc_type, item['purchase_price'], fallback_gl_code=gl_code)
                     obj = model_class.objects.create(
@@ -1326,7 +1443,7 @@ def approve_document_api(request, doc_type, doc_no):
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
 
-    if request.user.username not in ALL_BRANCH_USERNAMES:
+    if not (request.user.username in ALL_BRANCH_USERNAMES or request.user.is_superuser):
         return JsonResponse({'status': 'error', 'message': 'ไม่มีสิทธิ์ในการอนุมัติเอกสาร'})
 
     try:
@@ -1377,9 +1494,7 @@ def cancel_document_api(request, doc_type, doc_no):
     if not reason:
         return JsonResponse({'status': 'error', 'message': 'กรุณาระบุเหตุผลการยกเลิก'})
 
-    is_privileged = request.user.username in ALL_BRANCH_USERNAMES
-    if not is_privileged and not get_branch_info(request)['is_manager']:
-        return JsonResponse({'status': 'error', 'message': 'ไม่มีสิทธิ์ในการยกเลิกเอกสาร'})
+    is_privileged = request.user.username in ALL_BRANCH_USERNAMES or request.user.is_superuser
 
     try:
         model_class = _resolve_model_class(doc_type)
@@ -1391,7 +1506,7 @@ def cancel_document_api(request, doc_type, doc_no):
         if first_item is None:
             return JsonResponse({'status': 'error', 'message': 'ไม่พบเอกสาร'})
 
-        if not is_privileged and first_item.create_eid != request.user.username:
+        if not is_privileged and (not first_item.create_eid or first_item.create_eid.lower() != request.user.username.lower()):
             return JsonResponse({'status': 'error', 'message': 'คุณยกเลิกได้เฉพาะเอกสารที่ตัวเองสร้างเท่านั้น'})
 
         # Only a PENDING document can be cancelled — an APPROVED one is
@@ -1419,12 +1534,35 @@ def budget_add_adjustment_view(request):
             data = json.loads(request.body)
             if not data or not data[0].get('cost_center_name'):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
+            err = validate_manpower_headcount_integers(data, 'new_position_name')
+            if err:
+                return JsonResponse({'status': 'error', 'message': err})
+            all_positions = [item.get('old_position_name') for item in data] + [item.get('new_position_name') for item in data]
+            master_fks = BudgetService.get_master_fks_bulk([p for p in all_positions if p])
+            for item in data:
+                adj_type = (item.get('adjustment_type') or '').strip()
+                if adj_type not in ('VET', 'NON VET'):
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': 'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกประเภท (VET หรือ NON VET) จากรายการ Dropdown เท่านั้น'
+                    })
+                old_p = (item.get('old_position_name') or '').strip()
+                new_p = (item.get('new_position_name') or '').strip()
+                if not old_p or old_p not in master_fks:
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งเดิมจากรายการ Dropdown เท่านั้น (ตำแหน่ง: "{old_p}" ไม่มีอยู่ในระบบ)'
+                    })
+                if not new_p or new_p not in master_fks:
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น (ตำแหน่ง: "{new_p}" ไม่มีอยู่ในระบบ)'
+                    })
+
             username = request.user.username
             branch_id, department_id = resolve_branch_for_create(request, data)
-
             doc_no = BudgetService.generate_document_no('Position Adjustment')
             budget_year = SystemSettings.load().active_budget_year
-            master_fks = BudgetService.get_master_fks_bulk([item['new_position_name'] for item in data])
 
             with transaction.atomic():
                 for item in data:
@@ -1499,12 +1637,33 @@ def _budget_add_equipment_view(request, model_class, doc_type, template_name, su
             data = json.loads(request.body)
             if not data or not data[0].get('cost_center_name'):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
+            err = validate_manpower_headcount_integers(data, 'item_name')
+            if err:
+                return JsonResponse({'status': 'error', 'message': err})
+            for item in data:
+                price = float(item.get('purchase_price') or 0)
+                if price < FIX_ASSET_MIN_PURCHASE_PRICE:
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': f'ราคาซื้อในหมวดสินทรัพย์ถาวร (Fix Asset) ต้องมีมูลค่าตั้งแต่ 5,000 บาทขึ้นไป (รายการ: {item.get("item_name")})'
+                    })
+            master_fks = BudgetService.get_master_fks_bulk(
+                [item['item_name'] for item in data],
+                category_id=2,
+                sub_category_id=sub_category_id,
+            )
+            for item in data:
+                it_name = (item.get('item_name') or '').strip()
+                if not it_name or it_name not in master_fks:
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกรายการจาก Dropdown เท่านั้น (รายการ: "{it_name}" ไม่มีอยู่ในระบบ)'
+                    })
+
             username = request.user.username
             branch_id, department_id = resolve_branch_for_create(request, data)
-
             doc_no = BudgetService.generate_document_no(doc_type)
             budget_year = SystemSettings.load().active_budget_year
-            master_fks = BudgetService.get_master_fks_bulk([item['item_name'] for item in data])
 
             with transaction.atomic():
                 for item in data:
@@ -1771,7 +1930,7 @@ def budget_add_gl_actual_template_view(request):
 def toggle_freeze_view(request):
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
-    if request.user.username not in ALL_BRANCH_USERNAMES:
+    if not (request.user.username in ALL_BRANCH_USERNAMES or request.user.is_superuser):
         return JsonResponse({'status': 'error', 'message': 'ไม่มีสิทธิ์ในการดำเนินการนี้'}, status=403)
 
     try:
@@ -1813,7 +1972,7 @@ def toggle_freeze_view(request):
 def set_active_year_view(request):
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
-    if request.user.username not in ALL_BRANCH_USERNAMES:
+    if not (request.user.username in ALL_BRANCH_USERNAMES or request.user.is_superuser):
         return JsonResponse({'status': 'error', 'message': 'ไม่มีสิทธิ์ในการดำเนินการนี้'}, status=403)
 
     try:
