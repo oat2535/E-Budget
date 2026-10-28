@@ -84,10 +84,13 @@
         </div>
     </div>
 
-    <!-- Table 1: Headcount -->
-    <div class="card mb-4 shadow-sm border-0 card-soft">
+    <!-- Unified Tables Card: Position Adjustment (Tables 1 - 3) -->
+    <div class="card mb-4 shadow-sm border-0 card-soft" id="adjustment-tables-card">
+        <!-- Table 1 Header (Sticky across all 3 tables) -->
         <div class="card-header d-flex justify-content-between align-items-center bg-white py-3 eb-sticky-header">
-            <h6 class="m-0 font-weight-bold text-primary">ตารางที่ 1 (จำนวนคน)</h6>
+            <div class="d-flex align-items-center gap-2">
+                <h6 class="m-0 font-weight-bold text-primary" id="adjustment-sticky-title">ตารางที่ 1 (จำนวนคน)</h6>
+            </div>
             <div class="d-flex align-items-center gap-2">
                 <a href="{% url 'budget_list' %}" class="btn btn-sm btn-outline-secondary shadow-xs fw-500" style="min-width: 90px;"><i data-feather="arrow-left" class="me-1"></i> กลับ</a>
                 <button id="add-row-btn" class="btn btn-sm btn-primary shadow-xs fw-500"><i data-feather="plus" class="me-1"></i> เพิ่มรายการ</button>
@@ -97,21 +100,17 @@
         <div class="card-body p-0">
             <div id="table1-spreadsheet"></div>
         </div>
-    </div>
 
-    <!-- Table 2: Salary Diff -->
-    <div class="card mb-4 shadow-sm border-0 card-soft">
-        <div class="card-header bg-white py-3">
+        <!-- Table 2: Salary Diff -->
+        <div class="card-header bg-white py-3 border-top" id="header-table-2">
             <h6 class="m-0 font-weight-bold text-success">ตารางที่ 2 (งบประมาณผลต่างเงินเดือน)</h6>
         </div>
         <div class="card-body p-0">
             <div id="table2-spreadsheet"></div>
         </div>
-    </div>
 
-    <!-- Table 3: Allowance Diff -->
-    <div class="card mb-4 shadow-sm border-0 card-soft">
-        <div class="card-header bg-white py-3">
+        <!-- Table 3: Allowance Diff -->
+        <div class="card-header bg-white py-3 border-top" id="header-table-3">
             <h6 class="m-0 font-weight-bold text-info">ตารางที่ 3 (งบประมาณผลต่างค่าวัดระดับ/ค่าตำแหน่ง)</h6>
         </div>
         <div class="card-body p-0">
@@ -922,6 +921,45 @@
                 }
             });
         });
+
+        // Dynamic title update for sticky header when scrolling between tables
+        const stickyTitle = document.getElementById('adjustment-sticky-title');
+        const headerTable2 = document.getElementById('header-table-2');
+        const headerTable3 = document.getElementById('header-table-3');
+
+        if (stickyTitle && headerTable2 && headerTable3) {
+            let ticking = false;
+            const updateStickyTitle = () => {
+                const topOffset = 130; // 58px topnav + ~55px sticky header + safety margin
+                const rect3 = headerTable3.getBoundingClientRect();
+                const rect2 = headerTable2.getBoundingClientRect();
+
+                if (rect3.top <= topOffset) {
+                    if (stickyTitle.textContent !== 'ตารางที่ 3 (งบประมาณผลต่างค่าวัดระดับ/ค่าตำแหน่ง)') {
+                        stickyTitle.textContent = 'ตารางที่ 3 (งบประมาณผลต่างค่าวัดระดับ/ค่าตำแหน่ง)';
+                        stickyTitle.className = 'm-0 font-weight-bold text-info';
+                    }
+                } else if (rect2.top <= topOffset) {
+                    if (stickyTitle.textContent !== 'ตารางที่ 2 (งบประมาณผลต่างเงินเดือน)') {
+                        stickyTitle.textContent = 'ตารางที่ 2 (งบประมาณผลต่างเงินเดือน)';
+                        stickyTitle.className = 'm-0 font-weight-bold text-success';
+                    }
+                } else {
+                    if (stickyTitle.textContent !== 'ตารางที่ 1 (จำนวนคน)') {
+                        stickyTitle.textContent = 'ตารางที่ 1 (จำนวนคน)';
+                        stickyTitle.className = 'm-0 font-weight-bold text-primary';
+                    }
+                }
+                ticking = false;
+            };
+
+            window.addEventListener('scroll', () => {
+                if (!ticking) {
+                    window.requestAnimationFrame(updateStickyTitle);
+                    ticking = true;
+                }
+            }, { passive: true });
+        }
     });
 </script>
 {% endblock %}

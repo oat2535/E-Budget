@@ -1425,4 +1425,27 @@ class BudgetListDocumentPermissionTests(SimpleTestCase):
         self.assertIn('adjTable1.resetSelection(true);', js_content)
         self.assertIn("e.target.closest('td.eb-dropdown-cell')", js_content)
 
+    def test_position_adjustment_sticky_header_across_all_tables_contract(self):
+        """In Position Adjustment Add page, Table 1, Table 2, and Table 3 must be unified
+        inside #adjustment-tables-card with .eb-sticky-header as its primary header so that
+        the sticky header and its action buttons (Back, Add Row, Save) remain frozen across
+        all three tables when scrolling down to the bottom."""
+        tmpl_path = os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'budget_add_adjustment.html')
+        with open(tmpl_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # 1. Must have unified card enclosing all tables
+        self.assertIn('id="adjustment-tables-card"', content)
+        self.assertIn('id="adjustment-sticky-title"', content)
+
+        # 2. Section headers for Table 2 and Table 3 must be present inside the card
+        self.assertIn('id="header-table-2"', content)
+        self.assertIn('id="header-table-3"', content)
+
+        # 3. Dynamic title update script must be present
+        self.assertIn("updateStickyTitle", content)
+        self.assertIn("headerTable2.getBoundingClientRect()", content)
+        self.assertIn("headerTable3.getBoundingClientRect()", content)
+
+
 
