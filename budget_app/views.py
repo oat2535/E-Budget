@@ -72,20 +72,15 @@ def validate_manpower_headcount_integers(data, position_key='position_name'):
 def resolve_price_threshold_gl_code(purchase_price, gl_code_high, gl_code_low, threshold):
     """Generic capitalization-threshold GL policy shared by equipment
     categories whose master data has no GL column (Medical Equipment,
-    Computer Equipment, ...): the GL code is keyed on the document's own
-    entered purchase_price, not a master-data lookup. A price landing
-    exactly on the threshold is accounting-ambiguous and must be corrected
-    by the user rather than silently bucketed either way."""
+    Computer Equipment, Furniture, Tools & Equipment): the GL code is keyed
+    on the document's own entered purchase_price.
+    A purchase_price >= threshold (5,000 THB) is capitalized as a fixed asset
+    (gl_code_high). A price < threshold is an expense (gl_code_low)."""
     price = Decimal(str(purchase_price))
     threshold = Decimal(str(threshold))
-    if price > threshold:
+    if price >= threshold:
         return gl_code_high
-    if price < threshold:
-        return gl_code_low
-    raise ValueError(
-        f'ราคาซื้อเท่ากับ {threshold:,} บาทพอดี ไม่สามารถระบุรหัสบัญชี (GL Code) ได้ '
-        f'กรุณาระบุราคาซื้อให้มากกว่า หรือน้อยกว่า {threshold:,} บาท ก่อนบันทึก'
-    )
+    return gl_code_low
 
 def resolve_medical_equipment_gl_code(purchase_price):
     return resolve_price_threshold_gl_code(

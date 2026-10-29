@@ -318,7 +318,8 @@
                     if (trimmedVal !== '') {
                         const match = items.find(i => i.name === trimmedVal);
                         if (match) {
-                            table1.setValueFromCoords(2, y, match.purchase_price, true);
+                            const initPrice = (match.purchase_price >= 5000) ? match.purchase_price : '';
+                            table1.setValueFromCoords(2, y, initPrice, true);
                         } else {
                             table1.setValueFromCoords(0, y, '', true);
                             table1.setValueFromCoords(2, y, 0, true);
@@ -334,6 +335,26 @@
                         }
                     } else {
                         table1.setValueFromCoords(2, y, 0, true);
+                    }
+                }
+
+                // Enforce minimum purchase price >= 5000 in Fix Asset (forbid < 5000 e.g. 4999 down)
+                if (x === 2) {
+                    const rawVal = String(value || '').trim();
+                    if (rawVal !== '') {
+                        const priceNum = parseFloat(rawVal.replace(/,/g, ''));
+                        if (!isNaN(priceNum) && priceNum < 5000) {
+                            table1.setValueFromCoords(2, y, '', false);
+                            Swal.fire({
+                                icon: 'warning',
+                                title: 'แจ้งเตือน',
+                                text: `ราคาซื้อในหมวดสินทรัพย์ถาวร (Fix Asset) ต้องมีมูลค่าตั้งแต่ 5,000 บาทขึ้นไป ไม่อนุญาตให้กรอกราคาตั้งแต่ 4,999 บาทลงมา (ระบุ: ${priceNum.toLocaleString()} บาท)`,
+                                timer: 3000,
+                                showConfirmButton: false,
+                                toast: true,
+                                position: 'top-end'
+                            });
+                        }
                     }
                 }
 

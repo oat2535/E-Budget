@@ -279,6 +279,34 @@ class EquipmentGlCodeResolutionTests(SimpleTestCase):
         self.assertEqual(resolve_equipment_gl_code('Renovate', 150000), '61300008')
         self.assertEqual(resolve_equipment_gl_code('Software', 25000), '61300005')
 
+    def test_resolve_price_threshold_gl_code_allows_5000_as_fix_asset(self):
+        """A purchase price of exactly 5,000 THB or greater must resolve to the capitalized
+        fixed-asset GL code (HIGH) across all threshold equipment categories without raising
+        any error, while prices under 5,000 resolve to the low-value code."""
+        from budget_app.views import resolve_equipment_gl_code
+        from budget_app.constants import (
+            MEDICAL_EQUIPMENT_GL_CODE_HIGH, MEDICAL_EQUIPMENT_GL_CODE_LOW,
+            COMPUTER_EQUIPMENT_GL_CODE_HIGH, COMPUTER_EQUIPMENT_GL_CODE_LOW,
+            FURNITURE_GL_CODE_HIGH, FURNITURE_GL_CODE_LOW,
+            TOOLS_EQUIPMENT_GL_CODE_HIGH, TOOLS_EQUIPMENT_GL_CODE_LOW,
+        )
+
+        # 5,000 THB exactly (Fix Asset capitalization threshold)
+        self.assertEqual(resolve_equipment_gl_code('Medical Equipment', 5000), MEDICAL_EQUIPMENT_GL_CODE_HIGH)
+        self.assertEqual(resolve_equipment_gl_code('Computer Equipment', 5000), COMPUTER_EQUIPMENT_GL_CODE_HIGH)
+        self.assertEqual(resolve_equipment_gl_code('Furniture', 5000), FURNITURE_GL_CODE_HIGH)
+        self.assertEqual(resolve_equipment_gl_code('Tools & Equipment', 5000), TOOLS_EQUIPMENT_GL_CODE_HIGH)
+
+        # Greater than 5,000 THB
+        self.assertEqual(resolve_equipment_gl_code('Medical Equipment', 5001), MEDICAL_EQUIPMENT_GL_CODE_HIGH)
+        self.assertEqual(resolve_equipment_gl_code('Medical Equipment', 25000), MEDICAL_EQUIPMENT_GL_CODE_HIGH)
+
+        # Less than 5,000 THB
+        self.assertEqual(resolve_equipment_gl_code('Medical Equipment', 4999), MEDICAL_EQUIPMENT_GL_CODE_LOW)
+        self.assertEqual(resolve_equipment_gl_code('Computer Equipment', 4999), COMPUTER_EQUIPMENT_GL_CODE_LOW)
+        self.assertEqual(resolve_equipment_gl_code('Furniture', 4999), FURNITURE_GL_CODE_LOW)
+        self.assertEqual(resolve_equipment_gl_code('Tools & Equipment', 4999), TOOLS_EQUIPMENT_GL_CODE_LOW)
+
 
 class FixAssetStaticTextUnitTests(SimpleTestCase):
     """Unit tests verifying all Fix Asset equipment static text entry, datalist editor in templates, and NULL item_master resolution."""
@@ -341,8 +369,10 @@ class FixAssetStaticTextUnitTests(SimpleTestCase):
             path = os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', tpl)
             with open(path, 'r', encoding='utf-8') as f:
                 content = f.read()
-            self.assertIn('salary < 5000', content, f"{tpl} must enforce salary < 5000")
+            self.assertIn('salary < 5000', content, f"{tpl} must enforce salary < 5000 on save")
             self.assertIn('5,000 บาทขึ้นไป', content, f"{tpl} must contain formal 5000 THB warning")
+            self.assertIn('priceNum < 5000', content, f"{tpl} must enforce priceNum < 5000 real-time in onchange")
+            self.assertIn('4,999 บาทลงมา', content, f"{tpl} must warn against entering 4999 down")
 
     def test_budget_list_js_enforces_min_purchase_price_5000(self):
         js_path = os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'budget_list.js')
@@ -350,6 +380,9 @@ class FixAssetStaticTextUnitTests(SimpleTestCase):
             content = f.read()
         self.assertIn('isEquipment && salary < 5000', content)
         self.assertIn('5,000 บาทขึ้นไป', content)
+        self.assertIn('isEquipment && x === priceCol', content)
+        self.assertIn('priceNum < 5000', content)
+        self.assertIn('4,999 บาทลงมา', content)
 
     def test_equipment_backend_rejects_purchase_price_under_5000(self):
         from django.test import RequestFactory
@@ -370,6 +403,28 @@ class FixAssetStaticTextUnitTests(SimpleTestCase):
         data = json.loads(res.content.decode('utf-8'))
         self.assertEqual(data['status'], 'error')
         self.assertIn('5,000 บาทขึ้นไป', data['message'])
+
+    def test_equipment_backend_accepts_purchase_price_5000(self):
+        """A purchase price of exactly 5,000 THB is valid in Fix Asset and passes price validation."""
+        from django.test import RequestFactory
+        from budget_app.views import _budget_add_equipment_view
+        from budget_app.models import ebudget_tools_equipment
+        from django.contrib.auth.models import AnonymousUser
+
+        rf = RequestFactory()
+        payload = json.dumps([{
+            'cost_center_name': 'CC1',
+            'item_name': 'UNKNOWN_ITEM_TEST',
+            'purchase_price': 5000.0,
+            'monthly_data': {'jan': {'headcount': 1, 'cost': 5000.0}},
+        }])
+        req = rf.post('/add_tools_equipment/', data=payload, content_type='application/json')
+        req.user = AnonymousUser()
+        res = _budget_add_equipment_view(req, ebudget_tools_equipment, 'Tools & Equipment', 'budget_app/budget_add_tools_equipment.html', 7)
+        data = json.loads(res.content.decode('utf-8'))
+        # It must NOT be rejected by the purchase price < 5000 check:
+        if data['status'] == 'error':
+            self.assertNotIn('5,000 บาทขึ้นไป', data['message'])
 
 
 class BudgetListC03FilterUnitTests(SimpleTestCase):

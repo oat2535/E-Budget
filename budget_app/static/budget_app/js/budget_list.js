@@ -454,7 +454,7 @@ const BudgetApp = (function() {
                 const trimmedVal = (value || '').trim();
                 const match = trimmedVal !== '' ? itemsList.find(i => i.name === trimmedVal) : null;
                 if (match) {
-                    const salary = isEquipment ? match.purchase_price : match.salary;
+                    const salary = isEquipment ? ((match.purchase_price >= 5000) ? match.purchase_price : '') : match.salary;
                     modalTable1.setValueFromCoords(priceCol, y, salary, true);
                     if (isNonVet) {
                         modalTable1.setValueFromCoords(allowanceCol, y, match.position_allowance || 0, true);
@@ -503,6 +503,26 @@ const BudgetApp = (function() {
                             title: 'แจ้งเตือน',
                             text: warnMsg,
                             timer: 2500,
+                            showConfirmButton: false,
+                            toast: true,
+                            position: 'top-end'
+                        });
+                    }
+                }
+            }
+
+            // Enforce minimum purchase price >= 5000 in Fix Asset (forbid < 5000 e.g. 4999 down)
+            if (isEquipment && x === priceCol) {
+                const rawVal = String(value || '').trim();
+                if (rawVal !== '') {
+                    const priceNum = parseFloat(rawVal.replace(/,/g, ''));
+                    if (!isNaN(priceNum) && priceNum < 5000) {
+                        modalTable1.setValueFromCoords(priceCol, y, '', false);
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'แจ้งเตือน',
+                            text: `ราคาซื้อในหมวดสินทรัพย์ถาวร (Fix Asset) ต้องมีมูลค่าตั้งแต่ 5,000 บาทขึ้นไป ไม่อนุญาตให้กรอกราคาตั้งแต่ 4,999 บาทลงมา (ระบุ: ${priceNum.toLocaleString()} บาท)`,
+                            timer: 3000,
                             showConfirmButton: false,
                             toast: true,
                             position: 'top-end'
