@@ -426,6 +426,32 @@ class FixAssetStaticTextUnitTests(SimpleTestCase):
         if data['status'] == 'error':
             self.assertNotIn('5,000 บาทขึ้นไป', data['message'])
 
+    def test_update_document_api_no_inner_loop_shadowing(self):
+        """In update_document_api, the purchase price validation for equipment must not be
+        nested inside the row-creation loop using the same loop variable 'item', which would
+        overwrite earlier rows with the last row's data."""
+        views_path = os.path.join(settings.BASE_DIR, 'budget_app', 'views.py')
+        with open(views_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Find update_document_api definition
+        start = content.find('def update_document_api(')
+        end = content.find('def ', start + 1)
+        update_func = content[start:end] if end != -1 else content[start:]
+
+        # Must not contain nested 'for item in data:'
+        self.assertNotIn(
+            "for item in data:\n                        price = float(item.get('purchase_price')",
+            update_func,
+            "update_document_api must not have nested 'for item in data' re-assigning item"
+        )
+        # Validation must be before existing_items.delete()
+        del_pos = update_func.find('existing_items.delete()')
+        price_val_pos = update_func.find('for row_data in data:')
+        self.assertGreater(del_pos, 0)
+        self.assertGreater(price_val_pos, 0)
+        self.assertLess(price_val_pos, del_pos, "Price validation must happen BEFORE existing_items.delete()")
+
 
 class BudgetListC03FilterUnitTests(SimpleTestCase):
     """Unit tests verifying that Budget Plan (Category C03) includes GL Actual Template in its type filter."""

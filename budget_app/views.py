@@ -1254,6 +1254,13 @@ def update_document_api(request, doc_type, doc_no):
                 err = validate_manpower_headcount_integers(data, 'item_name')
                 if err:
                     return JsonResponse({'status': 'error', 'message': err})
+                for row_data in data:
+                    price = float(row_data.get('purchase_price') or 0)
+                    if price < FIX_ASSET_MIN_PURCHASE_PRICE:
+                        return JsonResponse({
+                            'status': 'error',
+                            'message': f'ราคาซื้อในหมวดสินทรัพย์ถาวร (Fix Asset) ต้องมีมูลค่าตั้งแต่ 5,000 บาทขึ้นไป (รายการ: {row_data.get("item_name")})'
+                        })
             existing_items.delete()
 
             for item in data:
@@ -1303,14 +1310,7 @@ def update_document_api(request, doc_type, doc_no):
                     )
 
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
-                elif doc_type == 'Medical Equipment' or doc_type == 'Computer Equipment' or doc_type == 'Furniture' or doc_type == 'Tools & Equipment' or doc_type == 'CAR' or doc_type == 'Renovate' or doc_type == 'Software':
-                    for item in data:
-                        price = float(item.get('purchase_price') or 0)
-                        if price < FIX_ASSET_MIN_PURCHASE_PRICE:
-                            return JsonResponse({
-                                'status': 'error',
-                                'message': f'ราคาซื้อในหมวดสินทรัพย์ถาวร (Fix Asset) ต้องมีมูลค่าตั้งแต่ 5,000 บาทขึ้นไป (รายการ: {item.get("item_name")})'
-                            })
+                elif doc_type in ('Medical Equipment', 'Computer Equipment', 'Furniture', 'Tools & Equipment', 'CAR', 'Renovate', 'Software'):
                     master_obj, gl_code = master_fks.get(item['item_name'], (None, None))
                     gl_code = resolve_equipment_gl_code(doc_type, item['purchase_price'], fallback_gl_code=gl_code)
                     obj = model_class.objects.create(
