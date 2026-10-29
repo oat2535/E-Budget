@@ -249,3 +249,28 @@ table,
     border-bottom-color: rgba(255, 255, 255, 0.125);
     box-shadow: 0 0.15rem 0.5rem rgba(0, 0, 0, 0.3);
 }
+
+/* --- Cost Center / Configuration Selector Card & Dropdown z-index ---
+   Must float cleanly above .eb-sticky-header (z-index: 1020) so dropdown options
+   (e.g., Cost Center and Branch) are never covered or clipped by the table header below it.
+   Kept below .topnav (z-index: 1039) and #layoutSidenav_nav (z-index: 1038) so cards slide
+   underneath top navigation when scrolled down. */
+.eb-cost-center-card,
+.card:has(#cost-center-card-body),
+.card:has(#config-card-body) {
+    position: relative;
+    z-index: 1025;
+}
+
+#cost-center-card-body,
+#config-card-body {
+    overflow: visible !important;
+}
+
+#cost-center-card-body .ts-wrapper,
+#cost-center-card-body .ts-dropdown,
+#config-card-body .ts-wrapper,
+#config-card-body .ts-dropdown {
+    z-index: 1030 !important;
+}
+

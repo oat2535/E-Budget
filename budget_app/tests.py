@@ -1447,5 +1447,41 @@ class BudgetListDocumentPermissionTests(SimpleTestCase):
         self.assertIn("headerTable2.getBoundingClientRect()", content)
         self.assertIn("headerTable3.getBoundingClientRect()", content)
 
+    def test_add_budget_cost_center_dropdown_zindex_contract(self):
+        """On all Add Budget pages, Cost Center / Configuration dropdowns must float cleanly
+        above .eb-sticky-header (z-index: 1020) so that floating options are never covered
+        or clipped by table headers. The selector card must have z-index: 1025 and dropdown
+        z-index: 1030, which are also safely below .topnav (1039) for smooth page scrolling."""
+        import glob
+        templates = sorted(glob.glob(os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'budget_add*.html')))
+        self.assertEqual(len(templates), 14, "Must cover all 14 Add Budget templates")
+
+        for tmpl_path in templates:
+            fname = os.path.basename(tmpl_path)
+            with open(tmpl_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Each template must include eb-cost-center-card on the card enclosing the selector body
+            self.assertIn(
+                'eb-cost-center-card',
+                content,
+                f"{fname} must have eb-cost-center-card class on the selector card"
+            )
+
+        # polish.css must define proper stacking context rules
+        css_path = os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'css', 'polish.css')
+        with open(css_path, 'r', encoding='utf-8') as f:
+            css = f.read()
+
+        self.assertIn('.eb-cost-center-card', css)
+        self.assertIn('.card:has(#cost-center-card-body)', css)
+        self.assertIn('.card:has(#config-card-body)', css)
+        self.assertIn('z-index: 1025;', css)
+        self.assertIn('overflow: visible !important;', css)
+        self.assertIn('#cost-center-card-body .ts-dropdown', css)
+        self.assertIn('#config-card-body .ts-dropdown', css)
+        self.assertIn('z-index: 1030 !important;', css)
+
+
 
 
