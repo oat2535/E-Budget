@@ -1,15 +1,26 @@
+import hashlib
 import json
 import os
 import re
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.test import SimpleTestCase, TestCase
+from django.test import RequestFactory, SimpleTestCase, TestCase
 from django.urls import reverse
 
+from django.template.loader import render_to_string
+from budget_app.backends import ImedxAuthBackend
+from budget_app.views import (
+    login_view, get_document_visibility_filter_kwargs,
+    cancel_document_api, update_document_api,
+    budget_add_view, _budget_add_equipment_view
+)
+from budget_app.services import BudgetService, is_executive_view_only_user
+from budget_app.context_processors import site_status
 from budget_app.constants import (
     ALL_BRANCH_USERNAMES,
+    EXECUTIVE_VIEW_ONLY_ROLES,
     VET_CUSTOM_POSITION_GL_CODE,
     NON_VET_SALARY_GL_CODE,
     NON_VET_ALLOWANCE_GL_CODE,
@@ -1267,6 +1278,7 @@ class BudgetListDocumentPermissionTests(SimpleTestCase):
         # Regular user
         req_reg = factory.get('/')
         req_reg.user = MagicMock(is_authenticated=True, username='somchai', is_superuser=False)
+        req_reg.session = {'branch_info': {'is_executive_view_only': False}}
         ctx_reg = site_status(req_reg)
         self.assertTrue(ctx_reg['can_edit_own_documents'])
         self.assertFalse(ctx_reg['is_privileged_user'])
@@ -1306,6 +1318,7 @@ class BudgetListDocumentPermissionTests(SimpleTestCase):
         # Regular user 'user_b' tries to cancel user_a's doc -> REJECTED
         req_b = factory.post('/api/document/cancel/VET/DOC001/', data=json.dumps({'cancel_reason': 'test'}), content_type='application/json')
         req_b.user = MagicMock(is_authenticated=True, username='user_b', is_superuser=False)
+        req_b.session = {'branch_info': {'is_executive_view_only': False}}
         res_b = cancel_document_api(req_b, 'VET', 'DOC001')
         self.assertEqual(res_b.status_code, 200)
         self.assertEqual(json.loads(res_b.content).get('message'), 'คุณยกเลิกได้เฉพาะเอกสารที่ตัวเองสร้างเท่านั้น')
@@ -1313,6 +1326,7 @@ class BudgetListDocumentPermissionTests(SimpleTestCase):
         # Regular user 'user_a' cancels their own doc -> ALLOWED
         req_a = factory.post('/api/document/cancel/VET/DOC001/', data=json.dumps({'cancel_reason': 'test'}), content_type='application/json')
         req_a.user = MagicMock(is_authenticated=True, username='user_a', is_superuser=False)
+        req_a.session = {'branch_info': {'is_executive_view_only': False}}
         res_a = cancel_document_api(req_a, 'VET', 'DOC001')
         self.assertEqual(res_a.status_code, 200)
         self.assertEqual(json.loads(res_a.content).get('status'), 'success')
@@ -1370,7 +1384,7 @@ class BudgetListDocumentPermissionTests(SimpleTestCase):
         # Regular user 'user_b' tries to update user_a's doc -> REJECTED
         req_b = factory.post('/api/document/update/VET/DOC001/', data=json.dumps(sample_data), content_type='application/json')
         req_b.user = MagicMock(is_authenticated=True, username='user_b', is_superuser=False)
-        req_b.session = {}
+        req_b.session = {'branch_info': {'is_executive_view_only': False}}
         res_b = update_document_api(req_b, 'VET', 'DOC001')
         self.assertEqual(res_b.status_code, 200)
         self.assertEqual(json.loads(res_b.content).get('message'), 'คุณแก้ไขได้เฉพาะเอกสารที่ตัวเองสร้างเท่านั้น')
@@ -1562,6 +1576,747 @@ class BudgetListDocumentPermissionTests(SimpleTestCase):
         self.assertIn('#cost-center-card-body .ts-dropdown', css)
         self.assertIn('#config-card-body .ts-dropdown', css)
         self.assertIn('z-index: 1030 !important;', css)
+
+
+class ImedxAuthBackendTests(SimpleTestCase):
+    """Verifies that ImedxAuthBackend enforces presence of bank_sub_name
+    and bank_account_note, checks active status, and avoids info leaks."""
+
+    def test_missing_credentials_returns_none(self):
+        backend = ImedxAuthBackend()
+        self.assertIsNone(backend.authenticate(None, username=None, password='123'))
+        self.assertIsNone(backend.authenticate(None, username='user', password=None))
+
+    @patch('budget_app.backends.connections')
+    def test_invalid_password_returns_none_without_setting_failure_reason(self, mock_connections):
+        mock_cursor = mock_connections['imedx'].cursor.return_value.__enter__.return_value
+        correct_hash = hashlib.md5(b'correct_pw').hexdigest()
+        mock_cursor.fetchone.return_value = ('emp01', correct_hash, 'นาย', 'สมชาย', 'ใจดี', '', '', '1')
+
+        backend = ImedxAuthBackend()
+        request = type('Request', (), {})()
+        result = backend.authenticate(request, username='emp01', password='wrong_password')
+
+        self.assertIsNone(result)
+        self.assertFalse(hasattr(request, 'auth_failure_reason'))
+
+    @patch('budget_app.backends.connections')
+    def test_inactive_employee_blocked(self, mock_connections):
+        mock_cursor = mock_connections['imedx'].cursor.return_value.__enter__.return_value
+        pw_hash = hashlib.md5(b'mypassword').hexdigest()
+        mock_cursor.fetchone.return_value = ('emp01', pw_hash, 'นาย', 'สมชาย', 'ใจดี', 'BACK-IT', 'IT', '0')
+
+        backend = ImedxAuthBackend()
+        request = type('Request', (), {})()
+        result = backend.authenticate(request, username='emp01', password='mypassword')
+
+        self.assertIsNone(result)
+        self.assertEqual(getattr(request, 'auth_failure_reason', None), 'inactive_employee')
+
+    @patch('budget_app.backends.connections')
+    @patch('budget_app.backends.User.objects.filter')
+    def test_missing_both_fields_blocked(self, mock_user_filter, mock_connections):
+        mock_user_filter.return_value.exists.return_value = False
+        mock_cursor = mock_connections['imedx'].cursor.return_value.__enter__.return_value
+        pw_hash = hashlib.md5(b'mypassword').hexdigest()
+        mock_cursor.fetchone.return_value = ('emp01', pw_hash, 'นาย', 'สมชาย', 'ใจดี', '', '   ', '1')
+
+        backend = ImedxAuthBackend()
+        request = type('Request', (), {})()
+        result = backend.authenticate(request, username='emp01', password='mypassword')
+
+        self.assertIsNone(result)
+        self.assertEqual(getattr(request, 'auth_failure_reason', None), 'missing_imedx_profile')
+        self.assertEqual(getattr(request, 'auth_missing_fields', []), ['bank_sub_name', 'bank_account_note'])
+
+    @patch('budget_app.backends.connections')
+    @patch('budget_app.backends.User.objects.filter')
+    def test_missing_sub_name_only_blocked(self, mock_user_filter, mock_connections):
+        mock_user_filter.return_value.exists.return_value = False
+        mock_cursor = mock_connections['imedx'].cursor.return_value.__enter__.return_value
+        pw_hash = hashlib.md5(b'mypassword').hexdigest()
+        mock_cursor.fetchone.return_value = ('emp01', pw_hash, 'นาย', 'สมชาย', 'ใจดี', None, 'IT', '1')
+
+        backend = ImedxAuthBackend()
+        request = type('Request', (), {})()
+        result = backend.authenticate(request, username='emp01', password='mypassword')
+
+        self.assertIsNone(result)
+        self.assertEqual(getattr(request, 'auth_failure_reason', None), 'missing_imedx_profile')
+        self.assertEqual(getattr(request, 'auth_missing_fields', []), ['bank_sub_name'])
+
+    @patch('budget_app.backends.connections')
+    @patch('budget_app.backends.User.objects.filter')
+    def test_missing_account_note_only_blocked(self, mock_user_filter, mock_connections):
+        mock_user_filter.return_value.exists.return_value = False
+        mock_cursor = mock_connections['imedx'].cursor.return_value.__enter__.return_value
+        pw_hash = hashlib.md5(b'mypassword').hexdigest()
+        mock_cursor.fetchone.return_value = ('emp01', pw_hash, 'นาย', 'สมชาย', 'ใจดี', 'BACK-IT', '', '1')
+
+        backend = ImedxAuthBackend()
+        request = type('Request', (), {})()
+        result = backend.authenticate(request, username='emp01', password='mypassword')
+
+        self.assertIsNone(result)
+        self.assertEqual(getattr(request, 'auth_failure_reason', None), 'missing_imedx_profile')
+        self.assertEqual(getattr(request, 'auth_missing_fields', []), ['bank_account_note'])
+
+    @patch('budget_app.backends.connections')
+    @patch('budget_app.backends.User.objects.filter')
+    @patch('budget_app.backends.User.objects.get_or_create')
+    def test_superuser_bypasses_profile_check(self, mock_get_or_create, mock_user_filter, mock_connections):
+        mock_user_filter.return_value.exists.return_value = True
+        mock_user = type('User', (), {'first_name': '', 'last_name': '', 'save': lambda self: None})()
+        mock_get_or_create.return_value = (mock_user, False)
+        mock_cursor = mock_connections['imedx'].cursor.return_value.__enter__.return_value
+        pw_hash = hashlib.md5(b'mypassword').hexdigest()
+        mock_cursor.fetchone.return_value = ('superadmin', pw_hash, 'นาย', 'แอด', 'มิน', '', '', '1')
+
+        backend = ImedxAuthBackend()
+        request = type('Request', (), {})()
+        result = backend.authenticate(request, username='superadmin', password='mypassword')
+
+        self.assertIsNotNone(result)
+
+    @patch('budget_app.backends.connections')
+    @patch('budget_app.backends.User.objects.filter')
+    @patch('budget_app.backends.User.objects.get_or_create')
+    def test_valid_profile_authenticates_successfully(self, mock_get_or_create, mock_user_filter, mock_connections):
+        mock_user_filter.return_value.exists.return_value = False
+        mock_user = type('User', (), {'first_name': '', 'last_name': '', 'save': lambda self: None})()
+        mock_get_or_create.return_value = (mock_user, False)
+        mock_cursor = mock_connections['imedx'].cursor.return_value.__enter__.return_value
+        pw_hash = hashlib.md5(b'mypassword').hexdigest()
+        mock_cursor.fetchone.return_value = ('emp01', pw_hash, 'นาย', 'สมชาย', 'ใจดี', 'BACK-IT', 'IT', '1')
+
+        backend = ImedxAuthBackend()
+        request = type('Request', (), {})()
+        result = backend.authenticate(request, username='emp01', password='mypassword')
+
+        self.assertIsNotNone(result)
+
+
+class LoginViewAuthWarningTests(SimpleTestCase):
+    """Verifies that login_view renders appropriate professional warning
+    popups when authentication fails due to missing profile fields or inactive status."""
+
+    @patch('budget_app.views.authenticate')
+    @patch('budget_app.views.messages.error')
+    @patch('budget_app.views.render')
+    def test_missing_profile_both_fields_warning_message(self, mock_render, mock_msg_error, mock_auth):
+        def fake_auth(request, username=None, password=None):
+            request.auth_failure_reason = 'missing_imedx_profile'
+            request.auth_missing_fields = ['bank_sub_name', 'bank_account_note']
+            return None
+        mock_auth.side_effect = fake_auth
+
+        factory = RequestFactory()
+        request = factory.post(reverse('login'), {'employee_id': 'emp01', 'password': 'pass'})
+
+        login_view(request)
+
+        mock_msg_error.assert_called_once()
+        args, kwargs = mock_msg_error.call_args
+        msg = args[1]
+        self.assertIn('bank_sub_name', msg)
+        self.assertIn('bank_account_note', msg)
+        self.assertIn('iMedX', msg)
+        self.assertIn('E-Budget', msg)
+        self.assertIn('imedx_profile', kwargs.get('extra_tags', ''))
+        self.assertIn('warning', kwargs.get('extra_tags', ''))
+
+    @patch('budget_app.views.authenticate')
+    @patch('budget_app.views.messages.error')
+    @patch('budget_app.views.render')
+    def test_missing_sub_name_only_warning_message(self, mock_render, mock_msg_error, mock_auth):
+        def fake_auth(request, username=None, password=None):
+            request.auth_failure_reason = 'missing_imedx_profile'
+            request.auth_missing_fields = ['bank_sub_name']
+            return None
+        mock_auth.side_effect = fake_auth
+
+        factory = RequestFactory()
+        request = factory.post(reverse('login'), {'employee_id': 'emp01', 'password': 'pass'})
+
+        login_view(request)
+
+        mock_msg_error.assert_called_once()
+        args, kwargs = mock_msg_error.call_args
+        msg = args[1]
+        self.assertIn('bank_sub_name', msg)
+        self.assertNotIn('bank_account_note', msg)
+
+    @patch('budget_app.views.authenticate')
+    @patch('budget_app.views.messages.error')
+    @patch('budget_app.views.render')
+    def test_missing_account_note_only_warning_message(self, mock_render, mock_msg_error, mock_auth):
+        def fake_auth(request, username=None, password=None):
+            request.auth_failure_reason = 'missing_imedx_profile'
+            request.auth_missing_fields = ['bank_account_note']
+            return None
+        mock_auth.side_effect = fake_auth
+
+        factory = RequestFactory()
+        request = factory.post(reverse('login'), {'employee_id': 'emp01', 'password': 'pass'})
+
+        login_view(request)
+
+        mock_msg_error.assert_called_once()
+        args, kwargs = mock_msg_error.call_args
+        msg = args[1]
+        self.assertNotIn('bank_sub_name', msg)
+        self.assertIn('bank_account_note', msg)
+
+    @patch('budget_app.views.authenticate')
+    @patch('budget_app.views.messages.error')
+    @patch('budget_app.views.render')
+    def test_inactive_employee_warning_message(self, mock_render, mock_msg_error, mock_auth):
+        def fake_auth(request, username=None, password=None):
+            request.auth_failure_reason = 'inactive_employee'
+            return None
+        mock_auth.side_effect = fake_auth
+
+        factory = RequestFactory()
+        request = factory.post(reverse('login'), {'employee_id': 'emp01', 'password': 'pass'})
+
+        login_view(request)
+
+        mock_msg_error.assert_called_once()
+        args, kwargs = mock_msg_error.call_args
+        msg = args[1]
+        self.assertIn('Inactive', msg)
+        self.assertIn('imedx_inactive', kwargs.get('extra_tags', ''))
+
+    @patch('budget_app.views.authenticate')
+    @patch('budget_app.views.messages.error')
+    @patch('budget_app.views.render')
+    def test_standard_auth_failure_message(self, mock_render, mock_msg_error, mock_auth):
+        mock_auth.return_value = None
+
+        factory = RequestFactory()
+        request = factory.post(reverse('login'), {'employee_id': 'emp01', 'password': 'pass'})
+
+        login_view(request)
+
+        mock_msg_error.assert_called_once()
+        args, kwargs = mock_msg_error.call_args
+        msg = args[1]
+        self.assertIn('รหัสพนักงานหรือรหัสผ่านไม่ถูกต้อง', msg)
+        self.assertEqual(kwargs.get('extra_tags', None), None)
+
+    def test_login_template_swal_configuration(self):
+        tmpl_path = os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'login.html')
+        with open(tmpl_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        self.assertIn('Swal.fire', content)
+        self.assertIn('imedx_profile', content)
+        self.assertIn('imedx_inactive', content)
+        self.assertIn('warning', content)
+        self.assertIn('width: 520', content)
+        self.assertIn('message|safe|escapejs', content)
+
+
+class ExecutiveViewOnlyRoleTests(SimpleTestCase):
+    """Verifies that employees with bank_account_note in (CHRO, CFO, COO)
+    have full visibility to all documents and can view details,
+    but cannot cancel or edit documents (both server-side and client-side)."""
+
+    def test_is_executive_role_matching(self):
+        self.assertTrue(BudgetService.is_executive_role('CHRO'))
+        self.assertTrue(BudgetService.is_executive_role('CFO'))
+        self.assertTrue(BudgetService.is_executive_role('COO'))
+        self.assertTrue(BudgetService.is_executive_role('chro'))
+        self.assertTrue(BudgetService.is_executive_role('  cfo  '))
+        self.assertFalse(BudgetService.is_executive_role('MANAGER'))
+        self.assertFalse(BudgetService.is_executive_role('IT'))
+        self.assertFalse(BudgetService.is_executive_role('ACC'))
+        self.assertFalse(BudgetService.is_executive_role(None))
+        self.assertFalse(BudgetService.is_executive_role(''))
+
+    @patch('budget_app.services.connections')
+    def test_get_branch_info_from_imedx_resolves_executive_flag(self, mock_connections):
+        mock_cursor = mock_connections['imedx'].cursor.return_value.__enter__.return_value
+        # Case 1: CHRO
+        mock_cursor.fetchone.return_value = ('BACK-ALL', 'CHRO', None)
+        info_chro = BudgetService.get_branch_info_from_imedx('sutep')
+        self.assertTrue(info_chro['is_executive_view_only'])
+        self.assertEqual(info_chro['bank_account_note'], 'CHRO')
+
+        # Case 2: Standard Manager
+        mock_cursor.fetchone.return_value = ('BACK-IT', 'MANAGER', None)
+        info_mgr = BudgetService.get_branch_info_from_imedx('mgr01')
+        self.assertFalse(info_mgr['is_executive_view_only'])
+        self.assertTrue(info_mgr['is_manager'])
+
+    def test_is_executive_view_only_user_helper(self):
+        factory = RequestFactory()
+        user_chro = User(username='sutep')
+        user_mgr = User(username='mgr01')
+        super_user = User(username='admin', is_superuser=True)
+
+        req_chro = factory.get('/')
+        req_chro.user = user_chro
+        req_chro.session = {'branch_info': {'is_executive_view_only': True}}
+        self.assertTrue(is_executive_view_only_user(req_chro))
+
+        req_mgr = factory.get('/')
+        req_mgr.user = user_mgr
+        req_mgr.session = {'branch_info': {'is_executive_view_only': False}}
+        self.assertFalse(is_executive_view_only_user(req_mgr))
+
+        # Superuser always bypasses
+        req_admin = factory.get('/')
+        req_admin.user = super_user
+        req_admin.session = {'branch_info': {'is_executive_view_only': True}}
+        self.assertFalse(is_executive_view_only_user(req_admin))
+
+    def test_visibility_filter_returns_empty_dict_for_executive(self):
+        factory = RequestFactory()
+        user_chro = User(username='sutep')
+        req = factory.get('/')
+        req.user = user_chro
+        req.session = {'branch_info': {'is_executive_view_only': True}}
+
+        filter_kwargs = get_document_visibility_filter_kwargs(req)
+        self.assertEqual(filter_kwargs, {}, "Executive users must have empty filter kwargs to see all documents")
+
+    def test_visibility_filter_scopes_by_creator_for_regular_user(self):
+        factory = RequestFactory()
+        user_regular = User(username='regular_emp')
+        req = factory.get('/')
+        req.user = user_regular
+        req.session = {'branch_info': {'is_executive_view_only': False}}
+
+        filter_kwargs = get_document_visibility_filter_kwargs(req)
+        self.assertEqual(filter_kwargs, {'create_eid': 'regular_emp'}, "Regular users must only see their own documents")
+
+    @patch('budget_app.models.SystemSettings.load')
+    def test_cancel_document_api_forbidden_for_executive(self, mock_load):
+        mock_settings = type('Settings', (), {'is_frozen': 0, 'frozen_message': '', 'active_budget_year': 2026})()
+        mock_load.return_value = mock_settings
+
+        factory = RequestFactory()
+        user_chro = User(username='sutep')
+        req = factory.post('/api/document/cancel/VET/DOC001/', data=json.dumps({'cancel_reason': 'test'}), content_type='application/json')
+        req.user = user_chro
+        req.session = {'branch_info': {'is_executive_view_only': True}}
+
+        response = cancel_document_api(req, 'VET', 'DOC001')
+        self.assertEqual(response.status_code, 403)
+        data = json.loads(response.content)
+        self.assertEqual(data['status'], 'error')
+        self.assertIn('สิทธิ์ดูข้อมูลเท่านั้น', data['message'])
+        self.assertIn('ไม่สามารถยกเลิกเอกสารได้', data['message'])
+
+    @patch('budget_app.models.SystemSettings.load')
+    def test_update_document_api_forbidden_for_executive(self, mock_load):
+        mock_settings = type('Settings', (), {'is_frozen': 0, 'frozen_message': '', 'active_budget_year': 2026})()
+        mock_load.return_value = mock_settings
+
+        factory = RequestFactory()
+        user_chro = User(username='sutep')
+        req = factory.post('/api/document/update/VET/DOC001/', data=json.dumps([{'cost_center_name': 'CC1'}]), content_type='application/json')
+        req.user = user_chro
+        req.session = {'branch_info': {'is_executive_view_only': True}}
+
+        response = update_document_api(req, 'VET', 'DOC001')
+        self.assertEqual(response.status_code, 403)
+        data = json.loads(response.content)
+        self.assertEqual(data['status'], 'error')
+        self.assertIn('สิทธิ์ดูข้อมูลเท่านั้น', data['message'])
+        self.assertIn('ไม่สามารถแก้ไขข้อมูลได้', data['message'])
+
+    @patch('budget_app.models.SystemSettings.load')
+    def test_site_status_context_processor_for_executive(self, mock_load):
+        mock_settings = type('Settings', (), {'is_frozen': 0, 'frozen_message': '', 'active_budget_year': 2026})()
+        mock_load.return_value = mock_settings
+
+        factory = RequestFactory()
+        user_chro = User(username='sutep')
+        req = factory.get('/')
+        req.user = user_chro
+        req.session = {'branch_info': {'is_executive_view_only': True}}
+
+        ctx = site_status(req)
+        self.assertTrue(ctx['is_executive_view_only'])
+        self.assertFalse(ctx['can_edit_own_documents'])
+        self.assertFalse(ctx['is_privileged_user'])
+        self.assertFalse(ctx['can_add_budget'])
+
+        # Regular user when system is not frozen
+        req_regular = factory.get('/')
+        req_regular.user = User(username='reg01')
+        req_regular.session = {'branch_info': {'is_executive_view_only': False}}
+        ctx_reg = site_status(req_regular)
+        self.assertTrue(ctx_reg['can_add_budget'])
+
+    def test_base_and_budget_list_templates_executive_contract(self):
+        base_path = os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'base.html')
+        with open(base_path, 'r', encoding='utf-8') as f:
+            base_content = f.read()
+        self.assertIn('data-executive-view-only', base_content)
+        self.assertIn('{% if can_add_budget %}', base_content)
+
+        js_path = os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'budget_list.js')
+        with open(js_path, 'r', encoding='utf-8') as f:
+            js_content = f.read()
+        self.assertIn('isExecutiveViewOnly', js_content)
+        self.assertIn('applyEditButtonVisibility', js_content)
+        self.assertIn('applyCancelButtonVisibility', js_content)
+
+    @patch('budget_app.models.SystemSettings.load')
+    def test_base_template_renders_or_hides_add_budget(self, mock_load):
+        mock_settings = type('Settings', (), {'is_frozen': 0, 'frozen_message': '', 'active_budget_year': 2026})()
+        mock_load.return_value = mock_settings
+
+        factory = RequestFactory()
+        req = factory.get('/')
+        req.user = User(username='sutep', first_name='Sutep')
+        req.session = {'branch_info': {'is_executive_view_only': True}}
+
+        ctx_base = {
+            'user': req.user,
+            'request': req,
+            'system_frozen': 0,
+            'session_idle_timeout_seconds': 1800,
+            'active_budget_year': 2026,
+            'frozen_message': '',
+            'csrf_token': 'dummy',
+        }
+
+        # Executive view-only: Add Budget menu is hidden
+        ctx_exec = dict(ctx_base, is_executive_view_only=True, can_add_budget=False, is_privileged_user=False)
+        out_exec = render_to_string('budget_app/base.html', ctx_exec, request=req)
+        self.assertNotIn('<a id="addBudgetToggle"', out_exec)
+        self.assertNotIn('id="collapseAddBudget"', out_exec)
+
+        # Normal user: Add Budget menu is visible
+        ctx_normal = dict(ctx_base, is_executive_view_only=False, can_add_budget=True, is_privileged_user=False)
+        out_normal = render_to_string('budget_app/base.html', ctx_normal, request=req)
+        self.assertIn('<a id="addBudgetToggle"', out_normal)
+        self.assertIn('id="collapseAddBudget"', out_normal)
+
+    def test_budget_add_view_get_redirects_for_executive(self):
+        factory = RequestFactory()
+        req = factory.get(reverse('budget_add'))
+        req.user = User(username='sutep')
+        req.session = {'branch_info': {'is_executive_view_only': True}}
+
+        response = budget_add_view(req)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse('budget_list'))
+
+    def test_budget_add_view_post_forbidden_for_executive(self):
+        factory = RequestFactory()
+        req = factory.post(reverse('budget_add'), data='{}', content_type='application/json')
+        req.user = User(username='sutep')
+        req.session = {'branch_info': {'is_executive_view_only': True}}
+
+        response = budget_add_view(req)
+        self.assertEqual(response.status_code, 403)
+        data = json.loads(response.content)
+        self.assertEqual(data['status'], 'error')
+        self.assertIn('สิทธิ์ดูข้อมูลเท่านั้น', data['message'])
+        self.assertIn('ไม่สามารถสร้างเอกสารได้', data['message'])
+
+    def test_equipment_add_view_blocked_for_executive(self):
+        factory = RequestFactory()
+        # GET
+        req_get = factory.get(reverse('budget_add_medical_equipment'))
+        req_get.user = User(username='sutep')
+        req_get.session = {'branch_info': {'is_executive_view_only': True}}
+        res_get = _budget_add_equipment_view(req_get, None, 'Medical Equipment', 'budget_app/budget_add_medical_equipment.html', 4)
+        self.assertEqual(res_get.status_code, 302)
+
+        # POST
+        req_post = factory.post(reverse('budget_add_medical_equipment'), data='{}', content_type='application/json')
+        req_post.user = User(username='sutep')
+        req_post.session = {'branch_info': {'is_executive_view_only': True}}
+        res_post = _budget_add_equipment_view(req_post, None, 'Medical Equipment', 'budget_app/budget_add_medical_equipment.html', 4)
+        self.assertEqual(res_post.status_code, 403)
+        data = json.loads(res_post.content)
+        self.assertIn('สิทธิ์ดูข้อมูลเท่านั้น', data['message'])
+
+
+
+class VetDocumentDetailModalTests(SimpleTestCase):
+    """Verifies that in budget_list:
+    1. Table 1 card header in detail modal is dynamically updated to 'ตารางส่วนแรก (กรอกจำนวนชั่วโมง)' for VET.
+    2. Column header for VET rate is 'ค่าแรงรายชั่วโมง' with width 130 in both view mode and edit mode.
+    3. Other doc types (Equipment, NON VET) retain their expected titles and widths."""
+
+    def setUp(self):
+        self.html_path = os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'budget_list.html')
+        with open(self.html_path, 'r', encoding='utf-8') as f:
+            self.html_content = f.read()
+
+        self.js_path = os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'budget_list.js')
+        with open(self.js_path, 'r', encoding='utf-8') as f:
+            self.js_content = f.read()
+
+    def test_modal_table1_header_has_id_in_html(self):
+        self.assertIn('id="modalTable1HeaderTitle"', self.html_content)
+
+    def test_js_updates_table1_header_for_vet(self):
+        # Header update in viewDocumentDetails
+        self.assertIn("modalTable1Header.innerText = 'ตารางส่วนแรก (กรอกจำนวนชั่วโมง)'", self.js_content)
+        # Header update in toggleEditMode
+        self.assertIn("modalTable1HeaderTitle", self.js_content)
+
+    def test_js_vet_hourly_wage_column_title_and_width(self):
+        # Column title for VET must be 'ค่าแรงรายชั่วโมง'
+        self.assertIn("isVet ? 'ค่าแรงรายชั่วโมง' : 'เงินเดือน'", self.js_content)
+        # Width for VET must be 150 to prevent text clipping
+        self.assertIn("isVet ? 150 : 100", self.js_content)
+
+
+class VetColumnWidthTests(SimpleTestCase):
+    """Verifies that the VET Manpower 'ค่าแรงรายชั่วโมง' column width is 150px
+    in both table 1 and table 2 of budget_add.html, and in budget_list.js,
+    preventing any text clipping of the Thai characters."""
+
+    def test_budget_add_html_vet_column_width(self):
+        add_html_path = os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'budget_add.html')
+        with open(add_html_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Both table 1 and table 2 must use width 150 for 'ค่าแรงรายชั่วโมง'
+        self.assertIn("{ type: 'numeric', title: 'ค่าแรงรายชั่วโมง', width: 150, mask: '#,##0' }", content)
+        self.assertIn("{ type: 'numeric', title: 'ค่าแรงรายชั่วโมง', width: 150, readOnly: true, mask: '#,##0' }", content)
+
+    def test_budget_list_js_vet_column_width(self):
+        js_path = os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'budget_list.js')
+        with open(js_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # rateOrPriceWidth must be 150 for VET
+        self.assertIn("const rateOrPriceWidth = isVet ? 150 : 100;", content)
+
+
+class DuplicateBudgetDocumentCheckTests(SimpleTestCase):
+    """Verifies server-side duplicate budget document detection logic across
+    BudgetService, views helper, and views POST handlers."""
+
+    def test_find_existing_budget_document_validation(self):
+        from budget_app.services import BudgetService
+        # None or invalid parameters must return None immediately
+        self.assertIsNone(BudgetService.find_existing_budget_document(None, 'user1', 2025, 'AP'))
+        self.assertIsNone(BudgetService.find_existing_budget_document(MagicMock(), '', 2025, 'AP'))
+        self.assertIsNone(BudgetService.find_existing_budget_document(MagicMock(), 'user1', 'invalid_year', 'AP'))
+        self.assertIsNone(BudgetService.find_existing_budget_document(MagicMock(), 'user1', 2025, ''))
+
+    def test_find_existing_budget_document_queries_correctly(self):
+        from budget_app.services import BudgetService
+        mock_model = MagicMock()
+        mock_qs = MagicMock()
+        mock_model.objects.filter.return_value = mock_qs
+        mock_qs.exclude.return_value = mock_qs
+        mock_qs.order_by.return_value = mock_qs
+        mock_qs.values.return_value = mock_qs
+        mock_qs.first.return_value = {
+            'document_no': 'VET-202611-001',
+            'budget_year': 2025,
+            'base_branch_id': 'AP',
+            'status': 'PENDING'
+        }
+
+        res = BudgetService.find_existing_budget_document(mock_model, 'nattchai_u', 2025, 'AP')
+        self.assertIsNotNone(res)
+        self.assertEqual(res['document_no'], 'VET-202611-001')
+        mock_model.objects.filter.assert_called_with(
+            create_eid__iexact='nattchai_u',
+            budget_year=2025,
+            base_branch_id__iexact='AP'
+        )
+        mock_qs.exclude.assert_called_with(status='CANCELLED')
+
+    def test_check_duplicate_budget_document_helper_returns_json_on_duplicate(self):
+        from budget_app.views import check_duplicate_budget_document
+        with patch('budget_app.services.BudgetService.find_existing_budget_document') as mock_find:
+            mock_find.return_value = {
+                'document_no': 'VET-202611-001',
+                'budget_year': 2025,
+                'base_branch_id': 'AP',
+                'status': 'PENDING'
+            }
+
+            resp = check_duplicate_budget_document(
+                model_class=MagicMock(),
+                doc_type='VET',
+                create_eid='nattchai_u',
+                budget_year=2025,
+                base_branch_id='AP'
+            )
+            self.assertIsNotNone(resp)
+            self.assertEqual(resp.status_code, 200)
+            data = json.loads(resp.content)
+            self.assertEqual(data['status'], 'duplicate')
+            self.assertEqual(data['doc_type'], 'VET')
+            self.assertEqual(data['document_no'], 'VET-202611-001')
+            self.assertEqual(data['budget_year'], 2025)
+            self.assertEqual(data['branch_id'], 'AP')
+            self.assertIn('พบเอกสาร VET เลขที่ VET-202611-001', data['message'])
+
+    def test_check_duplicate_budget_document_helper_returns_none_when_no_duplicate(self):
+        from budget_app.views import check_duplicate_budget_document
+        with patch('budget_app.services.BudgetService.find_existing_budget_document') as mock_find:
+            mock_find.return_value = None
+
+            resp = check_duplicate_budget_document(
+                model_class=MagicMock(),
+                doc_type='VET',
+                create_eid='nattchai_u',
+                budget_year=2025,
+                base_branch_id='AP'
+            )
+            self.assertIsNone(resp)
+
+
+class DuplicateBudgetDocumentFrontendContractTests(SimpleTestCase):
+    """Verifies that the duplicate check handling is correctly wired in
+    base.html, budget_list.js, and across all 14 add-budget templates."""
+
+    def test_base_html_defines_handle_duplicate_response(self):
+        base_html_path = os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'base.html')
+        with open(base_html_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        self.assertIn('window.handleBudgetSaveDuplicateResponse = function', content)
+        self.assertIn('Swal.fire', content)
+        self.assertIn('ดูรายละเอียดเอกสาร', content)
+        self.assertIn('open_doc_no=', content)
+        self.assertIn('open_doc_type=', content)
+
+    def test_budget_list_js_auto_opens_duplicate_document(self):
+        js_path = os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'budget_list.js')
+        with open(js_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        self.assertIn("urlParams.get('open_doc_no')", content)
+        self.assertIn("urlParams.get('open_doc_type')", content)
+        self.assertIn('fetchDocuments(catCode)', content)
+        self.assertIn('viewDocumentDetails(openDocNo, openDocType)', content)
+        self.assertIn('viewAdjustmentDetails(openDocNo)', content)
+        self.assertIn('viewGeneralLedgerDocumentDetails(openDocNo, openDocType)', content)
+        self.assertIn('viewGlatDocumentDetails(openDocNo)', content)
+        self.assertIn('history.replaceState', content)
+
+    def test_all_14_add_templates_handle_duplicate_response(self):
+        import glob
+        templates_dir = os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app')
+        add_templates = glob.glob(os.path.join(templates_dir, 'budget_add*.html'))
+        self.assertEqual(len(add_templates), 14, "Expected exactly 14 add-budget templates")
+
+        for tmpl_path in add_templates:
+            fname = os.path.basename(tmpl_path)
+            with open(tmpl_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            self.assertIn("data.status === 'duplicate'", content, f"{fname} missing duplicate status branch")
+            self.assertIn("handleBudgetSaveDuplicateResponse", content, f"{fname} missing handleBudgetSaveDuplicateResponse call")
+
+
+class ZeroMonthlyDataValidationUnitTests(SimpleTestCase):
+    """Verifies backend validation ensuring that rows with all-zero or empty
+    monthly allocations are blocked on save."""
+
+    def test_validate_nonzero_monthly_rows_valid(self):
+        from budget_app.views import validate_nonzero_monthly_rows
+        valid_data = [
+            {
+                'position_name': 'นายสัตวแพทย์ปฏิบัติการ',
+                'monthly_data': {'jan': {'headcount': 1, 'cost': 35000}, 'feb': {'headcount': 0, 'cost': 0}}
+            },
+            {
+                'position_name': 'ผู้ช่วยสัตวแพทย์',
+                'monthly_data': {'jan': {'headcount': 0, 'cost': 0}, 'dec': {'headcount': 2, 'cost': 30000}}
+            }
+        ]
+        self.assertIsNone(validate_nonzero_monthly_rows(valid_data, 'position_name'))
+
+    def test_validate_nonzero_monthly_rows_single_zero_row(self):
+        from budget_app.views import validate_nonzero_monthly_rows
+        invalid_data = [
+            {
+                'position_name': 'นายสัตวแพทย์ปฏิบัติการ',
+                'monthly_data': {'jan': {'headcount': 1, 'cost': 35000}}
+            },
+            {
+                'position_name': 'ผู้ช่วยสัตวแพทย์',
+                'monthly_data': {'jan': {'headcount': 0, 'cost': 0}, 'feb': {'headcount': 0, 'cost': 0}}
+            }
+        ]
+        err = validate_nonzero_monthly_rows(invalid_data, 'position_name')
+        self.assertIsNotNone(err)
+        self.assertIn('แถวที่ 2: ผู้ช่วยสัตวแพทย์', err)
+        self.assertIn('ค่าว่างหรือ 0 ทั้งหมด', err)
+
+    def test_validate_nonzero_monthly_rows_multiple_zero_rows(self):
+        from budget_app.views import validate_nonzero_monthly_rows
+        invalid_data = [
+            {
+                'item_name': 'เครื่องตรวจคลื่นหัวใจ',
+                'monthly_data': {'jan': {'headcount': 0}, 'feb': {'headcount': 0}}
+            },
+            {
+                'item_name': 'เครื่องดมยาสลบ',
+                'monthly_data': {'jan': {'headcount': 1}}
+            },
+            {
+                'item_name': 'เครื่องอัลตราซาวด์',
+                'monthly_data': {'jan': 0, 'feb': 0}
+            }
+        ]
+        err = validate_nonzero_monthly_rows(invalid_data, 'item_name')
+        self.assertIsNotNone(err)
+        self.assertIn('แถวที่ 1: เครื่องตรวจคลื่นหัวใจ', err)
+        self.assertIn('แถวที่ 3: เครื่องอัลตราซาวด์', err)
+        self.assertNotIn('เครื่องดมยาสลบ', err)
+
+
+class ZeroMonthlyDataFrontendContractTests(SimpleTestCase):
+    """Verifies that client-side validation against all-zero monthly rows is present
+    in base.html and across all 10 MANPOWER and FIX ASSET templates."""
+
+    def test_base_html_defines_show_zero_monthly_rows_warning(self):
+        base_html_path = os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'base.html')
+        with open(base_html_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        self.assertIn('window.showZeroMonthlyRowsWarning = function', content)
+        self.assertIn('กรุณาระบุจำนวนในตารางส่วนแรก', content)
+        self.assertIn('ยังไม่ได้ระบุจำนวนของทุกเดือน', content)
+        self.assertIn('Swal.fire', content)
+
+    def test_all_10_manpower_and_fix_asset_templates_have_zero_month_validation(self):
+        templates_dir = os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app')
+        target_templates = [
+            # MANPOWER
+            'budget_add.html',
+            'budget_add_non_vet.html',
+            'budget_add_adjustment.html',
+            # FIX ASSET
+            'budget_add_medical_equipment.html',
+            'budget_add_computer_equipment.html',
+            'budget_add_furniture.html',
+            'budget_add_tools_equipment.html',
+            'budget_add_car.html',
+            'budget_add_renovate.html',
+            'budget_add_software.html'
+        ]
+
+        for tmpl_name in target_templates:
+            tmpl_path = os.path.join(templates_dir, tmpl_name)
+            with open(tmpl_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            self.assertIn('emptyMonthRows', content, f"{tmpl_name} must track emptyMonthRows")
+            self.assertIn('showZeroMonthlyRowsWarning', content, f"{tmpl_name} must call showZeroMonthlyRowsWarning")
+
+
+
+
+
 
 
 

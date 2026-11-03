@@ -3,6 +3,11 @@
 # user tier (nattchai_u, kanchana / kanchana_a, pattida_y).
 ALL_BRANCH_USERNAMES = {'nattchai_u', 'kanchana', 'kanchana_a', 'pattida_y'}
 
+# Executive roles from iMedX (bank_account_note) that have read-only visibility
+# across all documents in the system (can see all documents in list and view details,
+# but cannot edit or cancel documents).
+EXECUTIVE_VIEW_ONLY_ROLES = {'CHRO', 'CFO', 'COO'}
+
 DEFAULT_FROZEN_MESSAGE = (
     "ระบบอยู่ระหว่างปิดงบประมาณชั่วคราว ไม่สามารถเพิ่มหรือแก้ไขข้อมูลได้ในขณะนี้ "
     "หากมีข้อสงสัยกรุณาติดต่อฝ่ายบัญชี"

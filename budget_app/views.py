@@ -13,7 +13,7 @@ from django.db.models import Count, Max, Sum
 from master_data.models import ebudget_budget_item_master, ebudget_budget_category_master, ebudget_cost_center_master, ebudget_general_ledger_master, ebudget_gl_actual_template_row
 from django.core.cache import cache
 from budget_app.models import ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment, ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_car, ebudget_renovate, ebudget_software, ebudget_gl_entry, ebudget_revenue, ebudget_budget_plan_item, ebudget_gl_actual_template, SystemSettings, SYSTEM_SETTINGS_CACHE_KEY
-from budget_app.services import BudgetService
+from budget_app.services import BudgetService, is_executive_view_only_user
 from budget_app.constants import (
     ALL_BRANCH_USERNAMES, STATUS_PENDING, STATUS_APPROVED, STATUS_CANCELLED,
     EXPENSE_PAGE_EXCLUDED_GL_CODES, VET_CUSTOM_POSITION_GL_CODE,
@@ -67,6 +67,35 @@ def validate_manpower_headcount_integers(data, position_key='position_name'):
             except (ValueError, TypeError):
                 m_label = month_names_th.get(m_key.lower(), m_key.upper())
                 return f'จำนวนในเดือน {m_label} ไม่ถูกต้อง (รายการ: {pos_name})'
+    return None
+
+def validate_nonzero_monthly_rows(data, position_key='position_name'):
+    """Validates that each row in data has at least one month with headcount/quantity > 0.
+    Under corporate budgeting policy (MANPOWER and FIX ASSET), every added item must have an
+    allocation in at least one month. Items with zero or empty across all 12 months are forbidden.
+    Returns error message string listing the offending rows, or None if valid."""
+    empty_items = []
+    for idx, item in enumerate(data, start=1):
+        monthly_data = item.get('monthly_data') or {}
+        pos_name = item.get(position_key) or item.get('new_position_name') or f'แถวที่ {idx}'
+        has_positive = False
+        for m_key, m_val in monthly_data.items():
+            headcount = m_val.get('headcount', 0) if isinstance(m_val, dict) else m_val
+            try:
+                if float(headcount or 0) > 0:
+                    has_positive = True
+                    break
+            except (ValueError, TypeError):
+                pass
+        if not has_positive:
+            empty_items.append(f'แถวที่ {idx}: {pos_name}')
+
+    if empty_items:
+        items_str = '\n- ' + '\n- '.join(empty_items)
+        return (
+            f'ระบบไม่อนุญาตให้บันทึกรายการที่ไม่ได้ระบุจำนวนของทุกเดือน (ค่าว่างหรือ 0 ทั้งหมด)\n'
+            f'กรุณาระบุจำนวนอย่างน้อย 1 เดือนสำหรับรายการดังต่อไปนี้:{items_str}'
+        )
     return None
 
 def resolve_price_threshold_gl_code(purchase_price, gl_code_high, gl_code_low, threshold):
@@ -125,7 +154,7 @@ def resolve_equipment_gl_code(doc_type, purchase_price, fallback_gl_code=None):
     elif doc_type == 'Software':
         return SOFTWARE_GL_CODE
     return fallback_gl_code
-from budget_app.decorators import require_not_frozen
+from budget_app.decorators import require_not_frozen, require_not_executive_view_only
 
 def login_required_json(view_func):
     """Like login_required, but for fetch()/AJAX endpoints: an expired or
@@ -153,13 +182,15 @@ def get_branch_info(request):
 
 def get_document_visibility_filter_kwargs(request):
     """Filter kwargs scoping which budget documents a user can see (list +
-    detail). ALL_BRANCH_USERNAMES and superusers see everything (empty dict). Everyone
-    else sees only documents they personally created — matched by
-    create_eid, the same field/comparison cancel_document_api's ownership
-    check already uses (request.user.username), so a document keeps
-    showing to its creator even if its branch is later reassigned via the
-    edit-mode branch dropdown."""
+    detail). ALL_BRANCH_USERNAMES, superusers, and executive view-only users
+    (CHRO, CFO, COO) see everything (empty dict). Everyone else sees only
+    documents they personally created — matched by create_eid, the same
+    field/comparison cancel_document_api's ownership check already uses
+    (request.user.username), so a document keeps showing to its creator even if
+    its branch is later reassigned via the edit-mode branch dropdown."""
     if request.user.username in ALL_BRANCH_USERNAMES or request.user.is_superuser:
+        return {}
+    if is_executive_view_only_user(request):
         return {}
     return {'create_eid': request.user.username}
 
@@ -272,7 +303,41 @@ def login_view(request):
                     messages.info(request, settings_obj.frozen_message)
             return redirect('budget_list')
         else:
-            messages.error(request, 'รหัสพนักงานหรือรหัสผ่านไม่ถูกต้อง')
+            reason = getattr(request, 'auth_failure_reason', None)
+            if reason == 'missing_imedx_profile':
+                missing_fields = getattr(request, 'auth_missing_fields', [])
+                has_sub = 'bank_sub_name' in missing_fields
+                has_note = 'bank_account_note' in missing_fields
+
+                if has_sub and has_note:
+                    field_desc = "ข้อมูลสาขา/ฝ่ายงาน (<code>bank_sub_name</code>) และ ตำแหน่ง/บทบาทสิทธิ์ (<code>bank_account_note</code>)"
+                elif has_sub:
+                    field_desc = "ข้อมูลสาขา/ฝ่ายงาน (<code>bank_sub_name</code>)"
+                else:
+                    field_desc = "ข้อมูลตำแหน่ง/บทบาทสิทธิ์ (<code>bank_account_note</code>)"
+
+                msg = (
+                    f'<div class="text-start" style="line-height: 1.6; font-size: 0.95rem;">'
+                    f'บัญชีผู้ใช้งานของท่านยังไม่ได้รับการกำหนด <strong>{field_desc}</strong> '
+                    f'ในระบบ iMedX จึงยังไม่สามารถเข้าใช้งานระบบ E-Budget ได้'
+                    f'<br><br>'
+                    f'กรุณาติดต่อผู้ดูแลระบบ หรือฝ่ายทรัพยากรบุคคล (HR) / แผนก IT '
+                    f'เพื่อดำเนินการกำหนดข้อมูลให้ครบถ้วนก่อนเข้าใช้งาน'
+                    f'</div>'
+                )
+                messages.error(request, msg, extra_tags='imedx_profile warning')
+            elif reason == 'inactive_employee':
+                msg = (
+                    '<div class="text-start" style="line-height: 1.6; font-size: 0.95rem;">'
+                    'สถานะบัญชีผู้ใช้งานของท่านในระบบ iMedX ถูกระงับหรือปิดการใช้งาน (Inactive) '
+                    'จึงไม่สามารถเข้าใช้งานระบบ E-Budget ได้'
+                    '<br><br>'
+                    'กรุณาติดต่อฝ่ายทรัพยากรบุคคล (HR) หรือแผนก IT เพื่อตรวจสอบสถานะผู้ใช้งาน'
+                    '</div>'
+                )
+                messages.error(request, msg, extra_tags='imedx_inactive warning')
+            else:
+                messages.error(request, 'รหัสพนักงานหรือรหัสผ่านไม่ถูกต้อง')
             
     return render(request, 'budget_app/login.html')
 
@@ -389,7 +454,34 @@ def budget_list_view(request):
         **get_branch_selection_context(request),
     })
 
+def check_duplicate_budget_document(model_class, doc_type, create_eid, budget_year, base_branch_id):
+    """Checks if an active (non-cancelled) document already exists for (create_eid, budget_year, base_branch_id).
+    If a duplicate is found, returns a JsonResponse with status='duplicate' and document metadata.
+    Otherwise returns None."""
+    existing = BudgetService.find_existing_budget_document(
+        model_class=model_class,
+        create_eid=create_eid,
+        budget_year=budget_year,
+        base_branch_id=base_branch_id
+    )
+    if existing:
+        doc_no = existing.get('document_no') or ''
+        return JsonResponse({
+            'status': 'duplicate',
+            'doc_type': doc_type,
+            'document_no': doc_no,
+            'budget_year': existing.get('budget_year'),
+            'branch_id': existing.get('base_branch_id'),
+            'message': (
+                f'พบเอกสาร {doc_type} เลขที่ {doc_no} ปีงบประมาณ {existing.get("budget_year")} '
+                f'สำหรับสาขา {existing.get("base_branch_id")} ในระบบแล้ว '
+                f'ท่านสามารถเปิดดูรายละเอียดเอกสารดังกล่าวได้ทันที'
+            )
+        })
+    return None
+
 @login_required
+@require_not_executive_view_only
 @require_not_frozen
 def budget_add_view(request):
     if request.method == 'POST':
@@ -398,6 +490,9 @@ def budget_add_view(request):
             if not data or not data[0].get('cost_center_name'):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             err = validate_manpower_headcount_integers(data, 'position_name')
+            if err:
+                return JsonResponse({'status': 'error', 'message': err})
+            err = validate_nonzero_monthly_rows(data, 'position_name')
             if err:
                 return JsonResponse({'status': 'error', 'message': err})
             master_fks = BudgetService.get_master_fks_bulk([item['position_name'] for item in data], category_id=1, sub_category_id=1)
@@ -410,8 +505,19 @@ def budget_add_view(request):
                     })
             username = request.user.username
             branch_id, department_id = resolve_branch_for_create(request, data)
-            doc_no = BudgetService.generate_document_no('VET')
             budget_year = SystemSettings.load().active_budget_year
+
+            duplicate_resp = check_duplicate_budget_document(
+                model_class=ebudget_vet_manpower,
+                doc_type='VET',
+                create_eid=username,
+                budget_year=budget_year,
+                base_branch_id=branch_id
+            )
+            if duplicate_resp:
+                return duplicate_resp
+
+            doc_no = BudgetService.generate_document_no('VET')
 
             with transaction.atomic():
                 for item in data:
@@ -459,6 +565,7 @@ def budget_add_view(request):
     })
 
 @login_required
+@require_not_executive_view_only
 @require_not_frozen
 def budget_add_non_vet_view(request):
     if request.method == 'POST':
@@ -467,6 +574,9 @@ def budget_add_non_vet_view(request):
             if not data or not data[0].get('cost_center_name'):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             err = validate_manpower_headcount_integers(data, 'position_name')
+            if err:
+                return JsonResponse({'status': 'error', 'message': err})
+            err = validate_nonzero_monthly_rows(data, 'position_name')
             if err:
                 return JsonResponse({'status': 'error', 'message': err})
             master_fks = BudgetService.get_master_fks_bulk([item['position_name'] for item in data], category_id=1, sub_category_id=2)
@@ -479,8 +589,19 @@ def budget_add_non_vet_view(request):
                     })
             username = request.user.username
             branch_id, department_id = resolve_branch_for_create(request, data)
-            doc_no = BudgetService.generate_document_no('NON VET')
             budget_year = SystemSettings.load().active_budget_year
+
+            duplicate_resp = check_duplicate_budget_document(
+                model_class=ebudget_non_vet_manpower,
+                doc_type='NON VET',
+                create_eid=username,
+                budget_year=budget_year,
+                base_branch_id=branch_id
+            )
+            if duplicate_resp:
+                return duplicate_resp
+
+            doc_no = BudgetService.generate_document_no('NON VET')
 
             with transaction.atomic():
                 for item in data:
@@ -1086,6 +1207,12 @@ def get_document_detail_api(request, doc_type, doc_no):
 def update_document_api(request, doc_type, doc_no):
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
+
+    if is_executive_view_only_user(request):
+        return JsonResponse({
+            'status': 'error',
+            'message': 'ตำแหน่งของท่านมีสิทธิ์ดูข้อมูลเท่านั้น ไม่สามารถแก้ไขข้อมูลได้'
+        }, status=403)
         
     # Ownership & permission check:
     # Privileged users (nattchai_u, kanchana, pattida_y, and superusers) may edit
@@ -1250,8 +1377,14 @@ def update_document_api(request, doc_type, doc_no):
                 err = validate_manpower_headcount_integers(data, 'new_position_name' if doc_type == 'Position Adjustment' else 'position_name')
                 if err:
                     return JsonResponse({'status': 'error', 'message': err})
+                err = validate_nonzero_monthly_rows(data, 'new_position_name' if doc_type == 'Position Adjustment' else 'position_name')
+                if err:
+                    return JsonResponse({'status': 'error', 'message': err})
             elif doc_type in ('Medical Equipment', 'Computer Equipment', 'Furniture', 'Tools & Equipment', 'CAR', 'Renovate', 'Software'):
                 err = validate_manpower_headcount_integers(data, 'item_name')
+                if err:
+                    return JsonResponse({'status': 'error', 'message': err})
+                err = validate_nonzero_monthly_rows(data, 'item_name')
                 if err:
                     return JsonResponse({'status': 'error', 'message': err})
                 for row_data in data:
@@ -1481,6 +1614,12 @@ def cancel_document_api(request, doc_type, doc_no):
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
 
+    if is_executive_view_only_user(request):
+        return JsonResponse({
+            'status': 'error',
+            'message': 'ตำแหน่งของท่านมีสิทธิ์ดูข้อมูลเท่านั้น ไม่สามารถยกเลิกเอกสารได้'
+        }, status=403)
+
     try:
         data = json.loads(request.body)
     except (json.JSONDecodeError, TypeError):
@@ -1522,6 +1661,7 @@ def cancel_document_api(request, doc_type, doc_no):
         return JsonResponse({'status': 'error', 'message': str(e)})
 
 @login_required
+@require_not_executive_view_only
 @require_not_frozen
 def budget_add_adjustment_view(request):
     if request.method == 'POST':
@@ -1530,6 +1670,9 @@ def budget_add_adjustment_view(request):
             if not data or not data[0].get('cost_center_name'):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             err = validate_manpower_headcount_integers(data, 'new_position_name')
+            if err:
+                return JsonResponse({'status': 'error', 'message': err})
+            err = validate_nonzero_monthly_rows(data, 'new_position_name')
             if err:
                 return JsonResponse({'status': 'error', 'message': err})
             all_positions = [item.get('old_position_name') for item in data] + [item.get('new_position_name') for item in data]
@@ -1556,8 +1699,19 @@ def budget_add_adjustment_view(request):
 
             username = request.user.username
             branch_id, department_id = resolve_branch_for_create(request, data)
-            doc_no = BudgetService.generate_document_no('Position Adjustment')
             budget_year = SystemSettings.load().active_budget_year
+
+            duplicate_resp = check_duplicate_budget_document(
+                model_class=ebudget_position_adjustment,
+                doc_type='Position Adjustment',
+                create_eid=username,
+                budget_year=budget_year,
+                base_branch_id=branch_id
+            )
+            if duplicate_resp:
+                return duplicate_resp
+
+            doc_no = BudgetService.generate_document_no('Position Adjustment')
 
             with transaction.atomic():
                 for item in data:
@@ -1627,12 +1781,19 @@ def _budget_add_equipment_view(request, model_class, doc_type, template_name, su
     """Shared implementation behind the four equipment add-views below, which
     were previously near-identical ~60-line copies of each other differing
     only by model/doc_type/template/sub_category_id."""
+    if is_executive_view_only_user(request):
+        if request.method == 'POST':
+            return JsonResponse({'status': 'error', 'message': 'ตำแหน่งของท่านมีสิทธิ์ดูข้อมูลเท่านั้น ไม่สามารถสร้างเอกสารได้'}, status=403)
+        return redirect('budget_list')
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
             if not data or not data[0].get('cost_center_name'):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             err = validate_manpower_headcount_integers(data, 'item_name')
+            if err:
+                return JsonResponse({'status': 'error', 'message': err})
+            err = validate_nonzero_monthly_rows(data, 'item_name')
             if err:
                 return JsonResponse({'status': 'error', 'message': err})
             for item in data:
@@ -1657,8 +1818,19 @@ def _budget_add_equipment_view(request, model_class, doc_type, template_name, su
 
             username = request.user.username
             branch_id, department_id = resolve_branch_for_create(request, data)
-            doc_no = BudgetService.generate_document_no(doc_type)
             budget_year = SystemSettings.load().active_budget_year
+
+            duplicate_resp = check_duplicate_budget_document(
+                model_class=model_class,
+                doc_type=doc_type,
+                create_eid=username,
+                budget_year=budget_year,
+                base_branch_id=branch_id
+            )
+            if duplicate_resp:
+                return duplicate_resp
+
+            doc_no = BudgetService.generate_document_no(doc_type)
 
             with transaction.atomic():
                 for item in data:
@@ -1697,41 +1869,49 @@ def _budget_add_equipment_view(request, model_class, doc_type, template_name, su
     })
 
 @login_required
+@require_not_executive_view_only
 @require_not_frozen
 def budget_add_medical_equipment_view(request):
     return _budget_add_equipment_view(request, ebudget_medical_equipment, 'Medical Equipment', 'budget_app/budget_add_medical_equipment.html', 4)
 
 @login_required
+@require_not_executive_view_only
 @require_not_frozen
 def budget_add_computer_equipment_view(request):
     return _budget_add_equipment_view(request, ebudget_computer_equipment, 'Computer Equipment', 'budget_app/budget_add_computer_equipment.html', 5)
 
 @login_required
+@require_not_executive_view_only
 @require_not_frozen
 def budget_add_furniture_view(request):
     return _budget_add_equipment_view(request, ebudget_furniture, 'Furniture', 'budget_app/budget_add_furniture.html', 6)
 
 @login_required
+@require_not_executive_view_only
 @require_not_frozen
 def budget_add_tools_equipment_view(request):
     return _budget_add_equipment_view(request, ebudget_tools_equipment, 'Tools & Equipment', 'budget_app/budget_add_tools_equipment.html', 7)
 
 @login_required
+@require_not_executive_view_only
 @require_not_frozen
 def budget_add_car_view(request):
     return _budget_add_equipment_view(request, ebudget_car, 'CAR', 'budget_app/budget_add_car.html', 8)
 
 @login_required
+@require_not_executive_view_only
 @require_not_frozen
 def budget_add_renovate_view(request):
     return _budget_add_equipment_view(request, ebudget_renovate, 'Renovate', 'budget_app/budget_add_renovate.html', 9)
 
 @login_required
+@require_not_executive_view_only
 @require_not_frozen
 def budget_add_software_view(request):
     return _budget_add_equipment_view(request, ebudget_software, 'Software', 'budget_app/budget_add_software.html', 10)
 
 @login_required
+@require_not_executive_view_only
 @require_not_frozen
 def budget_add_gl_entry_view(request):
     if request.method == 'POST':
@@ -1741,8 +1921,19 @@ def budget_add_gl_entry_view(request):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             username = request.user.username
             branch_id, department_id = resolve_branch_for_create(request, data)
-            doc_no = BudgetService.generate_document_no('GL Entry')
             budget_year = SystemSettings.load().active_budget_year
+
+            duplicate_resp = check_duplicate_budget_document(
+                model_class=ebudget_gl_entry,
+                doc_type='GL Entry',
+                create_eid=username,
+                budget_year=budget_year,
+                base_branch_id=branch_id
+            )
+            if duplicate_resp:
+                return duplicate_resp
+
+            doc_no = BudgetService.generate_document_no('GL Entry')
             gl_master_fields = BudgetService.get_gl_master_fields_bulk([item.get('general_ledger_code') for item in data])
 
             with transaction.atomic():
@@ -1772,6 +1963,7 @@ def budget_add_gl_entry_view(request):
     })
 
 @login_required
+@require_not_executive_view_only
 @require_not_frozen
 def budget_add_revenue_view(request):
     if request.method == 'POST':
@@ -1781,8 +1973,19 @@ def budget_add_revenue_view(request):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             username = request.user.username
             branch_id, department_id = resolve_branch_for_create(request, data)
-            doc_no = BudgetService.generate_document_no('Revenue')
             budget_year = SystemSettings.load().active_budget_year
+
+            duplicate_resp = check_duplicate_budget_document(
+                model_class=ebudget_revenue,
+                doc_type='Revenue',
+                create_eid=username,
+                budget_year=budget_year,
+                base_branch_id=branch_id
+            )
+            if duplicate_resp:
+                return duplicate_resp
+
+            doc_no = BudgetService.generate_document_no('Revenue')
             gl_master_fields = BudgetService.get_gl_master_fields_bulk([item.get('general_ledger_code') for item in data])
 
             with transaction.atomic():
@@ -1812,6 +2015,7 @@ def budget_add_revenue_view(request):
     })
 
 @login_required
+@require_not_executive_view_only
 @require_not_frozen
 def budget_add_budget_plan_view(request):
     if request.method == 'POST':
@@ -1821,8 +2025,19 @@ def budget_add_budget_plan_view(request):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
             username = request.user.username
             branch_id, department_id = resolve_branch_for_create(request, data)
-            doc_no = BudgetService.generate_document_no('Budget Plan')
             budget_year = SystemSettings.load().active_budget_year
+
+            duplicate_resp = check_duplicate_budget_document(
+                model_class=ebudget_budget_plan_item,
+                doc_type='Budget Plan',
+                create_eid=username,
+                budget_year=budget_year,
+                base_branch_id=branch_id
+            )
+            if duplicate_resp:
+                return duplicate_resp
+
+            doc_no = BudgetService.generate_document_no('Budget Plan')
 
             with transaction.atomic():
                 for item in data:
@@ -1850,6 +2065,7 @@ def budget_add_budget_plan_view(request):
     })
 
 @login_required
+@require_not_executive_view_only
 @require_not_frozen
 def budget_add_gl_actual_template_view(request):
     """Unlike every other add-budget page, this one's rows are a fixed
@@ -1872,8 +2088,19 @@ def budget_add_gl_actual_template_view(request):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือกสาขาให้ถูกต้อง'})
 
             username = request.user.username
-            doc_no = BudgetService.generate_document_no('GL Actual Template')
             budget_year = SystemSettings.load().active_budget_year
+
+            duplicate_resp = check_duplicate_budget_document(
+                model_class=ebudget_gl_actual_template,
+                doc_type='GL Actual Template',
+                create_eid=username,
+                budget_year=budget_year,
+                base_branch_id=branch_code
+            )
+            if duplicate_resp:
+                return duplicate_resp
+
+            doc_no = BudgetService.generate_document_no('GL Actual Template')
 
             with transaction.atomic():
                 for item in data:

@@ -519,6 +519,8 @@
                             Swal.fire('สำเร็จ!', 'บันทึกข้อมูลเรียบร้อยแล้ว', 'success').then(() => {
                                 window.location.href = '{% url "budget_list" %}';
                             });
+                        } else if (data.status === 'duplicate') {
+                            handleBudgetSaveDuplicateResponse(data, '{% url "budget_list" %}');
                         } else {
                             Swal.fire('ข้อผิดพลาด', 'ไม่สามารถบันทึกได้: ' + data.message, 'error');
                         }

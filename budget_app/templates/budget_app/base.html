@@ -47,7 +47,7 @@
             }
         </style>
     </head>
-    <body class="nav-fixed" data-authenticated="{{ user.is_authenticated|yesno:'true,false' }}" data-username="{{ user.username }}" data-privileged="{{ is_privileged_user|yesno:'true,false' }}" data-idle-timeout-seconds="{{ session_idle_timeout_seconds }}" data-system-frozen="{{ system_frozen|yesno:'true,false' }}" data-active-budget-year="{{ active_budget_year }}" data-frozen-message="{{ frozen_message }}" data-toggle-freeze-url="{% url 'toggle_freeze' %}" data-set-year-url="{% url 'set_active_year' %}" data-csrf-token="{{ csrf_token }}">
+    <body class="nav-fixed" data-authenticated="{{ user.is_authenticated|yesno:'true,false' }}" data-username="{{ user.username }}" data-privileged="{{ is_privileged_user|yesno:'true,false' }}" data-executive-view-only="{{ is_executive_view_only|yesno:'true,false' }}" data-idle-timeout-seconds="{{ session_idle_timeout_seconds }}" data-system-frozen="{{ system_frozen|yesno:'true,false' }}" data-active-budget-year="{{ active_budget_year }}" data-frozen-message="{{ frozen_message }}" data-toggle-freeze-url="{% url 'toggle_freeze' %}" data-set-year-url="{% url 'set_active_year' %}" data-csrf-token="{{ csrf_token }}">
         <script>
             // Apply theme immediately to prevent flash
             (function() {
@@ -163,7 +163,7 @@
             Budget List
         </a>
         
-        {% if is_privileged_user or not system_frozen %}
+        {% if can_add_budget %}
         <a id="addBudgetToggle" class="nav-link {% if request.resolver_match.url_name != 'budget_add' and request.resolver_match.url_name != 'budget_add_non_vet' and request.resolver_match.url_name != 'budget_add_adjustment' and request.resolver_match.url_name != 'budget_add_medical_equipment' and request.resolver_match.url_name != 'budget_add_computer_equipment' and request.resolver_match.url_name != 'budget_add_furniture' and request.resolver_match.url_name != 'budget_add_tools_equipment' and request.resolver_match.url_name != 'budget_add_car' and request.resolver_match.url_name != 'budget_add_renovate' and request.resolver_match.url_name != 'budget_add_software' and request.resolver_match.url_name != 'budget_add_gl_entry' and request.resolver_match.url_name != 'budget_add_revenue' and request.resolver_match.url_name != 'budget_add_budget_plan' and request.resolver_match.url_name != 'budget_add_gl_actual_template' %}collapsed{% endif %}" href="javascript:void(0);" aria-expanded="{% if request.resolver_match.url_name == 'budget_add' or request.resolver_match.url_name == 'budget_add_non_vet' or request.resolver_match.url_name == 'budget_add_adjustment' or request.resolver_match.url_name == 'budget_add_medical_equipment' or request.resolver_match.url_name == 'budget_add_computer_equipment' or request.resolver_match.url_name == 'budget_add_furniture' or request.resolver_match.url_name == 'budget_add_tools_equipment' or request.resolver_match.url_name == 'budget_add_car' or request.resolver_match.url_name == 'budget_add_renovate' or request.resolver_match.url_name == 'budget_add_software' or request.resolver_match.url_name == 'budget_add_gl_entry' or request.resolver_match.url_name == 'budget_add_revenue' or request.resolver_match.url_name == 'budget_add_budget_plan' or request.resolver_match.url_name == 'budget_add_gl_actual_template' %}true{% else %}false{% endif %}" aria-controls="collapseAddBudget">
             <div class="nav-link-icon"><i data-feather="plus-circle"></i></div>
             Add Budget
@@ -527,6 +527,105 @@
                     });
                 });
             })();
+        </script>
+                <script>
+            window.handleBudgetSaveDuplicateResponse = function(data, budgetListUrl) {
+                const escapeHtml = function(str) {
+                    if (!str) return '';
+                    return String(str)
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;')
+                        .replace(/'/g, '&#39;');
+                };
+                const docType = escapeHtml(data.doc_type || 'งบประมาณ');
+                const docNo = escapeHtml(data.document_no || '-');
+                const budgetYear = escapeHtml(String(data.budget_year || ''));
+                const branchId = escapeHtml(String(data.branch_id || ''));
+
+                const htmlContent = `
+                    <div class="text-start" style="font-size: 0.95rem; line-height: 1.6;">
+                        <p class="mb-2">
+                            ระบบตรวจพบว่ามีเอกสารงบประมาณประเภท <strong>${docType}</strong> 
+                            ประจำปี <strong>${budgetYear}</strong> 
+                            ของสาขา <strong>${branchId}</strong> บันทึกอยู่ในระบบแล้ว
+                        </p>
+                        <div class="alert alert-info py-2 px-3 mb-3 d-flex align-items-center">
+                            <i data-feather="file-text" class="feather icon-file-text f-20 me-2 text-primary" style="width:20px;height:20px;min-width:20px;"></i>
+                            <div>
+                                <span class="text-muted d-block small">เลขที่เอกสารในระบบ:</span>
+                                <strong class="text-primary" style="font-size: 1.05rem;">${docNo}</strong>
+                            </div>
+                        </div>
+                        <p class="text-muted small mb-0">
+                            เพื่อป้องกันข้อมูลซ้ำซ้อน ท่านสามารถกดปุ่ม <strong>"ดูรายละเอียดเอกสาร"</strong> เพื่อตรวจสอบหรือปรับปรุงเอกสารดังกล่าวได้ทันที
+                        </p>
+                    </div>
+                `;
+
+                const swalInstance = (typeof Swal !== 'undefined' && Swal.mixin) ? Swal.mixin({ heightAuto: false }) : Swal;
+                swalInstance.fire({
+                    icon: 'warning',
+                    title: 'พบรายการงบประมาณนี้ในระบบแล้ว',
+                    html: htmlContent,
+                    showCancelButton: true,
+                    confirmButtonColor: '#0061f2',
+                    cancelButtonColor: '#69707a',
+                    confirmButtonText: '<i class="feather icon-eye me-1"></i> ดูรายละเอียดเอกสาร',
+                    cancelButtonText: 'ปิดหน้าต่าง',
+                    didOpen: () => {
+                        if (typeof feather !== 'undefined') feather.replace();
+                    }
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        const targetUrl = budgetListUrl + 
+                            (budgetListUrl.includes('?') ? '&' : '?') + 
+                            'open_doc_no=' + encodeURIComponent(data.document_no || '') + 
+                            '&open_doc_type=' + encodeURIComponent(data.doc_type || '');
+                        window.location.href = targetUrl;
+                    }
+                });
+            };
+            window.showZeroMonthlyRowsWarning = function(emptyRows) {
+                const escapeHtml = function(str) {
+                    if (!str) return '';
+                    return String(str)
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;')
+                        .replace(/'/g, '&#39;');
+                };
+
+                const rowListHtml = emptyRows.map(function(r) {
+                    return `<li>แถวที่ ${r.rowNumber}: <strong>${escapeHtml(r.name)}</strong></li>`;
+                }).join('');
+
+                const swalInstance = (typeof Swal !== 'undefined' && Swal.mixin) ? Swal.mixin({ heightAuto: false }) : Swal;
+                swalInstance.fire({
+                    icon: 'warning',
+                    title: 'กรุณาระบุจำนวนในตารางส่วนแรก',
+                    html: `
+                        <div class="text-start" style="font-size: 0.95rem; line-height: 1.6;">
+                            <p class="mb-2">
+                                ระบบตรวจพบว่ามีรายการที่<strong>ยังไม่ได้ระบุจำนวนของทุกเดือน</strong> (ค่าว่าง หรือเป็น 0 ทั้งหมด) ในตารางส่วนแรก กรุณาระบุจำนวนอย่างน้อย 1 เดือนก่อนทำการบันทึกข้อมูล:
+                            </p>
+                            <div class="alert alert-light border border-warning py-2 px-3 mb-2">
+                                <ul class="mb-0 text-danger" style="padding-left: 1.25rem;">
+                                    ${rowListHtml}
+                                </ul>
+                            </div>
+                            <p class="text-muted small mb-0">
+                                * หากไม่ต้องการบันทึกรายการดังกล่าว สามารถลบแถวออกจากตารางได้ครับ
+                            </p>
+                        </div>
+                    `,
+                    confirmButtonText: 'ตกลง',
+                    confirmButtonColor: '#0061f2'
+                });
+            };
+
         </script>
         {% block extra_js %}{% endblock %}
     </body>

@@ -529,6 +529,7 @@
 
             let rows = table1.getData();
             let dataToSave = [];
+            let emptyMonthRows = [];
 
             for (let i = 0; i < rows.length; i++) {
                 let row = rows[i];
@@ -553,6 +554,7 @@
                     }
 
                     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                    let hasPositiveMonth = false;
                     for (let c = 3; c <= 14; c++) {
                         const val = row[c];
                         const rawStr = String(val !== null && val !== undefined ? val : '').trim().replace(/,/g, '');
@@ -567,6 +569,12 @@
                                 return;
                             }
                         }
+                        if (count > 0) {
+                            hasPositiveMonth = true;
+                        }
+                    }
+                    if (!hasPositiveMonth) {
+                        emptyMonthRows.push({ rowNumber: i + 1, name: position });
                     }
 
                     let monthlyData = {
@@ -593,6 +601,11 @@
                         'monthly_data': monthlyData
                     });
                 }
+            }
+
+            if (emptyMonthRows.length > 0) {
+                showZeroMonthlyRowsWarning(emptyMonthRows);
+                return;
             }
 
             if (dataToSave.length === 0) {
@@ -633,6 +646,8 @@
                             Swal.fire('สำเร็จ!', 'บันทึกข้อมูลเรียบร้อยแล้ว', 'success').then(() => {
                                 window.location.href = '{% url "budget_list" %}';
                             });
+                        } else if (data.status === 'duplicate') {
+                            handleBudgetSaveDuplicateResponse(data, '{% url "budget_list" %}');
                         } else {
                             Swal.fire('ข้อผิดพลาด', 'ไม่สามารถบันทึกได้: ' + data.message, 'error');
                         }

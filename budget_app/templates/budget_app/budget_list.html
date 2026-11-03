@@ -461,7 +461,7 @@
                         <h6 class="text-primary mb-3"><i data-feather="users" class="me-2"></i>รายละเอียดกำลังคน (Manpower Details)</h6>
                         <div class="card mb-3 card-soft">
                             <div class="card-header bg-light fw-bold text-dark d-flex justify-content-between align-items-center">
-                                <span>ตารางส่วนแรก (จำนวนคน)</span>
+                                <span id="modalTable1HeaderTitle">ตารางส่วนแรก (จำนวนคน)</span>
                                 <button type="button" class="btn btn-sm btn-primary" id="btnAddRow" style="display: none;" onclick="addSpreadsheetRow()">
                                     <i data-feather="plus" class="me-1"></i> เพิ่มรายการ
                                 </button>
@@ -490,10 +490,10 @@
                     <button type="button" class="btn btn-primary" id="btnEditMode" onclick="toggleEditMode()">
                         <i data-feather="edit-2" class="me-1"></i> แก้ไขข้อมูล
                     </button>
-                    {% endif %}
                     <button type="button" class="btn btn-success" id="btnSaveDocument" style="display: none;" onclick="saveDocument()">
                         <i data-feather="save" class="me-1"></i> บันทึกข้อมูล
                     </button>
+                    {% endif %}
                     <button type="button" class="btn btn-secondary" id="btnCloseModal" data-bs-dismiss="modal">ปิด</button>
                 </div>
             </div>
@@ -593,10 +593,10 @@
                     <button type="button" class="btn btn-primary text-white" id="btnAdjEditMode" onclick="toggleAdjEditMode()">
                         <i data-feather="edit-2" class="me-1"></i> แก้ไขข้อมูล
                     </button>
-                    {% endif %}
                     <button type="button" class="btn btn-success" id="btnAdjSaveDocument" style="display: none;" onclick="saveAdjDocument()">
                         <i data-feather="save" class="me-1"></i> บันทึกข้อมูล
                     </button>
+                    {% endif %}
                     <button type="button" class="btn btn-secondary" id="btnAdjCloseModal" data-bs-dismiss="modal">ปิด</button>
                 </div>
             </div>
@@ -679,10 +679,10 @@
                     <button type="button" class="btn btn-primary" id="btnGlEditMode" onclick="toggleGlEditMode()">
                         <i data-feather="edit-2" class="me-1"></i> แก้ไขข้อมูล
                     </button>
-                    {% endif %}
                     <button type="button" class="btn btn-success" id="btnGlSaveDocument" style="display: none;" onclick="saveGlDocument()">
                         <i data-feather="save" class="me-1"></i> บันทึกข้อมูล
                     </button>
+                    {% endif %}
                     <button type="button" class="btn btn-secondary" id="btnGlCloseModal" data-bs-dismiss="modal">ปิด</button>
                 </div>
             </div>
@@ -765,10 +765,10 @@
                     <button type="button" class="btn btn-primary" id="btnGlatEditMode" onclick="toggleGlatEditMode()">
                         <i data-feather="edit-2" class="me-1"></i> แก้ไขข้อมูล
                     </button>
-                    {% endif %}
                     <button type="button" class="btn btn-success" id="btnGlatSaveDocument" style="display: none;" onclick="saveGlatDocument()">
                         <i data-feather="save" class="me-1"></i> บันทึกข้อมูล
                     </button>
+                    {% endif %}
                     <button type="button" class="btn btn-secondary" id="btnGlatCloseModal" data-bs-dismiss="modal">ปิด</button>
                 </div>
             </div>

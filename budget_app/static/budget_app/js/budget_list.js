@@ -145,6 +145,42 @@ const BudgetApp = (function() {
                 }
             }, true);
         }
+
+        // Auto-open document detail modal if open_doc_no and open_doc_type URL parameters are present
+        const urlParams = new URLSearchParams(window.location.search);
+        const openDocNo = urlParams.get('open_doc_no');
+        const openDocType = urlParams.get('open_doc_type');
+        if (openDocNo && openDocType) {
+            try {
+                window.history.replaceState({}, document.title, window.location.pathname);
+            } catch (e) {
+                // Ignore if history state update is blocked
+            }
+
+            const equipmentTypes = ['Medical Equipment', 'Computer Equipment', 'Furniture', 'Tools & Equipment', 'CAR', 'Renovate', 'Software'];
+            const glTypes = ['GL Entry', 'Revenue', 'Budget Plan', 'GL Actual Template'];
+
+            let catCode = 'C01';
+            if (equipmentTypes.includes(openDocType)) {
+                catCode = 'C02';
+            } else if (glTypes.includes(openDocType)) {
+                catCode = 'C03';
+            }
+
+            // Load category table in background
+            fetchDocuments(catCode);
+
+            // Open document detail modal immediately
+            if (openDocType === 'GL Actual Template') {
+                viewGlatDocumentDetails(openDocNo);
+            } else if (['GL Entry', 'Revenue', 'Budget Plan'].includes(openDocType)) {
+                viewGeneralLedgerDocumentDetails(openDocNo, openDocType);
+            } else if (openDocType === 'Position Adjustment') {
+                viewAdjustmentDetails(openDocNo);
+            } else {
+                viewDocumentDetails(openDocNo, openDocType);
+            }
+        }
     });
 
     const vetItems = JSON.parse(document.getElementById('vet-items-data').textContent);
@@ -287,6 +323,7 @@ const BudgetApp = (function() {
     // element is reused across different documents' creators.
     const currentUsername = document.body.dataset.username || '';
     const isPrivilegedUser = document.body.dataset.privileged === 'true';
+    const isExecutiveViewOnly = document.body.dataset.executiveViewOnly === 'true';
 
     // status is included here (not just ownership) because APPROVED and
     // CANCELLED are both terminal, locked for everyone including privileged
@@ -294,6 +331,10 @@ const BudgetApp = (function() {
     // is clicked (see the matching lock check in update_document_api).
     function applyEditButtonVisibility(btnEl, createEid, status) {
         if (!btnEl) return;
+        if (isExecutiveViewOnly) {
+            btnEl.style.display = 'none';
+            return;
+        }
         const ownsOrPrivileged = isPrivilegedUser || (createEid && currentUsername && createEid.toLowerCase() === currentUsername.toLowerCase());
         btnEl.style.display = (ownsOrPrivileged && status !== 'APPROVED' && status !== 'CANCELLED') ? '' : 'none';
     }
@@ -303,12 +344,20 @@ const BudgetApp = (function() {
     // so only the status needs checking client-side.
     function applyApproveButtonVisibility(btnEl, status) {
         if (!btnEl) return;
+        if (isExecutiveViewOnly) {
+            btnEl.style.display = 'none';
+            return;
+        }
         btnEl.style.display = (status === 'PENDING') ? '' : 'none';
     }
 
     // Cancel allows creators or privileged users to cancel documents in PENDING state
     function applyCancelButtonVisibility(btnEl, createEid, status) {
         if (!btnEl) return;
+        if (isExecutiveViewOnly) {
+            btnEl.style.display = 'none';
+            return;
+        }
         const ownsOrPrivileged = isPrivilegedUser || (createEid && currentUsername && createEid.toLowerCase() === currentUsername.toLowerCase());
         btnEl.style.display = (ownsOrPrivileged && status === 'PENDING') ? '' : 'none';
     }
@@ -494,7 +543,7 @@ const BudgetApp = (function() {
                     if (isDecimal || hasLeadingZero) {
                         const intVal = isNaN(num) ? 0 : Math.floor(num);
                         modalTable1.setValueFromCoords(x, y, intVal, false);
-                        let warnMsg = (isEquipment ? 'จำนวนรายการ' : 'จำนวนคน') + 'ต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม';
+                        let warnMsg = (isEquipment ? 'จำนวนรายการ' : (isVet ? 'จำนวนชั่วโมง' : 'จำนวนคน')) + 'ต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม';
                         if (hasLeadingZero) {
                             warnMsg = 'ไม่อนุญาตให้กรอกตัวเลขที่มี 0 นำหน้า (เช่น 03, 04) ระบบปรับเป็น ' + intVal + ' ให้เรียบร้อยแล้ว';
                         }
@@ -1013,6 +1062,18 @@ const BudgetApp = (function() {
                     const isEquipment = isMed || isComp || isFurniture || isTools || isCar || isRenovate || isSoftware;
                     const isVet = result.doc_info.type === 'VET';
 
+                    // Update Table 1 card header title based on document type
+                    const modalTable1Header = document.getElementById('modalTable1HeaderTitle');
+                    if (modalTable1Header) {
+                        if (isVet) {
+                            modalTable1Header.innerText = 'ตารางส่วนแรก (กรอกจำนวนชั่วโมง)';
+                        } else if (isEquipment) {
+                            modalTable1Header.innerText = 'ตารางส่วนแรก (กรอกจำนวน)';
+                        } else {
+                            modalTable1Header.innerText = 'ตารางส่วนแรก (จำนวนคน)';
+                        }
+                    }
+
                     // Columns setup
                     const columns = [
                         { type: 'text', align: 'left', title: isEquipment ? 'เครื่องมือ' : 'ตำแหน่ง', width: 250, readOnly: true }
@@ -1020,7 +1081,9 @@ const BudgetApp = (function() {
                     if (isEquipment || isVet || isNonVet) {
                         columns.push({ type: 'text', align: 'left', title: 'รายละเอียด', width: 200, readOnly: true });
                     }
-                    columns.push({ type: 'numeric', title: isEquipment ? 'ราคาซื้อ' : 'เงินเดือน', width: 100, readOnly: true, mask: '#,##0' });
+                    const rateOrPriceTitle = isEquipment ? 'ราคาซื้อ' : (isVet ? 'ค่าแรงรายชั่วโมง' : 'เงินเดือน');
+                    const rateOrPriceWidth = isVet ? 150 : 100;
+                    columns.push({ type: 'numeric', title: rateOrPriceTitle, width: rateOrPriceWidth, readOnly: true, mask: '#,##0' });
                     if (isNonVet) {
                         columns.push({ type: 'numeric', title: 'ค่าวัดระดับ/ตำแหน่ง', width: 150, readOnly: true, mask: '#,##0' });
                     }
@@ -1178,6 +1241,17 @@ const BudgetApp = (function() {
             buildCostCenterSelect('modalDocCostCenter', currentCostCenterName, (value) => { currentCostCenterName = value; });
             buildBranchSelect('modalDocBranch', currentBranchCode, (value) => { currentBranchCode = value; });
 
+            const modalTable1Header = document.getElementById('modalTable1HeaderTitle');
+            if (modalTable1Header) {
+                if (isVet) {
+                    modalTable1Header.innerText = 'ตารางส่วนแรก (กรอกจำนวนชั่วโมง)';
+                } else if (isEquipment) {
+                    modalTable1Header.innerText = 'ตารางส่วนแรก (กรอกจำนวน)';
+                } else {
+                    modalTable1Header.innerText = 'ตารางส่วนแรก (จำนวนคน)';
+                }
+            }
+
             // Re-create Table 1 for Edit
             let col0;
             if (isEquipment || isVet || isNonVet) {
@@ -1281,7 +1355,9 @@ const BudgetApp = (function() {
             if (isEquipment || isVet || isNonVet) {
                 columns.push({ type: 'text', align: 'left', title: 'รายละเอียด', width: 200 });
             }
-            columns.push({ type: 'numeric', title: isEquipment ? 'ราคาซื้อ' : 'เงินเดือน', width: 100, mask: '#,##0' });
+            const rateOrPriceTitle = isEquipment ? 'ราคาซื้อ' : (isVet ? 'ค่าแรงรายชั่วโมง' : 'เงินเดือน');
+            const rateOrPriceWidth = isVet ? 150 : 100;
+            columns.push({ type: 'numeric', title: rateOrPriceTitle, width: rateOrPriceWidth, mask: '#,##0' });
             if (isNonVet) {
                 columns.push({ type: 'numeric', title: 'ค่าวัดระดับ/ตำแหน่ง', width: 150, mask: '#,##0' });
             }
@@ -1340,7 +1416,7 @@ const BudgetApp = (function() {
             if (isEquipment || isVet || isNonVet) {
                 calcColumns.push({ type: 'text', align: 'left', title: 'รายละเอียด', width: 200, readOnly: true });
             }
-            calcColumns.push({ type: 'numeric', title: isEquipment ? 'ราคาซื้อ' : 'เงินเดือน', width: 100, readOnly: true, mask: '#,##0' });
+            calcColumns.push({ type: 'numeric', title: rateOrPriceTitle, width: rateOrPriceWidth, readOnly: true, mask: '#,##0' });
             if (isNonVet) {
                 calcColumns.push({ type: 'numeric', title: 'ค่าวัดระดับ/ตำแหน่ง', width: 150, readOnly: true, mask: '#,##0' });
             }

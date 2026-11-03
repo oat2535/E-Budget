@@ -10,6 +10,7 @@ from budget_app.models import (
     ebudget_gl_actual_template
 )
 from master_data.models import ebudget_budget_item_master, ebudget_general_ledger_master
+from budget_app.constants import EXECUTIVE_VIEW_ONLY_ROLES, STATUS_CANCELLED
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,13 @@ MONTH_MAP = {
 }
 
 class BudgetService:
+    @staticmethod
+    def is_executive_role(bank_account_note):
+        """Checks if a bank_account_note matches any executive view-only roles (CHRO, CFO, COO)."""
+        if not bank_account_note:
+            return False
+        return (bank_account_note or '').strip().upper() in EXECUTIVE_VIEW_ONLY_ROLES
+
     @staticmethod
     def get_branch_info_from_imedx(username):
         """Resolves which branch(es) an employee belongs to, and whether the
@@ -47,19 +55,26 @@ class BudgetService:
            keep behaving exactly as it did before this feature existed,
            or budget creation breaks for almost everyone.
 
-        Also resolves 'is_manager': whether this employee's bank_account_note
-        contains "MANAGER" (case-insensitive substring) — independent of
-        the branch/BACK logic above, computed the same way regardless of
-        which branch path below was taken. Used to let a manager edit
-        documents they created themselves (see can_edit_document in
-        views.py).
+        Also resolves 'is_manager' and 'is_executive_view_only':
+        - 'is_manager': whether bank_account_note contains "MANAGER"
+        - 'is_executive_view_only': whether bank_account_note matches
+          CHRO, CFO, or COO (sees all documents, can view details, but
+          cannot edit or cancel).
 
         Returns {'branches': [...], 'needs_selection': bool,
-        'department_id': str|None, 'is_manager': bool}. An employee not
-        found in imedx, or any DB error, returns branches=[] - matching the
-        previous get_branch_id_from_imedx's fail-closed (None) behavior.
+        'department_id': str|None, 'is_manager': bool,
+        'bank_account_note': str|None, 'is_executive_view_only': bool}.
+        An employee not found in imedx, or any DB error, returns branches=[] -
+        matching the previous get_branch_id_from_imedx's fail-closed (None) behavior.
         """
-        empty = {'branches': [], 'needs_selection': False, 'department_id': None, 'is_manager': False}
+        empty = {
+            'branches': [],
+            'needs_selection': False,
+            'department_id': None,
+            'is_manager': False,
+            'bank_account_note': None,
+            'is_executive_view_only': False,
+        }
         try:
             with connections['imedx'].cursor() as cursor:
                 cursor.execute("""
@@ -77,23 +92,53 @@ class BudgetService:
             return empty
         bank_sub_name, bank_account_note, fallback_branch_id = row
         sub_name_upper = (bank_sub_name or '').upper()
-        is_manager = 'MANAGER' in (bank_account_note or '').upper()
+        note_clean = (bank_account_note or '').strip()
+        is_manager = 'MANAGER' in note_clean.upper()
+        is_executive = BudgetService.is_executive_role(note_clean)
 
         if bank_sub_name and 'BACK' in sub_name_upper:
             department_id = None
             marker = sub_name_upper.find('BACK-')
             if marker != -1:
                 department_id = bank_sub_name[marker + len('BACK-'):].strip() or None
-            return {'branches': ['HO'], 'needs_selection': False, 'department_id': department_id, 'is_manager': is_manager}
+            return {
+                'branches': ['HO'],
+                'needs_selection': False,
+                'department_id': department_id,
+                'is_manager': is_manager,
+                'bank_account_note': note_clean,
+                'is_executive_view_only': is_executive,
+            }
 
         if bank_sub_name and bank_sub_name.strip():
             branches = [b.strip() for b in bank_sub_name.split(',') if b.strip()]
             if branches:
-                return {'branches': branches, 'needs_selection': len(branches) > 1, 'department_id': None, 'is_manager': is_manager}
+                return {
+                    'branches': branches,
+                    'needs_selection': len(branches) > 1,
+                    'department_id': None,
+                    'is_manager': is_manager,
+                    'bank_account_note': note_clean,
+                    'is_executive_view_only': is_executive,
+                }
 
         if fallback_branch_id:
-            return {'branches': [fallback_branch_id], 'needs_selection': False, 'department_id': None, 'is_manager': is_manager}
-        return {'branches': [], 'needs_selection': False, 'department_id': None, 'is_manager': is_manager}
+            return {
+                'branches': [fallback_branch_id],
+                'needs_selection': False,
+                'department_id': None,
+                'is_manager': is_manager,
+                'bank_account_note': note_clean,
+                'is_executive_view_only': is_executive,
+            }
+        return {
+            'branches': [],
+            'needs_selection': False,
+            'department_id': None,
+            'is_manager': is_manager,
+            'bank_account_note': note_clean,
+            'is_executive_view_only': is_executive,
+        }
 
     @staticmethod
     def get_branch_names_from_imedx(codes):
@@ -325,3 +370,44 @@ class BudgetService:
                 amount=data.get('amount') or 0,
                 plan_item=parent_obj
             )
+
+    @staticmethod
+    def find_existing_budget_document(model_class, create_eid, budget_year, base_branch_id):
+        """Checks if an active (non-cancelled) budget document already exists
+        for the given creator, budget year, and branch.
+        Returns a dict of document info if found, or None."""
+        if not model_class or not create_eid or not budget_year or not base_branch_id:
+            return None
+        try:
+            year_val = int(budget_year)
+        except (ValueError, TypeError):
+            return None
+
+        qs = model_class.objects.filter(
+            create_eid__iexact=str(create_eid).strip(),
+            budget_year=year_val,
+            base_branch_id__iexact=str(base_branch_id).strip()
+        ).exclude(status=STATUS_CANCELLED).order_by('-create_date')
+
+        return qs.values('document_no', 'budget_year', 'base_branch_id', 'status').first()
+
+
+def is_executive_view_only_user(request):
+    """Returns True if the authenticated user has an executive view-only role
+    (CHRO, CFO, COO) based on their iMedX bank_account_note. Local superusers
+    and ALL_BRANCH_USERNAMES bypass this to preserve admin/privileged capabilities."""
+    if not request or not getattr(request, 'user', None) or not request.user.is_authenticated:
+        return False
+    from budget_app.constants import ALL_BRANCH_USERNAMES
+    if request.user.is_superuser or request.user.username in ALL_BRANCH_USERNAMES:
+        return False
+    session = getattr(request, 'session', None)
+    if session is not None:
+        info = session.get('branch_info')
+        if info is None or 'is_executive_view_only' not in info:
+            info = BudgetService.get_branch_info_from_imedx(request.user.username)
+            session['branch_info'] = info
+        return bool(info.get('is_executive_view_only', False))
+    info = BudgetService.get_branch_info_from_imedx(request.user.username)
+    return bool(info.get('is_executive_view_only', False))
+
