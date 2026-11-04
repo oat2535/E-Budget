@@ -1488,7 +1488,7 @@ class BudgetListDocumentPermissionTests(SimpleTestCase):
         # 1. Standard Detail Modal (toggleEditMode) Table 2:
         self.assertIn('modalTable2 = jspreadsheet(document.getElementById(\'modalSpreadsheet2\'), {', js_content)
         self.assertIn('columns: calcColumns,', js_content)
-        self.assertIn('calcColumns.push({ type: \'numeric\', title: m, width: 85, readOnly: true, mask: \'#,##0\' });', js_content)
+        self.assertIn('calcColumns.push({ type: \'numeric\', title: m, width: 85, readOnly: true, mask: isEquipment ? \'#,##0.00\' : \'#,##0\' });', js_content)
 
         # 2. Position Adjustment Modal (toggleAdjEditMode) Table 2 and Table 3:
         self.assertIn('adjTable2 = jspreadsheet(document.getElementById(\'adjModalSpreadsheet2\'), {', js_content)
@@ -2751,3 +2751,455 @@ class PositionAdjustmentTypeRestrictionTests(SimpleTestCase):
         self.assertEqual(res_json.get('status'), 'error')
         self.assertIn('ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น', res_json.get('message', ''))
         self.assertIn('ไม่มีอยู่ในรายการของประเภท VET', res_json.get('message', ''))
+
+
+class BackOfficeBranchSelectionTests(SimpleTestCase):
+    """Unit tests verifying branch selection resolution for back-office users with 'BACK-'
+    in emp.bank_sub_name when real branch codes exist vs when only department codes exist."""
+
+    @patch('budget_app.services.connections')
+    def test_back_user_with_real_branches_resolves_selection_and_department(self, mock_connections):
+        """User with BACK-MED,R2,AP should resolve branches=['R2', 'AP', 'HO'],
+        needs_selection=True, and department_id='MED'."""
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = ('BACK-MED,R2,AP', 'OFFICER', None)
+        mock_cursor.fetchall.return_value = [('R2', 'สาขาพระราม2'), ('AP', 'สาขาอโศกประสานมิตร')]
+        mock_connections.__getitem__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+        info = BudgetService.get_branch_info_from_imedx('paiwan')
+        self.assertEqual(info['branches'], ['R2', 'AP', 'HO'])
+        self.assertTrue(info['needs_selection'])
+        self.assertEqual(info['department_id'], 'MED')
+
+    @patch('budget_app.services.connections')
+    def test_back_user_without_branches_resolves_ho_only(self, mock_connections):
+        """User with BACK-IT should resolve branches=['HO'], needs_selection=False,
+        and department_id='IT'."""
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = ('BACK-IT', 'OFFICER', None)
+        mock_cursor.fetchall.return_value = []
+        mock_connections.__getitem__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+        info = BudgetService.get_branch_info_from_imedx('banchong')
+        self.assertEqual(info['branches'], ['HO'])
+        self.assertFalse(info['needs_selection'])
+        self.assertEqual(info['department_id'], 'IT')
+
+    @patch('budget_app.services.connections')
+    def test_back_user_with_multiple_departments_no_branches(self, mock_connections):
+        """User with BACK-ACC,FIN,PUR,STOCK,IA,PD has multiple departments but no real branches.
+        Must resolve branches=['HO'], needs_selection=False, and department_id='ACC,FIN,PUR,STOCK,IA,PD'."""
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = ('BACK-ACC,FIN,PUR,STOCK,IA,PD', 'OFFICER', None)
+        mock_cursor.fetchall.return_value = []
+        mock_connections.__getitem__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+        info = BudgetService.get_branch_info_from_imedx('watchana')
+        self.assertEqual(info['branches'], ['HO'])
+        self.assertFalse(info['needs_selection'])
+        self.assertEqual(info['department_id'], 'ACC,FIN,PUR,STOCK,IA,PD')
+
+    @patch('budget_app.services.connections')
+    def test_paiwan_full_branch_list_resolution(self, mock_connections):
+        """Full list from live DB: BACK-MED,AP,CA,CE,CM,EC,EV,PK,PR,PY,R2,R5,R6,R8,R9,RS,RY,SN,SR,SV,TN,TP.
+        All branch codes should be recognized, 'HO' appended, needs_selection=True, department_id='MED'."""
+        raw_val = 'BACK-MED,AP,CA,CE,CM,EC,EV,PK,PR,PY,R2,R5,R6,R8,R9,RS,RY,SN,SR,SV,TN,TP'
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (raw_val, 'OFFICER', None)
+        mock_cursor.fetchall.return_value = [
+            ('AP', 'สาขาอโศกประสานมิตร'), ('CA', 'สาขาเชียงใหม่แอร์พอร์ต'), ('CE', 'สาขาเซ็นทรัลอีสต์วิลล์'),
+            ('CM', 'สาขาเชียงใหม่'), ('EC', 'Ecommerce'), ('EV', 'สาขาประดิษฐ์มนูธรรม'),
+            ('PK', 'สาขาปิ่นเกล้า'), ('PR', 'สาขาประชาชื่น'), ('PY', 'สาขาพัทยา'),
+            ('R2', 'สาขาพระราม2'), ('R5', 'สาขาพระราม5'), ('R6', 'สาขาพระราม6'),
+            ('R8', 'สาขารามอินทรา'), ('R9', 'สาขาพระราม9'), ('RS', 'สาขารังสิต'),
+            ('RY', 'สาขาระยอง'), ('SN', 'สาขาสาทรนราธิวาส'), ('SR', 'สาขาศรีนครินทร์'),
+            ('SV', 'สาขาสุขุมวิท'), ('TN', 'สาขาติวานนท์'), ('TP', 'ทองหล่อฉลองภูเก็ต')
+        ]
+        mock_connections.__getitem__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+        info = BudgetService.get_branch_info_from_imedx('paiwan')
+        self.assertTrue(info['needs_selection'])
+        self.assertEqual(info['department_id'], 'MED')
+        self.assertIn('R2', info['branches'])
+        self.assertIn('AP', info['branches'])
+        self.assertIn('HO', info['branches'])
+        self.assertEqual(info['branches'][-1], 'HO')
+
+    @patch('budget_app.services.connections')
+    def test_get_branch_names_from_imedx_maps_ho_to_head_office(self, mock_connections):
+        """get_branch_names_from_imedx must always map 'HO' to 'สำนักงานใหญ่'
+        even if not in base_site_branch."""
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [('R2', 'สาขาพระราม2'), ('AP', 'สาขาอโศกประสานมิตร')]
+        mock_connections.__getitem__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+        names = BudgetService.get_branch_names_from_imedx(['R2', 'AP', 'HO'])
+        self.assertEqual(names.get('HO'), 'สำนักงานใหญ่')
+        self.assertIn('R2', names)
+        self.assertIn('AP', names)
+
+    def test_resolve_branch_for_create_with_back_selection(self):
+        """resolve_branch_for_create should return the chosen branch and preserve department_id."""
+        from budget_app.views import resolve_branch_for_create
+        factory = RequestFactory()
+        req = factory.post('/add/')
+        req.session = {
+            'branch_info': {
+                'branches': ['R2', 'AP', 'HO'],
+                'needs_selection': True,
+                'department_id': 'MED'
+            }
+        }
+        # Choose AP
+        branch, dept = resolve_branch_for_create(req, [{'branch_code': 'AP'}])
+        self.assertEqual(branch, 'AP')
+        self.assertEqual(dept, 'MED')
+
+        # Choose HO
+        branch, dept = resolve_branch_for_create(req, [{'branch_code': 'HO'}])
+        self.assertEqual(branch, 'HO')
+        self.assertEqual(dept, 'MED')
+
+        # Invalid choice raises ValueError
+        with self.assertRaises(ValueError):
+            resolve_branch_for_create(req, [{'branch_code': 'INVALID'}])
+
+    def test_resolve_branch_for_update_with_back_selection(self):
+        """resolve_branch_for_update should allow switching branch when needs_selection=True."""
+        from budget_app.views import resolve_branch_for_update
+        factory = RequestFactory()
+        req = factory.post('/api/document/update/VET/DOC001/')
+        req.session = {
+            'branch_info': {
+                'branches': ['R2', 'AP', 'HO'],
+                'needs_selection': True,
+                'department_id': 'MED'
+            }
+        }
+        chosen = resolve_branch_for_update(req, [{'branch_code': 'AP'}], current_branch_id='R2')
+        self.assertEqual(chosen, 'AP')
+
+        # When needs_selection is False, it preserves current_branch_id
+        req.session['branch_info']['needs_selection'] = False
+        chosen = resolve_branch_for_update(req, [{'branch_code': 'AP'}], current_branch_id='HO')
+        self.assertEqual(chosen, 'HO')
+
+
+class MedicalEquipmentItemMasterReplacementTests(SimpleTestCase):
+    """Unit tests verifying the Medical Equipment items loaded from
+    'Data เครื่องมือแพทย์ For Budget 2027 By พี่หนึ่ง Update.xlsx'."""
+
+    def test_migration_0026_contains_all_unique_items_and_other(self):
+        """Verifies that the migration 0026 defines all 83 unique items from Update.xlsx
+        and respects the GL price threshold."""
+        import importlib
+        mig_mod = importlib.import_module('master_data.migrations.0026_replace_medical_equipment_items')
+        med_items = mig_mod.MEDICAL_EQUIPMENT_ITEMS
+        self.assertEqual(mig_mod.CATEGORY_ID, 2)
+        self.assertEqual(mig_mod.SUB_CATEGORY_ID, 4)
+        self.assertEqual(len(med_items), 83)
+
+        items_dict = {name: (price, gl) for name, price, gl in med_items}
+        self.assertIn('Ultasound(Esaote_เช่าซื้อ)', items_dict)
+        self.assertIn('ECT', items_dict)
+        self.assertIn('TMS', items_dict)
+        self.assertIn('เครื่องฟอกไต', items_dict)
+        self.assertIn('VEP BAEP', items_dict)
+        self.assertIn('Wood lamp', items_dict)
+        self.assertIn('Phovia', items_dict)
+        self.assertIn('ตู้ Intensive care(THX-ICU-02)', items_dict)
+        self.assertIn('รถเข็นเวชภัณฑ์', items_dict)
+
+        # Check GL mapping according to capitalization threshold
+        for name, (price, gl) in items_dict.items():
+            if price >= 5000:
+                self.assertEqual(gl, '61300010', f"{name} should have GL 61300010 for price {price}")
+            else:
+                self.assertEqual(gl, '60300002', f"{name} should have GL 60300002 for price {price}")
+
+    def test_excel_file_parsing_matches_migration_data(self):
+        """Verifies that reading the actual Excel file 'Data เครื่องมือแพทย์ For Budget 2027 By พี่หนึ่ง Update.xlsx'
+        yields the exact items present in migration 0026."""
+        import openpyxl, glob, importlib
+        mig_mod = importlib.import_module('master_data.migrations.0026_replace_medical_equipment_items')
+        med_items = mig_mod.MEDICAL_EQUIPMENT_ITEMS
+
+        excel_files = glob.glob(os.path.join(settings.BASE_DIR, '*เครื่องมือแพทย์*Update*.xlsx'))
+        self.assertTrue(len(excel_files) > 0, "Update.xlsx file must exist in project directory")
+        wb = openpyxl.load_workbook(excel_files[0], data_only=True)
+        ws = wb.active
+
+        excel_items = {}
+        for r in range(3, ws.max_row + 1):
+            name_val = ws.cell(row=r, column=3).value
+            price_val = ws.cell(row=r, column=4).value
+            if name_val is not None and str(name_val).strip():
+                clean_name = ' '.join(str(name_val).split())
+                if clean_name not in excel_items:
+                    excel_items[clean_name] = round(float(price_val), 2)
+
+        mig_dict = {name: price for name, price, _ in med_items}
+        self.assertEqual(len(mig_dict), len(excel_items))
+        for name, price in excel_items.items():
+            self.assertIn(name, mig_dict)
+            self.assertEqual(mig_dict[name], price)
+
+
+class CumulativeDepreciationCalculationTests(SimpleTestCase):
+    """Unit and contract tests for Fix Asset cumulative depreciation calculation,
+    persistence, and frontend display."""
+
+    def test_model_field_cumulative_depreciation_exists(self):
+        """Verify that BudgetMonthlyDetail model has the cumulative_depreciation field."""
+        from budget_app.models import BudgetMonthlyDetail
+        field_names = [f.name for f in BudgetMonthlyDetail._meta.fields]
+        self.assertIn('cumulative_depreciation', field_names)
+
+    @patch('budget_app.models.BudgetMonthlyDetail.objects.create')
+    @patch('budget_app.models.BudgetMonthlyDetail.objects.filter')
+    def test_save_monthly_data_calculates_cumulative_depreciation(self, mock_filter, mock_create):
+        """Verify running monthly cumulative depreciation calculation according to the SQL formula:
+        ROUND(SUM(cost / (gl_depreciation * 12.0)) OVER (ORDER BY month ASC), 2)"""
+        from decimal import Decimal
+        from budget_app.services import BudgetService
+
+        parent_mock = MagicMock()
+        parent_mock.general_ledger_code = '61300010'
+
+        # Mock gl_master lookup
+        with patch('master_data.models.ebudget_general_ledger_master.objects.filter') as mock_gl:
+            gl_entry = MagicMock()
+            gl_entry.depreciation = Decimal('5.0')  # 5 years
+            mock_gl.return_value.first.return_value = gl_entry
+
+            # Monthly data with 120,000 cost in Mar (month 3) and 60,000 cost in Jul (month 7)
+            monthly_data = {
+                'jan': {'headcount': 0, 'cost': 0},
+                'feb': {'headcount': 0, 'cost': 0},
+                'mar': {'headcount': 1, 'cost': 120000},
+                'apr': {'headcount': 0, 'cost': 0},
+                'may': {'headcount': 0, 'cost': 0},
+                'jun': {'headcount': 0, 'cost': 0},
+                'jul': {'headcount': 1, 'cost': 60000},
+                'aug': {'headcount': 0, 'cost': 0},
+                'sep': {'headcount': 0, 'cost': 0},
+                'oct': {'headcount': 0, 'cost': 0},
+                'nov': {'headcount': 0, 'cost': 0},
+                'dec': {'headcount': 0, 'cost': 0},
+            }
+
+            func = getattr(BudgetService.save_monthly_data, '__wrapped__', BudgetService.save_monthly_data)
+            func(parent_mock, 'Medical Equipment', monthly_data)
+
+            # 12 calls to BudgetMonthlyDetail.objects.create
+            self.assertEqual(mock_create.call_count, 12)
+            calls = mock_create.call_args_list
+
+            # Month 1 (Jan): cost = 0, cum_dep = 0.0
+            self.assertEqual(calls[0].kwargs['month'], 1)
+            self.assertEqual(calls[0].kwargs['cumulative_depreciation'], 0.0)
+
+            # Month 2 (Feb): cost = 0, cum_dep = 0.0
+            self.assertEqual(calls[1].kwargs['month'], 2)
+            self.assertEqual(calls[1].kwargs['cumulative_depreciation'], 0.0)
+
+            # Month 3 (Mar): cost = 120000 / (5 * 12) = 2000.0
+            self.assertEqual(calls[2].kwargs['month'], 3)
+            self.assertEqual(calls[2].kwargs['cumulative_depreciation'], 2000.0)
+
+            # Month 4-6 (Apr-Jun): cost = 0, cum_dep stays 2000.0
+            for i in range(3, 6):
+                self.assertEqual(calls[i].kwargs['cumulative_depreciation'], 2000.0)
+
+            # Month 7 (Jul): cost 60000 -> +1000.0 = 3000.0
+            self.assertEqual(calls[6].kwargs['month'], 7)
+            self.assertEqual(calls[6].kwargs['cumulative_depreciation'], 3000.0)
+
+            # Month 8-12 (Aug-Dec): cost = 0, cum_dep stays 3000.0
+            for i in range(7, 12):
+                self.assertEqual(calls[i].kwargs['cumulative_depreciation'], 3000.0)
+
+    @patch('budget_app.models.BudgetMonthlyDetail.objects.create')
+    @patch('budget_app.models.BudgetMonthlyDetail.objects.filter')
+    def test_save_monthly_data_zero_depreciation_for_non_assets(self, mock_filter, mock_create):
+        """Verify cumulative_depreciation is 0 when gl_depreciation is 0 or doc_type is non-asset."""
+        from budget_app.services import BudgetService
+
+        parent_mock = MagicMock()
+        monthly_data = {
+            'jan': {'headcount': 1, 'cost': 50000},
+            'feb': {'headcount': 1, 'cost': 50000},
+        }
+
+        func = getattr(BudgetService.save_monthly_data, '__wrapped__', BudgetService.save_monthly_data)
+        func(parent_mock, 'VET', monthly_data)
+        calls = mock_create.call_args_list
+        for call in calls:
+            self.assertEqual(call.kwargs['cumulative_depreciation'], 0.0)
+
+    def test_all_7_fix_asset_templates_do_not_contain_separate_cumulative_depreciation_column(self):
+        """Verify that all 7 Add Budget templates in Fix Asset do NOT define 'ค่าเสื่อมสะสม'
+        as a separate column in either Table 1 (columns) or Table 2 (calcColumns), as monthly
+        depreciation is already displayed directly in the monthly columns (Jan-Dec)."""
+        templates = [
+            'budget_app/templates/budget_app/budget_add_medical_equipment.html',
+            'budget_app/templates/budget_app/budget_add_computer_equipment.html',
+            'budget_app/templates/budget_app/budget_add_furniture.html',
+            'budget_app/templates/budget_app/budget_add_tools_equipment.html',
+            'budget_app/templates/budget_app/budget_add_car.html',
+            'budget_app/templates/budget_app/budget_add_renovate.html',
+            'budget_app/templates/budget_app/budget_add_software.html',
+        ]
+        for tpl_path in templates:
+            full_path = os.path.join(settings.BASE_DIR, tpl_path)
+            self.assertTrue(os.path.exists(full_path), f"Template must exist: {tpl_path}")
+            with open(full_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            self.assertNotIn('ค่าเสื่อมสะสม', content, f"Template must NOT contain 'ค่าเสื่อมสะสม' column in {tpl_path}")
+            self.assertNotIn('setValueFromCoords(16, y,', content, f"Must not write to column 16 in {tpl_path}")
+            self.assertIn('createInitialCalcData', content, f"createInitialCalcData missing in {tpl_path}")
+
+    def test_budget_list_js_does_not_contain_cumulative_depreciation_column(self):
+        """Verify that budget_list.js does NOT contain the separate 'ค่าเสื่อมสะสม' column in modal Table 2."""
+        js_path = os.path.join(settings.BASE_DIR, 'budget_app/static/budget_app/js/budget_list.js')
+        with open(js_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        self.assertNotIn('ค่าเสื่อมสะสม', content)
+        self.assertNotIn('modalTable2.setValueFromCoords(endCol + 2, y,', content)
+
+    def test_all_7_fix_asset_templates_calculate_monthly_depreciation_in_table2(self):
+        """Verify that in all 7 Fix Asset Add templates, Table 2 displays the monthly depreciation
+        in month columns (columns 3-14) using mask '#,##0.00' and calculates mDep per month."""
+        templates = [
+            'budget_app/templates/budget_app/budget_add_medical_equipment.html',
+            'budget_app/templates/budget_app/budget_add_computer_equipment.html',
+            'budget_app/templates/budget_app/budget_add_furniture.html',
+            'budget_app/templates/budget_app/budget_add_tools_equipment.html',
+            'budget_app/templates/budget_app/budget_add_car.html',
+            'budget_app/templates/budget_app/budget_add_renovate.html',
+            'budget_app/templates/budget_app/budget_add_software.html',
+        ]
+        for tpl_path in templates:
+            full_path = os.path.join(settings.BASE_DIR, tpl_path)
+            with open(full_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            self.assertIn("table2.setValueFromCoords(i, y, mDep, true);", content, f"mDep table2 write missing in {tpl_path}")
+            self.assertIn("mDep = Math.round((cumulativeUnits * sal / (depYears * 12)) * 100) / 100;", content, f"mDep formula missing in {tpl_path}")
+            # Verify month mask '#,##0.00' in Table 2 calcColumns
+            self.assertIn("{ type: 'numeric', title: 'Jan', width: 85, readOnly: true, mask: '#,##0.00' }", content)
+            self.assertIn("{ type: 'numeric', title: 'Dec', width: 85, readOnly: true, mask: '#,##0.00' }", content)
+            self.assertIn("{ type: 'numeric', title: 'รวม', width: 100, readOnly: true, mask: '#,##0.00' }", content)
+
+    def test_budget_list_js_displays_monthly_depreciation_in_table2(self):
+        """Verify that in budget_list.js, Table 2 (modalTable2) displays monthly depreciation
+        in month columns for equipment in both view mode and edit mode."""
+        js_path = os.path.join(settings.BASE_DIR, 'budget_app/static/budget_app/js/budget_list.js')
+        with open(js_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # In onSpreadsheetChange (edit mode)
+        self.assertIn("modalTable2.setValueFromCoords(i, y, mDep, true);", content)
+        self.assertIn("mDep = Math.round((cumulativeUnits * total_sal / (depYears * 12)) * 100) / 100;", content)
+        # In viewDocumentDetails (view mode)
+        self.assertIn("row2.push(mDep);", content)
+        self.assertIn("mask: '#,##0.00'", content)
+
+    def test_fix_asset_table2_renamed_to_calculate_depreciation(self):
+        """Verify that in all 7 Fix Asset templates, budget_list.html, and budget_list.js,
+        Table 2 is renamed to 'ตารางส่วนที่สอง (คำนวณค่าเสื่อม)'."""
+        templates = [
+            'budget_app/templates/budget_app/budget_add_medical_equipment.html',
+            'budget_app/templates/budget_app/budget_add_computer_equipment.html',
+            'budget_app/templates/budget_app/budget_add_furniture.html',
+            'budget_app/templates/budget_app/budget_add_tools_equipment.html',
+            'budget_app/templates/budget_app/budget_add_car.html',
+            'budget_app/templates/budget_app/budget_add_renovate.html',
+            'budget_app/templates/budget_app/budget_add_software.html',
+        ]
+        expected_title = 'ตารางส่วนที่สอง (คำนวณค่าเสื่อม)'
+        for tpl_path in templates:
+            full_path = os.path.join(settings.BASE_DIR, tpl_path)
+            with open(full_path, 'r', encoding='utf-8') as f:
+                c = f.read()
+            self.assertIn(expected_title, c, f"Expected '{expected_title}' in {tpl_path}")
+            self.assertNotIn('ตารางส่วนที่สอง (คำนวณงบประมาณ)', c, f"Old title must not be present in {tpl_path}")
+
+        # Check budget_list.html
+        html_path = os.path.join(settings.BASE_DIR, 'budget_app/templates/budget_app/budget_list.html')
+        with open(html_path, 'r', encoding='utf-8') as f:
+            html_c = f.read()
+        self.assertIn('id="modalTable2HeaderTitle"', html_c)
+
+        # Check budget_list.js
+        js_path = os.path.join(settings.BASE_DIR, 'budget_app/static/budget_app/js/budget_list.js')
+        with open(js_path, 'r', encoding='utf-8') as f:
+            js_c = f.read()
+        self.assertIn("modalTable2Header.innerText = 'ตารางส่วนที่สอง (คำนวณค่าเสื่อม)';", js_c)
+
+
+class MonthColumnsNumericOnlyEnforcementTests(SimpleTestCase):
+    """Contract and unit tests to ensure month columns across Fix Asset and Manpower
+    strictly accept numbers only (digits only, no letters or special characters)."""
+
+    def test_month_columns_strictly_digits_only_in_all_add_templates(self):
+        """Verify that all 7 Fix Asset templates and 3 Manpower templates strictly enforce
+        digits only in month columns across keydown, input, onchange, and save validation."""
+        templates = [
+            'budget_app/templates/budget_app/budget_add_medical_equipment.html',
+            'budget_app/templates/budget_app/budget_add_computer_equipment.html',
+            'budget_app/templates/budget_app/budget_add_furniture.html',
+            'budget_app/templates/budget_app/budget_add_tools_equipment.html',
+            'budget_app/templates/budget_app/budget_add_car.html',
+            'budget_app/templates/budget_app/budget_add_renovate.html',
+            'budget_app/templates/budget_app/budget_add_software.html',
+            'budget_app/templates/budget_app/budget_add.html',
+            'budget_app/templates/budget_app/budget_add_non_vet.html',
+            'budget_app/templates/budget_app/budget_add_adjustment.html',
+        ]
+        for tpl_path in templates:
+            full_path = os.path.join(settings.BASE_DIR, tpl_path)
+            self.assertTrue(os.path.exists(full_path), f"Template must exist: {tpl_path}")
+            with open(full_path, 'r', encoding='utf-8') as f:
+                c = f.read()
+
+            self.assertIn("!/^[0-9]$/.test(e.key)", c, f"Digit-only keydown enforcement missing in {tpl_path}")
+            self.assertIn("replace(/[^0-9]/g, '')", c, f"Digit-only input sanitization missing in {tpl_path}")
+            self.assertIn("hasNonDigits", c, f"hasNonDigits check missing in onchange in {tpl_path}")
+            self.assertIn("!/^\\d+$/.test(rawStr)", c, f"Digit-only save validation missing in {tpl_path}")
+
+    def test_month_columns_strictly_digits_only_in_budget_list_js(self):
+        """Verify that budget_list.js enforces digits only in month columns for both main
+        modal and position adjustment modal across keydown, input, onchange, and save."""
+        js_path = os.path.join(settings.BASE_DIR, 'budget_app/static/budget_app/js/budget_list.js')
+        with open(js_path, 'r', encoding='utf-8') as f:
+            c = f.read()
+
+        self.assertIn("!/^[0-9]$/.test(e.key)", c, "Digit-only keydown enforcement missing in budget_list.js")
+        self.assertIn("replace(/[^0-9]/g, '')", c, "Digit-only input sanitization missing in budget_list.js")
+        self.assertIn("hasNonDigits", c, "hasNonDigits check missing in budget_list.js")
+        self.assertIn("!/^\\d+$/.test(rawStr)", c, "Digit-only save validation missing in budget_list.js")
+
+    @patch('budget_app.models.BudgetMonthlyDetail.objects.create')
+    @patch('budget_app.models.BudgetMonthlyDetail.objects.filter')
+    def test_save_monthly_data_handles_negative_and_invalid_headcount(self, mock_filter, mock_create):
+        """Verify that save_monthly_data sanitizes invalid or negative headcounts to 0."""
+        from budget_app.services import BudgetService
+
+        parent_mock = MagicMock()
+        monthly_data = {
+            'jan': {'headcount': -5, 'cost': 0},
+            'feb': {'headcount': 'invalid_text', 'cost': 0},
+            'mar': {'headcount': '10', 'cost': 1000},
+        }
+
+        func = getattr(BudgetService.save_monthly_data, '__wrapped__', BudgetService.save_monthly_data)
+        func(parent_mock, 'VET', monthly_data)
+
+        calls = mock_create.call_args_list
+        # Month 1 (Jan): headcount -5 should become 0
+        self.assertEqual(calls[0].kwargs['headcount'], 0)
+        # Month 2 (Feb): headcount 'invalid_text' should become 0
+        self.assertEqual(calls[1].kwargs['headcount'], 0)
+        # Month 3 (Mar): headcount '10' should be 10
+        self.assertEqual(calls[2].kwargs['headcount'], 10)

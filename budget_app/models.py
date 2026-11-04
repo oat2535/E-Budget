@@ -98,7 +98,8 @@ class ebudget_vet_manpower(models.Model):
             if m_str:
                 res[m_str] = {
                     'headcount': float(detail.headcount),
-                    'cost': float(detail.cost)
+                    'cost': float(detail.cost),
+                    'cumulative_depreciation': float(getattr(detail, 'cumulative_depreciation', 0) or 0)
                 }
         return res
 
@@ -160,7 +161,8 @@ class ebudget_non_vet_manpower(models.Model):
             if m_str:
                 res[m_str] = {
                     'headcount': float(detail.headcount),
-                    'cost': float(detail.cost)
+                    'cost': float(detail.cost),
+                    'cumulative_depreciation': float(getattr(detail, 'cumulative_depreciation', 0) or 0)
                 }
         return res
 
@@ -231,7 +233,8 @@ class ebudget_position_adjustment(models.Model):
             if m_str:
                 res[m_str] = {
                     'headcount': float(detail.headcount),
-                    'cost': float(detail.cost)
+                    'cost': float(detail.cost),
+                    'cumulative_depreciation': float(getattr(detail, 'cumulative_depreciation', 0) or 0)
                 }
         return res
 
@@ -286,7 +289,8 @@ class ebudget_medical_equipment(models.Model):
             if m_str:
                 res[m_str] = {
                     'headcount': float(detail.headcount),
-                    'cost': float(detail.cost)
+                    'cost': float(detail.cost),
+                    'cumulative_depreciation': float(getattr(detail, 'cumulative_depreciation', 0) or 0)
                 }
         return res
 
@@ -341,7 +345,8 @@ class ebudget_computer_equipment(models.Model):
             if m_str:
                 res[m_str] = {
                     'headcount': float(detail.headcount),
-                    'cost': float(detail.cost)
+                    'cost': float(detail.cost),
+                    'cumulative_depreciation': float(getattr(detail, 'cumulative_depreciation', 0) or 0)
                 }
         return res
 
@@ -396,7 +401,8 @@ class ebudget_furniture(models.Model):
             if m_str:
                 res[m_str] = {
                     'headcount': float(detail.headcount),
-                    'cost': float(detail.cost)
+                    'cost': float(detail.cost),
+                    'cumulative_depreciation': float(getattr(detail, 'cumulative_depreciation', 0) or 0)
                 }
         return res
 
@@ -451,7 +457,8 @@ class ebudget_tools_equipment(models.Model):
             if m_str:
                 res[m_str] = {
                     'headcount': float(detail.headcount),
-                    'cost': float(detail.cost)
+                    'cost': float(detail.cost),
+                    'cumulative_depreciation': float(getattr(detail, 'cumulative_depreciation', 0) or 0)
                 }
         return res
 
@@ -503,7 +510,8 @@ class ebudget_car(models.Model):
             if m_str:
                 res[m_str] = {
                     'headcount': float(detail.headcount),
-                    'cost': float(detail.cost)
+                    'cost': float(detail.cost),
+                    'cumulative_depreciation': float(getattr(detail, 'cumulative_depreciation', 0) or 0)
                 }
         return res
 
@@ -555,7 +563,8 @@ class ebudget_renovate(models.Model):
             if m_str:
                 res[m_str] = {
                     'headcount': float(detail.headcount),
-                    'cost': float(detail.cost)
+                    'cost': float(detail.cost),
+                    'cumulative_depreciation': float(getattr(detail, 'cumulative_depreciation', 0) or 0)
                 }
         return res
 
@@ -607,7 +616,8 @@ class ebudget_software(models.Model):
             if m_str:
                 res[m_str] = {
                     'headcount': float(detail.headcount),
-                    'cost': float(detail.cost)
+                    'cost': float(detail.cost),
+                    'cumulative_depreciation': float(getattr(detail, 'cumulative_depreciation', 0) or 0)
                 }
         return res
 
@@ -625,6 +635,7 @@ class BudgetMonthlyDetail(models.Model):
     month = models.PositiveSmallIntegerField(choices=MONTH_CHOICES, verbose_name="เดือน (1-12)")
     headcount = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="จำนวน (คน/ชิ้น)")
     cost = models.DecimalField(max_digits=14, decimal_places=2, default=0, verbose_name="งบประมาณ (Cost)")
+    cumulative_depreciation = models.DecimalField(max_digits=14, decimal_places=2, default=0, verbose_name="ค่าเสื่อมราคาสะสม")
     
     vet_budget = models.ForeignKey(ebudget_vet_manpower, on_delete=models.CASCADE, null=True, blank=True, related_name='monthly_details')
     non_vet_budget = models.ForeignKey(ebudget_non_vet_manpower, on_delete=models.CASCADE, null=True, blank=True, related_name='monthly_details')

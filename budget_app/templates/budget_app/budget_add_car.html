@@ -108,7 +108,7 @@
 
     <div class="card mb-4 shadow-sm border-0 card-soft">
         <div class="card-header bg-white py-3">
-            <h6 class="m-0 font-weight-bold text-success">ตารางส่วนที่สอง (คำนวณงบประมาณ)</h6>
+            <h6 class="m-0 font-weight-bold text-success">ตารางส่วนที่สอง (คำนวณค่าเสื่อม)</h6>
         </div>
         <div class="card-body p-0">
             <div id="calc-spreadsheet"></div>
@@ -178,7 +178,10 @@
                 input.style.padding = '0 4px';
                 input.style.font = 'inherit';
 
-                const currentValue = cell.innerText || '';
+                const y = parseInt(cell.getAttribute('data-y') || 0);
+                const currentValue = (table1 && typeof table1.getValueFromCoords === 'function')
+                    ? (table1.getValueFromCoords(0, y) || '')
+                    : (cell.innerText || '');
                 input.value = empty ? '' : currentValue;
 
                 cell.classList.add('editor');
@@ -193,12 +196,16 @@
                 } catch (e) {}
 
                 input.onkeydown = function(e) {
-                    if (e.which === 13) {
+                    if (e.which === 13 || e.key === 'Enter') {
                         if (table1 && table1.edition) table1.closeEditor(cell, true);
                         setTimeout(syncTableRows, 0);
-                    } else if (e.which === 27) {
+                    } else if (e.which === 27 || e.key === 'Escape') {
                         if (table1 && table1.edition) table1.closeEditor(cell, false);
                     }
+                };
+
+                input.onchange = function() {
+                    if (table1 && table1.edition) table1.closeEditor(cell, true);
                 };
 
                 input.onblur = function() {
@@ -264,19 +271,19 @@
             { type: 'text', align: 'left', title: 'รถยนต์', width: 250, readOnly: true },
             { type: 'text', align: 'left', title: 'รายละเอียด', width: 200, readOnly: true },
             { type: 'numeric', title: 'ราคาซื้อ', width: 100, readOnly: true, mask: '#,##0' },
-            { type: 'numeric', title: 'Jan', width: 85, readOnly: true, mask: '#,##0' },
-            { type: 'numeric', title: 'Feb', width: 85, readOnly: true, mask: '#,##0' },
-            { type: 'numeric', title: 'Mar', width: 85, readOnly: true, mask: '#,##0' },
-            { type: 'numeric', title: 'Apr', width: 85, readOnly: true, mask: '#,##0' },
-            { type: 'numeric', title: 'May', width: 85, readOnly: true, mask: '#,##0' },
-            { type: 'numeric', title: 'Jun', width: 85, readOnly: true, mask: '#,##0' },
-            { type: 'numeric', title: 'Jul', width: 85, readOnly: true, mask: '#,##0' },
-            { type: 'numeric', title: 'Aug', width: 85, readOnly: true, mask: '#,##0' },
-            { type: 'numeric', title: 'Sep', width: 85, readOnly: true, mask: '#,##0' },
-            { type: 'numeric', title: 'Oct', width: 85, readOnly: true, mask: '#,##0' },
-            { type: 'numeric', title: 'Nov', width: 85, readOnly: true, mask: '#,##0' },
-            { type: 'numeric', title: 'Dec', width: 85, readOnly: true, mask: '#,##0' },
-            { type: 'numeric', title: 'รวม', width: 100, readOnly: true, mask: '#,##0' }
+            { type: 'numeric', title: 'Jan', width: 85, readOnly: true, mask: '#,##0.00' },
+            { type: 'numeric', title: 'Feb', width: 85, readOnly: true, mask: '#,##0.00' },
+            { type: 'numeric', title: 'Mar', width: 85, readOnly: true, mask: '#,##0.00' },
+            { type: 'numeric', title: 'Apr', width: 85, readOnly: true, mask: '#,##0.00' },
+            { type: 'numeric', title: 'May', width: 85, readOnly: true, mask: '#,##0.00' },
+            { type: 'numeric', title: 'Jun', width: 85, readOnly: true, mask: '#,##0.00' },
+            { type: 'numeric', title: 'Jul', width: 85, readOnly: true, mask: '#,##0.00' },
+            { type: 'numeric', title: 'Aug', width: 85, readOnly: true, mask: '#,##0.00' },
+            { type: 'numeric', title: 'Sep', width: 85, readOnly: true, mask: '#,##0.00' },
+            { type: 'numeric', title: 'Oct', width: 85, readOnly: true, mask: '#,##0.00' },
+            { type: 'numeric', title: 'Nov', width: 85, readOnly: true, mask: '#,##0.00' },
+            { type: 'numeric', title: 'Dec', width: 85, readOnly: true, mask: '#,##0.00' },
+            { type: 'numeric', title: 'รวม', width: 100, readOnly: true, mask: '#,##0.00' }
         ];
 
         let table1, table2;
@@ -358,21 +365,26 @@
                     }
                 }
 
-                // Enforce integer quantity without leading zeros in month columns (x = 3 to 14)
+                // Enforce integer จำนวน (digits only) without leading zeros in month columns (x = 3 to 14)
                 if (x >= 3 && x <= 14) {
-                    const rawVal = String(value || '').trim();
+                    const rawVal = String(value !== null && value !== undefined ? value : '').trim();
                     if (rawVal !== '') {
                         const cleanStr = rawVal.replace(/,/g, '');
-                        const hasLeadingZero = /^0\d+/.test(cleanStr);
+                        const cleanDigits = cleanStr.replace(/[^0-9]/g, '');
+                        const hasNonDigits = cleanStr !== cleanDigits;
+                        const hasLeadingZero = /^0\d+/.test(cleanDigits);
                         const num = parseFloat(cleanStr);
                         const isDecimal = !isNaN(num) && !Number.isInteger(num);
 
-                        if (isDecimal || hasLeadingZero) {
-                            const intVal = isNaN(num) ? 0 : Math.floor(num);
+                        if (hasNonDigits || hasLeadingZero || isDecimal) {
+                            const finalDigits = cleanDigits.replace(/^0+(?=\d)/, '');
+                            const intVal = finalDigits !== '' ? parseInt(finalDigits, 10) : 0;
                             table1.setValueFromCoords(x, y, intVal, false);
-                            let warnMsg = 'จำนวนต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม';
-                            if (hasLeadingZero) {
+                            let warnMsg = 'จำนวนต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกตัวอักษรหรืออักขระพิเศษ';
+                            if (hasLeadingZero && !hasNonDigits && !isDecimal) {
                                 warnMsg = 'ไม่อนุญาตให้กรอกตัวเลขที่มี 0 นำหน้า (เช่น 03, 04) ระบบปรับเป็น ' + intVal + ' ให้เรียบร้อยแล้ว';
+                            } else if (isDecimal && !hasNonDigits && !hasLeadingZero) {
+                                warnMsg = 'จำนวนต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม';
                             }
                             Swal.fire({
                                 icon: 'warning',
@@ -405,14 +417,20 @@
                 table2.setValueFromCoords(1, y, desc, true);
                 table2.setValueFromCoords(2, y, sal, true);
 
-                let sum2 = 0;
+                const depYears = {{ gl_depreciation|default:5 }};
+                let cumulativeUnits = 0;
+                let sumTable2 = 0;
                 for(let i = 3; i <= 14; i++) {
                     const count = getNum(rowData1[i]);
-                    const cost = count * sal;
-                    table2.setValueFromCoords(i, y, cost, true);
-                    sum2 += cost;
+                    cumulativeUnits += count;
+                    let mDep = 0;
+                    if (depYears > 0 && sal >= 5000) {
+                        mDep = Math.round((cumulativeUnits * sal / (depYears * 12)) * 100) / 100;
+                    }
+                    table2.setValueFromCoords(i, y, mDep, true);
+                    sumTable2 += mDep;
                 }
-                table2.setValueFromCoords(15, y, sum2, true);
+                table2.setValueFromCoords(15, y, Math.round(sumTable2 * 100) / 100, true);
             } finally {
                 // Always clear the guard, even if something above throws —
                 // otherwise every future edit silently no-ops forever (the bug
@@ -421,12 +439,13 @@
             }
         };
 
-        const createInitialData = () => [['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']];
+        const createInitialData = () => [new Array(columns.length).fill('')];
+        const createInitialCalcData = () => [new Array(calcColumns.length).fill('')];
 
         table1 = jspreadsheet(document.getElementById('spreadsheet'), {
             data: createInitialData(),
             columns: columns,
-            minDimensions: [15, 1],
+            minDimensions: [columns.length, 1],
             onchange: onchange,
             allowInsertColumn: false,
             allowManualInsertColumn: false,
@@ -461,9 +480,9 @@
         });
 
         table2 = jspreadsheet(document.getElementById('calc-spreadsheet'), {
-            data: createInitialData(),
+            data: createInitialCalcData(),
             columns: calcColumns,
-            minDimensions: [15, 1],
+            minDimensions: [calcColumns.length, 1],
             allowInsertRow: true,
             allowDeleteRow: true,
             allowInsertColumn: false,
@@ -473,6 +492,17 @@
             contextMenu: function() { return false; },
             freezeColumns: 2,
         });
+
+        const sheetContainer = document.getElementById('spreadsheet');
+        if (sheetContainer && !sheetContainer._dropdownClickBound) {
+            sheetContainer._dropdownClickBound = true;
+            sheetContainer.addEventListener('click', function(e) {
+                const cell = e.target.closest('td.eb-dropdown-cell');
+                if (cell && !cell.classList.contains('editor') && table1 && !table1.edition) {
+                    table1.openEditor(cell, false);
+                }
+            });
+        }
 
         // Bind add row button — table1's oninsertrow hook mirrors this into
         // table2, so it isn't done here too (that would double-insert).
@@ -490,7 +520,10 @@
             if (table1 && table1.selectedCell) {
                 const x = table1.selectedCell[0];
                 if (x >= 3 && x <= 14) {
-                    if (e.key === '.' || e.key === ',' || e.keyCode === 190 || e.keyCode === 110 || e.key === '-' || e.keyCode === 189) {
+                    if (e.ctrlKey || e.metaKey || e.altKey) return;
+                    const allowedControlKeys = ['Backspace', 'Tab', 'Enter', 'Escape', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
+                    if (allowedControlKeys.includes(e.key)) return;
+                    if (!/^[0-9]$/.test(e.key)) {
                         e.preventDefault();
                     }
                 }
@@ -500,7 +533,7 @@
         spreadsheetEl.addEventListener('input', function(e) {
             if (table1 && table1.selectedCell) {
                 const x = table1.selectedCell[0];
-                if (x >= 3 && x <= 14 && e.target && e.target.classList.contains('jexcel_editor')) {
+                if (x >= 3 && x <= 14 && e.target && (e.target.tagName === 'INPUT' || e.target.classList.contains('jexcel_editor'))) {
                     if (e.target.value) {
                         let clean = e.target.value.replace(/[^0-9]/g, '');
                         clean = clean.replace(/^0+(?=\d)/, '');
@@ -568,6 +601,10 @@
                         const rawStr = String(val !== null && val !== undefined ? val : '').trim().replace(/,/g, '');
                         const count = getNum(val);
                         if (rawStr !== '') {
+                            if (!/^\d+$/.test(rawStr)) {
+                                Swal.fire('แจ้งเตือน', `จำนวนในเดือน ${monthNames[c - 3]} ต้องเป็นตัวเลขเท่านั้น ไม่อนุญาตให้มีตัวอักษรหรืออักขระพิเศษ เช่น "${rawStr}" (แถวที่ ${i + 1}: ${position})`, 'warning');
+                                return;
+                            }
                             if (/^0\d+/.test(rawStr)) {
                                 Swal.fire('แจ้งเตือน', `จำนวนในเดือน ${monthNames[c - 3]} ไม่อนุญาตให้กรอกรูปแบบที่มีเลข 0 นำหน้า เช่น "${rawStr}" (แถวที่ ${i + 1}: ${position}) กรุณาระบุเป็นตัวเลขจำนวนเต็มปกติ`, 'warning');
                                 return;

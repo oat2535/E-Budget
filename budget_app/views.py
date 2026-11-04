@@ -1265,10 +1265,15 @@ def get_document_detail_api(request, doc_type, doc_no):
                 'monthly_data': item.monthly_data_dict
             }
         elif doc_type == 'Medical Equipment' or doc_type == 'Computer Equipment' or doc_type == 'Furniture' or doc_type == 'Tools & Equipment' or doc_type == 'CAR' or doc_type == 'Renovate' or doc_type == 'Software':
+            dec_cum_dep = (
+                item.monthly_data_dict.get('dec', {}).get('cumulative_depreciation', 0.0)
+                if hasattr(item, 'monthly_data_dict') else 0.0
+            )
             data = {
                 'item_name': item.item_name,
                 'description': item.description or '',
                 'purchase_price': float(item.purchase_price),
+                'cumulative_depreciation': dec_cum_dep,
                 'monthly_data': item.monthly_data_dict
             }
         elif doc_type == 'GL Entry' or doc_type == 'Revenue':
@@ -1390,7 +1395,7 @@ def update_document_api(request, doc_type, doc_no):
         first_item = existing_items.first()
         create_date = first_item.create_date
         create_eid = first_item.create_eid
-        department_id = first_item.department_id
+        department_id = first_item.department_id or get_branch_info(request).get('department_id')
 
         # Approval lock: applies to everyone, including privileged users —
         # there's no un-approve, and no resubmitting a cancelled document —
@@ -2009,9 +2014,15 @@ def _budget_add_equipment_view(request, model_class, doc_type, template_name, su
             'purchase_price': float(item.get('purchase_price') or 0)
         })
 
+    sample_gl_code = resolve_equipment_gl_code(doc_type, 100000)
+    gl_master = ebudget_general_ledger_master.objects.filter(gl_code=sample_gl_code).first()
+    gl_depreciation = float(gl_master.depreciation) if (gl_master and gl_master.depreciation) else 5.0
+
     return render(request, template_name, {
         'items_json': items_list,
         'cost_centers_json': get_cost_centers_json(),
+        'doc_type': doc_type,
+        'gl_depreciation': gl_depreciation,
         **get_branch_selection_context(request),
     })
 

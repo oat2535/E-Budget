@@ -11,7 +11,7 @@ from budget_app.models import (
     ebudget_gl_actual_template
 )
 from master_data.models import ebudget_budget_item_master, ebudget_general_ledger_master, ebudget_cost_center_master
-from budget_app.constants import EXECUTIVE_VIEW_ONLY_ROLES, STATUS_CANCELLED
+from budget_app.constants import EXECUTIVE_VIEW_ONLY_ROLES, STATUS_CANCELLED, GL_ACTUAL_TEMPLATE_BRANCHES
 
 logger = logging.getLogger(__name__)
 
@@ -98,18 +98,58 @@ class BudgetService:
         is_executive = BudgetService.is_executive_role(note_clean)
 
         if bank_sub_name and 'BACK' in sub_name_upper:
-            department_id = None
-            marker = sub_name_upper.find('BACK-')
-            if marker != -1:
-                department_id = bank_sub_name[marker + len('BACK-'):].strip() or None
-            return {
-                'branches': ['HO'],
-                'needs_selection': False,
-                'department_id': department_id,
-                'is_manager': is_manager,
-                'bank_account_note': note_clean,
-                'is_executive_view_only': is_executive,
-            }
+            valid_branch_ids = {code for code, _ in GL_ACTUAL_TEMPLATE_BRANCHES if code != 'HO'}
+            try:
+                with connections['imedx'].cursor() as cursor:
+                    cursor.execute("SELECT base_site_branch_id FROM base_site_branch")
+                    for r in cursor.fetchall():
+                        if r and r[0]:
+                            valid_branch_ids.add(r[0].strip().upper())
+            except Exception as e:
+                logger.warning(f"Error fetching base_site_branch for BACK user parsing: {e}")
+
+            raw_tokens = [t.strip() for t in bank_sub_name.split(',') if t.strip()]
+            branch_codes = []
+            dept_tokens = []
+
+            for token in raw_tokens:
+                token_upper = token.upper()
+                marker = token_upper.find('BACK-')
+                if marker != -1:
+                    dept_part = token[marker + len('BACK-'):].strip()
+                    if dept_part:
+                        dept_tokens.append(dept_part)
+                elif token_upper == 'BACK':
+                    continue
+                elif token_upper == 'HO' or token_upper in valid_branch_ids:
+                    if token_upper not in branch_codes:
+                        branch_codes.append(token_upper)
+                else:
+                    dept_tokens.append(token)
+
+            department_id = ','.join(dept_tokens).strip() or None
+
+            if branch_codes:
+                branches = list(branch_codes)
+                if 'HO' not in branches:
+                    branches.append('HO')
+                return {
+                    'branches': branches,
+                    'needs_selection': len(branches) > 1,
+                    'department_id': department_id,
+                    'is_manager': is_manager,
+                    'bank_account_note': note_clean,
+                    'is_executive_view_only': is_executive,
+                }
+            else:
+                return {
+                    'branches': ['HO'],
+                    'needs_selection': False,
+                    'department_id': department_id,
+                    'is_manager': is_manager,
+                    'bank_account_note': note_clean,
+                    'is_executive_view_only': is_executive,
+                }
 
         if bank_sub_name and bank_sub_name.strip():
             branches = [b.strip() for b in bank_sub_name.split(',') if b.strip()]
@@ -143,23 +183,29 @@ class BudgetService:
 
     @staticmethod
     def get_branch_names_from_imedx(codes):
-        """Bulk code->name lookup for the branch-picker dropdown (only
-        needed for the rare multi-branch case) - one query for the whole
-        list instead of one per code. Returns {code: name}; a code with no
-        match in base_site_branch is simply absent."""
+        """Bulk code->name lookup for the branch-picker dropdown.
+        Fetches descriptions from base_site_branch, with fallback/enrichment
+        from GL_ACTUAL_TEMPLATE_BRANCHES (ensuring 'HO' -> 'สำนักงานใหญ่', etc.)."""
         codes = [c for c in set(codes) if c]
         if not codes:
             return {}
+        result = {}
+        fallback_map = dict(GL_ACTUAL_TEMPLATE_BRANCHES)
+        for code in codes:
+            if code in fallback_map:
+                result[code] = fallback_map[code]
         try:
             with connections['imedx'].cursor() as cursor:
                 cursor.execute(
                     "SELECT base_site_branch_id, description FROM base_site_branch WHERE base_site_branch_id = ANY(%s)",
                     [codes]
                 )
-                return {code: name for code, name in cursor.fetchall()}
+                for code, name in cursor.fetchall():
+                    if name:
+                        result[code] = name
         except Exception as e:
             logger.error(f"Error fetching branch names for {codes}: {e}")
-            return {}
+        return result
 
     @staticmethod
     def get_master_fks(item_name_val):
@@ -283,12 +329,32 @@ class BudgetService:
             return
             
         BudgetMonthlyDetail.objects.filter(**{fk_field: parent_obj}).delete()
-        
+
+        is_fix_asset = doc_type in (
+            'Medical Equipment', 'Computer Equipment', 'Furniture',
+            'Tools & Equipment', 'CAR', 'Renovate', 'Software'
+        )
+        gl_depreciation = 0.0
+        if is_fix_asset:
+            gl_code = getattr(parent_obj, 'general_ledger_code', None)
+            if gl_code:
+                try:
+                    from master_data.models import ebudget_general_ledger_master
+                    gl_master = ebudget_general_ledger_master.objects.filter(gl_code=gl_code).first()
+                    if gl_master and gl_master.depreciation:
+                        gl_depreciation = float(gl_master.depreciation)
+                except Exception:
+                    gl_depreciation = 0.0
+
+        sorted_months = []
         for month_str, data in monthly_data_dict.items():
             month_int = MONTH_MAP.get(month_str.lower())
-            if not month_int:
-                continue
-                
+            if month_int:
+                sorted_months.append((month_int, data))
+        sorted_months.sort(key=lambda x: x[0])
+
+        running_dep = 0.0
+        for month_int, data in sorted_months:
             headcount = data.get('headcount') or data.get('count') or 0
             if doc_type in (
                 'VET', 'NON VET', 'Position Adjustment',
@@ -296,15 +362,25 @@ class BudgetService:
                 'Tools & Equipment', 'CAR', 'Renovate', 'Software'
             ):
                 try:
-                    headcount = int(round(float(headcount)))
+                    headcount = max(0, int(round(float(headcount))))
                 except (ValueError, TypeError):
                     headcount = 0
             cost = data.get('cost') or 0
-            
+            try:
+                cost_num = float(cost)
+            except (ValueError, TypeError):
+                cost_num = 0.0
+
+            cum_dep = 0.0
+            if is_fix_asset and gl_depreciation > 0:
+                running_dep += cost_num / (gl_depreciation * 12.0)
+                cum_dep = round(running_dep, 2)
+
             BudgetMonthlyDetail.objects.create(
                 month=month_int,
                 headcount=headcount,
                 cost=cost,
+                cumulative_depreciation=cum_dep,
                 **{fk_field: parent_obj}
             )
 

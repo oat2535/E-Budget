@@ -669,21 +669,26 @@
                 table1.setValueFromCoords(12, y, newAllow - oldAllow, true);
             }
 
-            // Enforce integer headcount without leading zeros in month columns (x = 13 to 24)
+            // Enforce integer จำนวนคน (digits only) without leading zeros in month columns (x = 13 to 24)
             if (x >= 13 && x <= 24) {
-                const rawVal = String(value || '').trim();
+                const rawVal = String(value !== null && value !== undefined ? value : '').trim();
                 if (rawVal !== '') {
                     const cleanStr = rawVal.replace(/,/g, '');
-                    const hasLeadingZero = /^0\d+/.test(cleanStr);
+                    const cleanDigits = cleanStr.replace(/[^0-9]/g, '');
+                    const hasNonDigits = cleanStr !== cleanDigits;
+                    const hasLeadingZero = /^0\d+/.test(cleanDigits);
                     const num = parseFloat(cleanStr);
                     const isDecimal = !isNaN(num) && !Number.isInteger(num);
 
-                    if (isDecimal || hasLeadingZero) {
-                        const intVal = isNaN(num) ? 0 : Math.floor(num);
+                    if (hasNonDigits || hasLeadingZero || isDecimal) {
+                        const finalDigits = cleanDigits.replace(/^0+(?=\d)/, '');
+                        const intVal = finalDigits !== '' ? parseInt(finalDigits, 10) : 0;
                         table1.setValueFromCoords(x, y, intVal, false);
-                        let warnMsg = 'จำนวนคนต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม';
-                        if (hasLeadingZero) {
+                        let warnMsg = 'จำนวนคนต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกตัวอักษรหรืออักขระพิเศษ';
+                        if (hasLeadingZero && !hasNonDigits && !isDecimal) {
                             warnMsg = 'ไม่อนุญาตให้กรอกตัวเลขที่มี 0 นำหน้า (เช่น 03, 04) ระบบปรับเป็น ' + intVal + ' ให้เรียบร้อยแล้ว';
+                        } else if (isDecimal && !hasNonDigits && !hasLeadingZero) {
+                            warnMsg = 'จำนวนคนต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม';
                         }
                         Swal.fire({
                             icon: 'warning',
@@ -853,7 +858,10 @@
             if (table1 && table1.selectedCell) {
                 const x = table1.selectedCell[0];
                 if (x >= 13 && x <= 24) {
-                    if (e.key === '.' || e.key === ',' || e.keyCode === 190 || e.keyCode === 110 || e.key === '-' || e.keyCode === 189) {
+                    if (e.ctrlKey || e.metaKey || e.altKey) return;
+                    const allowedControlKeys = ['Backspace', 'Tab', 'Enter', 'Escape', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
+                    if (allowedControlKeys.includes(e.key)) return;
+                    if (!/^[0-9]$/.test(e.key)) {
                         e.preventDefault();
                     }
                 }
@@ -863,7 +871,7 @@
         table1SpreadsheetEl.addEventListener('input', function(e) {
             if (table1 && table1.selectedCell) {
                 const x = table1.selectedCell[0];
-                if (x >= 13 && x <= 24 && e.target && e.target.classList.contains('jexcel_editor')) {
+                if (x >= 13 && x <= 24 && e.target && (e.target.tagName === 'INPUT' || e.target.classList.contains('jexcel_editor'))) {
                     if (e.target.value) {
                         let clean = e.target.value.replace(/[^0-9]/g, '');
                         clean = clean.replace(/^0+(?=\d)/, '');
@@ -948,6 +956,10 @@
                         const rawStr = String(val !== null && val !== undefined ? val : '').trim().replace(/,/g, '');
                         const count = getNum(val);
                         if (rawStr !== '') {
+                            if (!/^\d+$/.test(rawStr)) {
+                                Swal.fire('แจ้งเตือน', `จำนวนคนในเดือน ${monthNames[c - 13]} ต้องเป็นตัวเลขเท่านั้น ไม่อนุญาตให้มีตัวอักษรหรืออักขระพิเศษ เช่น "${rawStr}" (แถวที่ ${i + 1}: ${oldPos} -> ${newPos})`, 'warning');
+                                return;
+                            }
                             if (/^0\d+/.test(rawStr)) {
                                 Swal.fire('แจ้งเตือน', `จำนวนคนในเดือน ${monthNames[c - 13]} ไม่อนุญาตให้กรอกรูปแบบที่มีเลข 0 นำหน้า เช่น "${rawStr}" (แถวที่ ${i + 1}: ${oldPos} -> ${newPos}) กรุณาระบุเป็นตัวเลขจำนวนเต็มปกติ`, 'warning');
                                 return;

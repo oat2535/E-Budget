@@ -77,7 +77,10 @@ const BudgetApp = (function() {
                         const startCol = priceCol + 1 + (isNonVet ? 1 : 0);
                         const endCol = startCol + 11;
                         if (x >= startCol && x <= endCol) {
-                            if (e.key === '.' || e.key === ',' || e.keyCode === 190 || e.keyCode === 110 || e.key === '-' || e.keyCode === 189) {
+                            if (e.ctrlKey || e.metaKey || e.altKey) return;
+                            const allowedControlKeys = ['Backspace', 'Tab', 'Enter', 'Escape', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
+                            if (allowedControlKeys.includes(e.key)) return;
+                            if (!/^[0-9]$/.test(e.key)) {
                                 e.preventDefault();
                             }
                         }
@@ -103,7 +106,7 @@ const BudgetApp = (function() {
                         const priceCol = hasDetailCol ? 2 : 1;
                         const startCol = priceCol + 1 + (isNonVet ? 1 : 0);
                         const endCol = startCol + 11;
-                        if (x >= startCol && x <= endCol && e.target && e.target.classList.contains('jexcel_editor')) {
+                        if (x >= startCol && x <= endCol && e.target && (e.target.tagName === 'INPUT' || e.target.classList.contains('jexcel_editor'))) {
                             if (e.target.value) {
                                 let clean = e.target.value.replace(/[^0-9]/g, '');
                                 clean = clean.replace(/^0+(?=\d)/, '');
@@ -123,7 +126,10 @@ const BudgetApp = (function() {
                 if (adjTable1 && adjTable1.selectedCell && isAdjEditMode) {
                     const x = adjTable1.selectedCell[0];
                     if (x >= 13 && x <= 24) {
-                        if (e.key === '.' || e.key === ',' || e.keyCode === 190 || e.keyCode === 110 || e.key === '-' || e.keyCode === 189) {
+                        if (e.ctrlKey || e.metaKey || e.altKey) return;
+                        const allowedControlKeys = ['Backspace', 'Tab', 'Enter', 'Escape', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
+                        if (allowedControlKeys.includes(e.key)) return;
+                        if (!/^[0-9]$/.test(e.key)) {
                             e.preventDefault();
                         }
                     }
@@ -133,7 +139,7 @@ const BudgetApp = (function() {
             adjModalSheetEl.addEventListener('input', function(e) {
                 if (adjTable1 && adjTable1.selectedCell && isAdjEditMode) {
                     const x = adjTable1.selectedCell[0];
-                    if (x >= 13 && x <= 24 && e.target && e.target.classList.contains('jexcel_editor')) {
+                    if (x >= 13 && x <= 24 && e.target && (e.target.tagName === 'INPUT' || e.target.classList.contains('jexcel_editor'))) {
                         if (e.target.value) {
                             let clean = e.target.value.replace(/[^0-9]/g, '');
                             clean = clean.replace(/^0+(?=\d)/, '');
@@ -531,21 +537,26 @@ const BudgetApp = (function() {
                 }
             }
 
-            // Enforce integer headcount/quantity without leading zeros in month columns
+            // Enforce integer headcount/quantity (digits only) without leading zeros in month columns
             if (x >= startCol && x <= endCol) {
-                const rawVal = String(value || '').trim();
+                const rawVal = String(value !== null && value !== undefined ? value : '').trim();
                 if (rawVal !== '') {
                     const cleanStr = rawVal.replace(/,/g, '');
-                    const hasLeadingZero = /^0\d+/.test(cleanStr);
+                    const cleanDigits = cleanStr.replace(/[^0-9]/g, '');
+                    const hasNonDigits = cleanStr !== cleanDigits;
+                    const hasLeadingZero = /^0\d+/.test(cleanDigits);
                     const num = parseFloat(cleanStr);
                     const isDecimal = !isNaN(num) && !Number.isInteger(num);
 
-                    if (isDecimal || hasLeadingZero) {
-                        const intVal = isNaN(num) ? 0 : Math.floor(num);
+                    if (hasNonDigits || hasLeadingZero || isDecimal) {
+                        const finalDigits = cleanDigits.replace(/^0+(?=\d)/, '');
+                        const intVal = finalDigits !== '' ? parseInt(finalDigits, 10) : 0;
                         modalTable1.setValueFromCoords(x, y, intVal, false);
-                        let warnMsg = (isEquipment ? 'จำนวนรายการ' : (isVet ? 'จำนวนชั่วโมง' : 'จำนวนคน')) + 'ต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม';
-                        if (hasLeadingZero) {
+                        let warnMsg = (isEquipment ? 'จำนวนรายการ' : (isVet ? 'จำนวนชั่วโมง' : 'จำนวนคน')) + 'ต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกตัวอักษรหรืออักขระพิเศษ';
+                        if (hasLeadingZero && !hasNonDigits && !isDecimal) {
                             warnMsg = 'ไม่อนุญาตให้กรอกตัวเลขที่มี 0 นำหน้า (เช่น 03, 04) ระบบปรับเป็น ' + intVal + ' ให้เรียบร้อยแล้ว';
+                        } else if (isDecimal && !hasNonDigits && !hasLeadingZero) {
+                            warnMsg = (isEquipment ? 'จำนวนรายการ' : (isVet ? 'จำนวนชั่วโมง' : 'จำนวนคน')) + 'ต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม';
                         }
                         Swal.fire({
                             icon: 'warning',
@@ -607,17 +618,24 @@ const BudgetApp = (function() {
                 total_sal += allow;
             }
 
-            let sum2 = 0;
             if (isEquipment) {
-                // Equipment is a one-off purchase per month, not a
-                // recurring cost — stays a plain per-month multiply,
-                // matching budget_add_medical_equipment.html etc.
+                let depYears = 5;
+                if (isComp || isSoftware) depYears = 3;
+                else if (isRenovate) depYears = 20;
+
+                let cumulativeUnits = 0;
+                let sumTable2 = 0;
                 for(let i = startCol; i <= endCol; i++) {
                     const count = getNum(rowData1[i]);
-                    const cost = count * total_sal;
-                    modalTable2.setValueFromCoords(i, y, cost, true);
-                    sum2 += cost;
+                    cumulativeUnits += count;
+                    let mDep = 0;
+                    if (depYears > 0 && total_sal >= 5000) {
+                        mDep = Math.round((cumulativeUnits * total_sal / (depYears * 12)) * 100) / 100;
+                    }
+                    modalTable2.setValueFromCoords(i, y, mDep, true);
+                    sumTable2 += mDep;
                 }
+                modalTable2.setValueFromCoords(endCol + 1, y, Math.round(sumTable2 * 100) / 100, true);
             } else {
                 const monthCounts = [];
                 for(let i = startCol; i <= endCol; i++) {
@@ -627,8 +645,8 @@ const BudgetApp = (function() {
                     modalTable2.setValueFromCoords(startCol + idx, y, m.cost, true);
                     sum2 += m.cost;
                 });
+                modalTable2.setValueFromCoords(endCol + 1, y, sum2, true);
             }
-            modalTable2.setValueFromCoords(endCol + 1, y, sum2, true);
         } finally {
             // Always clear the guard, even if something above throws —
             // otherwise every future edit silently no-ops forever (the bug
@@ -1062,7 +1080,7 @@ const BudgetApp = (function() {
                     const isEquipment = isMed || isComp || isFurniture || isTools || isCar || isRenovate || isSoftware;
                     const isVet = result.doc_info.type === 'VET';
 
-                    // Update Table 1 card header title based on document type
+                    // Update Table 1 and Table 2 card header titles based on document type
                     const modalTable1Header = document.getElementById('modalTable1HeaderTitle');
                     if (modalTable1Header) {
                         if (isVet) {
@@ -1071,6 +1089,14 @@ const BudgetApp = (function() {
                             modalTable1Header.innerText = 'ตารางส่วนแรก (กรอกจำนวน)';
                         } else {
                             modalTable1Header.innerText = 'ตารางส่วนแรก (จำนวนคน)';
+                        }
+                    }
+                    const modalTable2Header = document.getElementById('modalTable2HeaderTitle');
+                    if (modalTable2Header) {
+                        if (isEquipment) {
+                            modalTable2Header.innerText = 'ตารางส่วนที่สอง (คำนวณค่าเสื่อม)';
+                        } else {
+                            modalTable2Header.innerText = 'ตารางส่วนที่สอง (คำนวณงบประมาณ)';
                         }
                     }
 
@@ -1114,29 +1140,69 @@ const BudgetApp = (function() {
 
                         let sumCount = 0;
                         let sumCost = 0;
+                        let sumDepYear = 0;
+                        let runningUnits = 0;
+                        let decCumDep = 0;
+                        const depYears = (isComp || isSoftware) ? 3 : (isRenovate ? 20 : 5);
+                        const sal = parseFloat(item.salary || item.purchase_price) || 0;
                         const mKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
                         mKeys.forEach(k => {
-                            let mData = m[k] || {headcount: 0, cost: 0};
+                            let mData = m[k] || {headcount: 0, cost: 0, cumulative_depreciation: 0};
                             let hc = parseFloat(mData.headcount) || 0;
                             let ct = parseFloat(mData.cost) || 0;
                             row1.push(hc);
-                            row2.push(ct);
                             sumCount += hc;
-                            sumCost += ct;
+
+                            if (isEquipment) {
+                                runningUnits += hc;
+                                let mDep = 0;
+                                if (mData.cumulative_depreciation !== undefined && mData.cumulative_depreciation !== null && parseFloat(mData.cumulative_depreciation) > 0) {
+                                    mDep = parseFloat(mData.cumulative_depreciation);
+                                } else if (depYears > 0 && sal >= 5000) {
+                                    mDep = Math.round((runningUnits * sal / (depYears * 12)) * 100) / 100;
+                                }
+                                row2.push(mDep);
+                                sumDepYear += mDep;
+                                decCumDep = mDep;
+                            } else {
+                                row2.push(ct);
+                                sumCost += ct;
+                            }
                         });
                         row1.push(sumCount);
-                        row2.push(sumCost);
+                        if (isEquipment) {
+                            row2.push(Math.round(sumDepYear * 100) / 100);
+                        } else {
+                            row2.push(sumCost);
+                        }
 
                         data1.push(row1);
                         data2.push(row2);
                     });
 
+                    let columns2 = columns;
+                    if (isEquipment) {
+                        columns2 = [
+                            { type: 'text', align: 'left', title: 'เครื่องมือ', width: 250, readOnly: true },
+                            { type: 'text', align: 'left', title: 'รายละเอียด', width: 200, readOnly: true },
+                            { type: 'numeric', title: 'ราคาซื้อ', width: 100, readOnly: true, mask: '#,##0' }
+                        ];
+                        months.forEach(m => {
+                            columns2.push({ type: 'numeric', title: m, width: 85, readOnly: true, mask: '#,##0.00' });
+                        });
+                        columns2.push({ type: 'numeric', title: 'รวม', width: 100, readOnly: true, mask: '#,##0.00' });
+                    }
+
                     if (data1.length === 0) {
-                        let emptyRow = new Array(columns.length).fill(0);
-                        emptyRow[0] = '';
-                        if (isEquipment || isVet || isNonVet) emptyRow[1] = '';
-                        data1.push([...emptyRow]);
-                        data2.push([...emptyRow]);
+                        let emptyRow1 = new Array(columns.length).fill(0);
+                        emptyRow1[0] = '';
+                        if (isEquipment || isVet || isNonVet) emptyRow1[1] = '';
+                        data1.push([...emptyRow1]);
+
+                        let emptyRow2 = new Array(columns2.length).fill(0);
+                        emptyRow2[0] = '';
+                        if (isEquipment || isVet || isNonVet) emptyRow2[1] = '';
+                        data2.push([...emptyRow2]);
                     }
 
                     // Building both grids now is safe from here on: the
@@ -1158,7 +1224,7 @@ const BudgetApp = (function() {
 
                     modalTable2 = jspreadsheet(document.getElementById('modalSpreadsheet2'), {
                         data: data2,
-                        columns: columns,
+                        columns: columns2,
                         allowInsertRow: false,
                         allowDeleteRow: false,
                         allowInsertColumn: false,
@@ -1249,6 +1315,14 @@ const BudgetApp = (function() {
                     modalTable1Header.innerText = 'ตารางส่วนแรก (กรอกจำนวน)';
                 } else {
                     modalTable1Header.innerText = 'ตารางส่วนแรก (จำนวนคน)';
+                }
+            }
+            const modalTable2Header = document.getElementById('modalTable2HeaderTitle');
+            if (modalTable2Header) {
+                if (isEquipment) {
+                    modalTable2Header.innerText = 'ตารางส่วนที่สอง (คำนวณค่าเสื่อม)';
+                } else {
+                    modalTable2Header.innerText = 'ตารางส่วนที่สอง (คำนวณงบประมาณ)';
                 }
             }
 
@@ -1421,9 +1495,9 @@ const BudgetApp = (function() {
                 calcColumns.push({ type: 'numeric', title: 'ค่าวัดระดับ/ตำแหน่ง', width: 150, readOnly: true, mask: '#,##0' });
             }
             months.forEach(m => {
-                calcColumns.push({ type: 'numeric', title: m, width: 85, readOnly: true, mask: '#,##0' });
+                calcColumns.push({ type: 'numeric', title: m, width: 85, readOnly: true, mask: isEquipment ? '#,##0.00' : '#,##0' });
             });
-            calcColumns.push({ type: 'numeric', title: 'รวม', width: 100, readOnly: true, mask: '#,##0' });
+            calcColumns.push({ type: 'numeric', title: 'รวม', width: 100, readOnly: true, mask: isEquipment ? '#,##0.00' : '#,##0' });
 
             const currentData2 = modalTable2.getData();
             modalTable2.destroy();
@@ -1596,13 +1670,20 @@ const BudgetApp = (function() {
             for (let c = 0; c < 12; c++) {
                 const cellVal = row[startCol + c];
                 const rawStr = String(cellVal !== null && cellVal !== undefined ? cellVal : '').trim().replace(/,/g, '');
-                if (rawStr !== '' && /^0\d+/.test(rawStr)) {
-                    Swal.fire('แจ้งเตือน', `จำนวนในเดือน ${monthNames[c]} ไม่อนุญาตให้กรอกรูปแบบที่มีเลข 0 นำหน้า เช่น "${rawStr}" (แถวที่ ${i + 1}: ${position}) กรุณาระบุเป็นตัวเลขจำนวนเต็มปกติ`, 'warning');
-                    return;
-                }
-                if (monthCounts[c] % 1 !== 0 || monthCounts[c] < 0) {
-                    Swal.fire('แจ้งเตือน', `จำนวนในเดือน ${monthNames[c]} ต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม (แถวที่ ${i + 1}: ${position})`, 'warning');
-                    return;
+                if (rawStr !== '') {
+                    const label = isEquipment ? 'จำนวนรายการ' : (isVet ? 'จำนวนชั่วโมง' : 'จำนวนคน');
+                    if (!/^\d+$/.test(rawStr)) {
+                        Swal.fire('แจ้งเตือน', `${label}ในเดือน ${monthNames[c]} ต้องเป็นตัวเลขเท่านั้น ไม่อนุญาตให้มีตัวอักษรหรืออักขระพิเศษ เช่น "${rawStr}" (แถวที่ ${i + 1}: ${position})`, 'warning');
+                        return;
+                    }
+                    if (/^0\d+/.test(rawStr)) {
+                        Swal.fire('แจ้งเตือน', `${label}ในเดือน ${monthNames[c]} ไม่อนุญาตให้กรอกรูปแบบที่มีเลข 0 นำหน้า เช่น "${rawStr}" (แถวที่ ${i + 1}: ${position}) กรุณาระบุเป็นตัวเลขจำนวนเต็มปกติ`, 'warning');
+                        return;
+                    }
+                    if (monthCounts[c] % 1 !== 0 || monthCounts[c] < 0) {
+                        Swal.fire('แจ้งเตือน', `${label}ในเดือน ${monthNames[c]} ต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม (แถวที่ ${i + 1}: ${position})`, 'warning');
+                        return;
+                    }
                 }
             }
 
@@ -3011,21 +3092,26 @@ const BudgetApp = (function() {
                 adjTable1.setValueFromCoords(12, y, newAllow - oldAllow, true);
             }
 
-            // Enforce integer headcount without leading zeros in month columns (x = 13 to 24)
+            // Enforce integer headcount (digits only) without leading zeros in month columns (x = 13 to 24)
             if (x >= 13 && x <= 24) {
-                const rawVal = String(value || '').trim();
+                const rawVal = String(value !== null && value !== undefined ? value : '').trim();
                 if (rawVal !== '') {
                     const cleanStr = rawVal.replace(/,/g, '');
-                    const hasLeadingZero = /^0\d+/.test(cleanStr);
+                    const cleanDigits = cleanStr.replace(/[^0-9]/g, '');
+                    const hasNonDigits = cleanStr !== cleanDigits;
+                    const hasLeadingZero = /^0\d+/.test(cleanDigits);
                     const num = parseFloat(cleanStr);
                     const isDecimal = !isNaN(num) && !Number.isInteger(num);
 
-                    if (isDecimal || hasLeadingZero) {
-                        const intVal = isNaN(num) ? 0 : Math.floor(num);
+                    if (hasNonDigits || hasLeadingZero || isDecimal) {
+                        const finalDigits = cleanDigits.replace(/^0+(?=\d)/, '');
+                        const intVal = finalDigits !== '' ? parseInt(finalDigits, 10) : 0;
                         adjTable1.setValueFromCoords(x, y, intVal, false);
-                        let warnMsg = 'จำนวนคนต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม';
-                        if (hasLeadingZero) {
+                        let warnMsg = 'จำนวนคนต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกตัวอักษรหรืออักขระพิเศษ';
+                        if (hasLeadingZero && !hasNonDigits && !isDecimal) {
                             warnMsg = 'ไม่อนุญาตให้กรอกตัวเลขที่มี 0 นำหน้า (เช่น 03, 04) ระบบปรับเป็น ' + intVal + ' ให้เรียบร้อยแล้ว';
+                        } else if (isDecimal && !hasNonDigits && !hasLeadingZero) {
+                            warnMsg = 'จำนวนคนต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม';
                         }
                         Swal.fire({
                             icon: 'warning',
@@ -3580,13 +3666,19 @@ const BudgetApp = (function() {
                 for (let c = 0; c < 12; c++) {
                     const cellVal = row[13 + c];
                     const rawStr = String(cellVal !== null && cellVal !== undefined ? cellVal : '').trim().replace(/,/g, '');
-                    if (rawStr !== '' && /^0\d+/.test(rawStr)) {
-                        Swal.fire('แจ้งเตือน', `จำนวนคนในเดือน ${monthNames[c]} ไม่อนุญาตให้กรอกรูปแบบที่มีเลข 0 นำหน้า เช่น "${rawStr}" (แถวที่ ${i + 1}) กรุณาระบุเป็นตัวเลขจำนวนเต็มปกติ`, 'warning');
-                        return;
-                    }
-                    if (monthCounts[c] % 1 !== 0 || monthCounts[c] < 0) {
-                        Swal.fire('แจ้งเตือน', `จำนวนคนในเดือน ${monthNames[c]} ต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม (แถวที่ ${i + 1})`, 'warning');
-                        return;
+                    if (rawStr !== '') {
+                        if (!/^\d+$/.test(rawStr)) {
+                            Swal.fire('แจ้งเตือน', `จำนวนคนในเดือน ${monthNames[c]} ต้องเป็นตัวเลขเท่านั้น ไม่อนุญาตให้มีตัวอักษรหรืออักขระพิเศษ เช่น "${rawStr}" (แถวที่ ${i + 1})`, 'warning');
+                            return;
+                        }
+                        if (/^0\d+/.test(rawStr)) {
+                            Swal.fire('แจ้งเตือน', `จำนวนคนในเดือน ${monthNames[c]} ไม่อนุญาตให้กรอกรูปแบบที่มีเลข 0 นำหน้า เช่น "${rawStr}" (แถวที่ ${i + 1}) กรุณาระบุเป็นตัวเลขจำนวนเต็มปกติ`, 'warning');
+                            return;
+                        }
+                        if (monthCounts[c] % 1 !== 0 || monthCounts[c] < 0) {
+                            Swal.fire('แจ้งเตือน', `จำนวนคนในเดือน ${monthNames[c]} ต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม (แถวที่ ${i + 1})`, 'warning');
+                            return;
+                        }
                     }
                 }
 
