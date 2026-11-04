@@ -1666,7 +1666,7 @@ class ImedxAuthBackendTests(SimpleTestCase):
     @patch('budget_app.backends.User.objects.get_or_create')
     def test_superuser_bypasses_profile_check(self, mock_get_or_create, mock_user_filter, mock_connections):
         mock_user_filter.return_value.exists.return_value = True
-        mock_user = type('User', (), {'first_name': '', 'last_name': '', 'save': lambda self: None})()
+        mock_user = type('User', (), {'first_name': '', 'last_name': '', 'save': lambda self: None, 'set_unusable_password': lambda self: None})()
         mock_get_or_create.return_value = (mock_user, False)
         mock_cursor = mock_connections['imedx'].cursor.return_value.__enter__.return_value
         pw_hash = hashlib.md5(b'mypassword').hexdigest()
@@ -1683,7 +1683,7 @@ class ImedxAuthBackendTests(SimpleTestCase):
     @patch('budget_app.backends.User.objects.get_or_create')
     def test_valid_profile_authenticates_successfully(self, mock_get_or_create, mock_user_filter, mock_connections):
         mock_user_filter.return_value.exists.return_value = False
-        mock_user = type('User', (), {'first_name': '', 'last_name': '', 'save': lambda self: None})()
+        mock_user = type('User', (), {'first_name': '', 'last_name': '', 'save': lambda self: None, 'set_unusable_password': lambda self: None})()
         mock_get_or_create.return_value = (mock_user, False)
         mock_cursor = mock_connections['imedx'].cursor.return_value.__enter__.return_value
         pw_hash = hashlib.md5(b'mypassword').hexdigest()
@@ -3227,3 +3227,35 @@ class DatabaseConfigurationAndConnectionTests(SimpleTestCase):
         self.assertEqual(imedx_db.get('USER'), 'eservices')
         options = imedx_db.get('OPTIONS', {})
         self.assertIn('-c search_path=public', options.get('options', ''))
+
+
+class LocalModelBackendTests(SimpleTestCase):
+    """Verifies that LocalModelBackend strictly denies local password login
+    for users who are active in iMedX, while allowing purely local accounts."""
+
+    @patch('budget_app.backends.connections')
+    def test_active_imedx_user_denied_local_password_login(self, mock_connections):
+        mock_cursor = mock_connections['imedx'].cursor.return_value.__enter__.return_value
+        mock_cursor.fetchone.return_value = ('1',) # active employee
+
+        from budget_app.backends import LocalModelBackend
+        backend = LocalModelBackend()
+
+        with patch('django.contrib.auth.backends.ModelBackend.authenticate') as mock_super_auth:
+            result = backend.authenticate(None, username='nattchai_u', password='local_password')
+            self.assertIsNone(result)
+            mock_super_auth.assert_not_called()
+
+    @patch('budget_app.backends.connections')
+    def test_inactive_or_non_imedx_user_delegates_to_super(self, mock_connections):
+        mock_cursor = mock_connections['imedx'].cursor.return_value.__enter__.return_value
+        mock_cursor.fetchone.return_value = None # not in iMedX
+
+        from budget_app.backends import LocalModelBackend
+        backend = LocalModelBackend()
+
+        mock_user = MagicMock()
+        with patch('django.contrib.auth.backends.ModelBackend.authenticate', return_value=mock_user) as mock_super_auth:
+            result = backend.authenticate(None, username='admin', password='local_admin_password')
+            self.assertEqual(result, mock_user)
+            mock_super_auth.assert_called_once()

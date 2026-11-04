@@ -1,7 +1,7 @@
 import hashlib
 import logging
 
-from django.contrib.auth.backends import BaseBackend
+from django.contrib.auth.backends import BaseBackend, ModelBackend
 from django.contrib.auth.models import User
 from django.db import connections
 
@@ -28,7 +28,7 @@ class ImedxAuthBackend(BaseBackend):
                     # Hash provided password using MD5
                     encoded_password = hashlib.md5(password.encode('utf-8')).hexdigest()
                     
-                    if encoded_password == db_password:
+                    if encoded_password.lower() == str(db_password or '').strip().lower():
                         # 1. Check if employee is active in iMedX
                         if active is not None and str(active).strip() == '0':
                             logger.warning(f"ImedxAuthBackend: Login rejected for inactive employee '{username}'")
@@ -66,8 +66,9 @@ class ImedxAuthBackend(BaseBackend):
                         user.first_name = first_name_str[:150]
                         user.last_name = (lastname or '')[:150]
                         
+                        # Ensure user always has unusable local password so iMedX remains single source of truth
+                        user.set_unusable_password()
                         if created:
-                            user.set_unusable_password()
                             user.is_staff = False
                             
                         user.save()
@@ -83,3 +84,32 @@ class ImedxAuthBackend(BaseBackend):
             return User.objects.get(pk=user_id)
         except User.DoesNotExist:
             return None
+
+
+class LocalModelBackend(ModelBackend):
+    """
+    Fallback authentication backend for purely local Django accounts (e.g. emergency superuser)
+    that do not exist or are inactive in iMedX. If an account is an active iMedX employee,
+    iMedX is the authoritative identity provider and local password authentication is strictly rejected.
+    """
+    def authenticate(self, request, username=None, password=None, **kwargs):
+        if not username or not password:
+            return None
+
+        try:
+            with connections['imedx'].cursor() as cursor:
+                cursor.execute(
+                    "SELECT active FROM employee WHERE employee_id = %s",
+                    [username]
+                )
+                row = cursor.fetchone()
+                if row and row[0] is not None and str(row[0]).strip() == '1':
+                    logger.warning(
+                        f"LocalModelBackend: Denied local password login for active iMedX employee '{username}'. "
+                        "Authentication must be performed against iMedX."
+                    )
+                    return None
+        except Exception as e:
+            logger.error(f"LocalModelBackend: Error checking iMedX for '{username}': {e}")
+
+        return super().authenticate(request, username=username, password=password, **kwargs)
