@@ -1518,111 +1518,144 @@ const BudgetApp = (function() {
 
         let rows = modalTable1.getData();
         let dataToSave = [];
+        let emptyMonthRows = [];
         let seenEquipRows = new Map();
 
         for (let i = 0; i < rows.length; i++) {
             let row = rows[i];
             let position = (row[0] || '').trim();
             let description = hasDetailCol ? row[1] : undefined;
+            let cleanDesc = (description !== null && description !== undefined ? String(description) : '').trim();
             let salary = getNum(row[priceCol]);
             let allowance = isNonVet ? getNum(row[allowanceCol]) : 0;
 
-            if (position) {
-                if (isEquipment) {
-                    let cleanDesc = (description !== null && description !== undefined ? String(description) : '').trim();
-                    let dupKey = position.toLowerCase() + '|||' + cleanDesc.toLowerCase();
-                    if (!seenEquipRows.has(dupKey)) {
-                        seenEquipRows.set(dupKey, { name: position, desc: cleanDesc, rowNumbers: [i + 1] });
-                    } else {
-                        seenEquipRows.get(dupKey).rowNumbers.push(i + 1);
+            if (!position) {
+                let hasAnyData = cleanDesc !== '' || salary > 0 || allowance > 0;
+                if (!hasAnyData) {
+                    for (let c = startCol; c <= startCol + 11; c++) {
+                        if (getNum(row[c]) > 0) {
+                            hasAnyData = true;
+                            break;
+                        }
                     }
                 }
-
-                if (isEquipment || isVet || isNonVet) {
-                    const isItemInMaster = itemsList.some(it => it.name === position);
-                    if (!isItemInMaster) {
-                        const label = isEquipment ? 'รายการ' : 'ตำแหน่ง';
-                        Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือก${label}จากรายการ Dropdown เท่านั้น\n(แถวที่ ${i + 1}: "${position}" ไม่มีอยู่ในรายการตัวเลือก)`, 'warning');
-                        return;
-                    }
-                }
-
-                if (isEquipment && salary <= 0) {
-                    Swal.fire('แจ้งเตือน', `กรุณาระบุราคาซื้อสำหรับ "${position}" (แถวที่ ${i + 1})`, 'warning');
+                if (hasAnyData) {
+                    const label = isEquipment ? 'รายการ' : 'ตำแหน่ง';
+                    Swal.fire('แจ้งเตือน', `กรุณาเลือก${label}ในแถวที่ ${i + 1}`, 'warning');
                     return;
                 }
-                if (isEquipment && salary < 5000) {
-                    Swal.fire('แจ้งเตือน', `ราคาซื้อในหมวดสินทรัพย์ถาวร (Fix Asset) ต้องมีมูลค่าตั้งแต่ 5,000 บาทขึ้นไป กรุณาตรวจสอบราคาสำหรับ "${position}" (แถวที่ ${i + 1})`, 'warning');
-                    return;
-                }
-                if (!isEquipment && salary <= 0 && allowance <= 0) {
-                    continue;
-                }
-                const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-                const monthCounts = [];
-                for (let c = startCol; c <= startCol + 11; c++) monthCounts.push(getNum(row[c]));
-
-                const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                for (let c = 0; c < 12; c++) {
-                    const cellVal = row[startCol + c];
-                    const rawStr = String(cellVal !== null && cellVal !== undefined ? cellVal : '').trim().replace(/,/g, '');
-                    if (rawStr !== '' && /^0\d+/.test(rawStr)) {
-                        Swal.fire('แจ้งเตือน', `จำนวนในเดือน ${monthNames[c]} ไม่อนุญาตให้กรอกรูปแบบที่มีเลข 0 นำหน้า เช่น "${rawStr}" (แถวที่ ${i + 1}: ${position}) กรุณาระบุเป็นตัวเลขจำนวนเต็มปกติ`, 'warning');
-                        return;
-                    }
-                    if (monthCounts[c] % 1 !== 0 || monthCounts[c] < 0) {
-                        Swal.fire('แจ้งเตือน', `จำนวนในเดือน ${monthNames[c]} ต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม (แถวที่ ${i + 1}: ${position})`, 'warning');
-                        return;
-                    }
-                }
-
-                // Cost must match whatever modalTable2 showed the user before
-                // they hit Save — equipment is a flat one-off purchase per
-                // month, but VET/NON VET accumulate ("ขั้นบันได") via the same
-                // computeMonthlyBudget() the create/edit-preview paths use.
-                // (Previously this recomputed cost as a flat count*rate here
-                // regardless of type, silently saving the wrong — non-cumulative
-                // — numbers for VET/NON VET even though the on-screen preview
-                // was correct.)
-                let monthlyData = {};
-                if (isEquipment) {
-                    monthKeys.forEach((key, idx) => {
-                        monthlyData[key] = { headcount: monthCounts[idx], cost: monthCounts[idx] * salary };
-                    });
-                } else {
-                    const monthlyBudget = computeMonthlyBudget(monthCounts, salary + allowance);
-                    monthKeys.forEach((key, idx) => {
-                        monthlyData[key] = { headcount: monthCounts[idx], cost: monthlyBudget[idx].cost };
-                    });
-                }
-
-                let rowData = {};
-                if (isEquipment) {
-                    rowData = {
-                        'item_name': position,
-                        'description': description,
-                        'purchase_price': salary,
-                        'cost_center_name': costCenterName,
-                        'branch_code': branchCode,
-                        'monthly_data': monthlyData
-                    };
-                } else {
-                    rowData = {
-                        'position_name': position,
-                        'salary': salary,
-                        'cost_center_name': costCenterName,
-                        'branch_code': branchCode,
-                        'monthly_data': monthlyData
-                    };
-                    if (isNonVet) {
-                        rowData['position_allowance'] = allowance;
-                    }
-                    if (isVet || isNonVet) {
-                        rowData['description'] = description;
-                    }
-                }
-                dataToSave.push(rowData);
+                continue;
             }
+
+            if (isEquipment) {
+                let dupKey = position.toLowerCase() + '|||' + cleanDesc.toLowerCase();
+                if (!seenEquipRows.has(dupKey)) {
+                    seenEquipRows.set(dupKey, { name: position, desc: cleanDesc, rowNumbers: [i + 1] });
+                } else {
+                    seenEquipRows.get(dupKey).rowNumbers.push(i + 1);
+                }
+            }
+
+            if (isEquipment || isVet || isNonVet) {
+                const isItemInMaster = itemsList.some(it => it.name === position);
+                if (!isItemInMaster) {
+                    const label = isEquipment ? 'รายการ' : 'ตำแหน่ง';
+                    Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือก${label}จากรายการ Dropdown เท่านั้น\n(แถวที่ ${i + 1}: "${position}" ไม่มีอยู่ในรายการตัวเลือก)`, 'warning');
+                    return;
+                }
+            }
+
+            if (isEquipment && salary <= 0) {
+                Swal.fire('แจ้งเตือน', `กรุณาระบุราคาซื้อสำหรับ "${position}" (แถวที่ ${i + 1})`, 'warning');
+                return;
+            }
+            if (isEquipment && salary < 5000) {
+                Swal.fire('แจ้งเตือน', `ราคาซื้อในหมวดสินทรัพย์ถาวร (Fix Asset) ต้องมีมูลค่าตั้งแต่ 5,000 บาทขึ้นไป กรุณาตรวจสอบราคาสำหรับ "${position}" (แถวที่ ${i + 1})`, 'warning');
+                return;
+            }
+            if (isVet && salary <= 0) {
+                Swal.fire('แจ้งเตือน', `กรุณาระบุค่าแรงรายชั่วโมงสำหรับ "${position}" (แถวที่ ${i + 1})`, 'warning');
+                return;
+            }
+            if (isNonVet && salary <= 0 && allowance <= 0) {
+                Swal.fire('แจ้งเตือน', `กรุณาระบุเงินเดือนหรือค่าวัดระดับ/ตำแหน่งสำหรับ "${position}" (แถวที่ ${i + 1})`, 'warning');
+                return;
+            }
+            const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+            const monthCounts = [];
+            let hasPositiveMonth = false;
+            for (let c = startCol; c <= startCol + 11; c++) {
+                const count = getNum(row[c]);
+                monthCounts.push(count);
+                if (count > 0) {
+                    hasPositiveMonth = true;
+                }
+            }
+
+            const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            for (let c = 0; c < 12; c++) {
+                const cellVal = row[startCol + c];
+                const rawStr = String(cellVal !== null && cellVal !== undefined ? cellVal : '').trim().replace(/,/g, '');
+                if (rawStr !== '' && /^0\d+/.test(rawStr)) {
+                    Swal.fire('แจ้งเตือน', `จำนวนในเดือน ${monthNames[c]} ไม่อนุญาตให้กรอกรูปแบบที่มีเลข 0 นำหน้า เช่น "${rawStr}" (แถวที่ ${i + 1}: ${position}) กรุณาระบุเป็นตัวเลขจำนวนเต็มปกติ`, 'warning');
+                    return;
+                }
+                if (monthCounts[c] % 1 !== 0 || monthCounts[c] < 0) {
+                    Swal.fire('แจ้งเตือน', `จำนวนในเดือน ${monthNames[c]} ต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม (แถวที่ ${i + 1}: ${position})`, 'warning');
+                    return;
+                }
+            }
+
+            if (!hasPositiveMonth) {
+                emptyMonthRows.push({ rowNumber: i + 1, name: position, desc: cleanDesc });
+            }
+
+            // Cost must match whatever modalTable2 showed the user before
+            // they hit Save — equipment is a flat one-off purchase per
+            // month, but VET/NON VET accumulate ("ขั้นบันได") via the same
+            // computeMonthlyBudget() the create/edit-preview paths use.
+            // (Previously this recomputed cost as a flat count*rate here
+            // regardless of type, silently saving the wrong — non-cumulative
+            // — numbers for VET/NON VET even though the on-screen preview
+            // was correct.)
+            let monthlyData = {};
+            if (isEquipment) {
+                monthKeys.forEach((key, idx) => {
+                    monthlyData[key] = { headcount: monthCounts[idx], cost: monthCounts[idx] * salary };
+                });
+            } else {
+                const monthlyBudget = computeMonthlyBudget(monthCounts, salary + allowance);
+                monthKeys.forEach((key, idx) => {
+                    monthlyData[key] = { headcount: monthCounts[idx], cost: monthlyBudget[idx].cost };
+                });
+            }
+
+            let rowData = {};
+            if (isEquipment) {
+                rowData = {
+                    'item_name': position,
+                    'description': description,
+                    'purchase_price': salary,
+                    'cost_center_name': costCenterName,
+                    'branch_code': branchCode,
+                    'monthly_data': monthlyData
+                };
+            } else {
+                rowData = {
+                    'position_name': position,
+                    'salary': salary,
+                    'cost_center_name': costCenterName,
+                    'branch_code': branchCode,
+                    'monthly_data': monthlyData
+                };
+                if (isNonVet) {
+                    rowData['position_allowance'] = allowance;
+                }
+                if (isVet || isNonVet) {
+                    rowData['description'] = description;
+                }
+            }
+            dataToSave.push(rowData);
         }
 
         if (isEquipment) {
@@ -1646,6 +1679,16 @@ const BudgetApp = (function() {
                 }
                 return;
             }
+        }
+
+        if (emptyMonthRows.length > 0) {
+            if (typeof showZeroMonthlyRowsWarning === 'function') {
+                showZeroMonthlyRowsWarning(emptyMonthRows);
+            } else {
+                const listStr = emptyMonthRows.map(r => `แถวที่ ${r.rowNumber}: ${r.name}` + (r.desc ? ` (${r.desc})` : '')).join('\n');
+                Swal.fire('แจ้งเตือน', 'กรุณาระบุจำนวนในตารางส่วนแรกอย่างน้อย 1 เดือน:\n' + listStr, 'warning');
+            }
+            return;
         }
         
         if (dataToSave.length === 0) {
@@ -3375,6 +3418,7 @@ const BudgetApp = (function() {
         const getNum = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
         let rows = adjTable1.getData();
         let dataToSave = [];
+        let emptyMonthRows = [];
 
         for (let i = 0; i < rows.length; i++) {
             let row = rows[i];
@@ -3419,7 +3463,14 @@ const BudgetApp = (function() {
                 let diffAllow = newAllow - oldAllow;
                 const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
                 const monthCounts = [];
-                for (let c = 13; c <= 24; c++) monthCounts.push(getNum(row[c]));
+                let hasPositiveMonth = false;
+                for (let c = 13; c <= 24; c++) {
+                    const count = getNum(row[c]);
+                    monthCounts.push(count);
+                    if (count > 0) {
+                        hasPositiveMonth = true;
+                    }
+                }
 
                 const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
                 for (let c = 0; c < 12; c++) {
@@ -3433,6 +3484,10 @@ const BudgetApp = (function() {
                         Swal.fire('แจ้งเตือน', `จำนวนคนในเดือน ${monthNames[c]} ต้องเป็นตัวเลขจำนวนเต็มเท่านั้น ไม่อนุญาตให้กรอกเลขทศนิยม (แถวที่ ${i + 1})`, 'warning');
                         return;
                     }
+                }
+
+                if (!hasPositiveMonth) {
+                    emptyMonthRows.push({ rowNumber: i + 1, name: `${oldPos} -> ${newPos}` });
                 }
                 // Cost must accumulate ("ขั้นบันได") the same way the
                 // on-screen preview (adjTable2/adjTable3, via
@@ -3472,6 +3527,16 @@ const BudgetApp = (function() {
                     'monthly_data': monthlyData
                 });
             }
+        }
+
+        if (emptyMonthRows.length > 0) {
+            if (typeof showZeroMonthlyRowsWarning === 'function') {
+                showZeroMonthlyRowsWarning(emptyMonthRows);
+            } else {
+                const listStr = emptyMonthRows.map(r => `แถวที่ ${r.rowNumber}: ${r.name}`).join('\n');
+                Swal.fire('แจ้งเตือน', 'กรุณาระบุจำนวนในตารางส่วนแรกอย่างน้อย 1 เดือน:\n' + listStr, 'warning');
+            }
+            return;
         }
 
         if (dataToSave.length === 0) {

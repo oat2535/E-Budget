@@ -2373,6 +2373,33 @@ class ZeroMonthlyDataFrontendContractTests(SimpleTestCase):
             self.assertIn('emptyMonthRows', content, f"{tmpl_name} must track emptyMonthRows")
             self.assertIn('showZeroMonthlyRowsWarning', content, f"{tmpl_name} must call showZeroMonthlyRowsWarning")
 
+    def test_budget_list_js_has_zero_month_validation_for_edit_mode(self):
+        js_path = os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'budget_list.js')
+        with open(js_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        self.assertIn('emptyMonthRows', content)
+        self.assertGreaterEqual(
+            content.count('showZeroMonthlyRowsWarning(emptyMonthRows)'),
+            2,
+            "budget_list.js must validate zero-month rows in both saveDocument and saveAdjDocument"
+        )
+
+    def test_budget_list_js_clean_desc_scope_in_save_document(self):
+        js_path = os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'budget_list.js')
+        with open(js_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        save_doc_idx = content.find('function saveDocument()')
+        save_adj_idx = content.find('function saveAdjDocument()')
+        self.assertNotEqual(save_doc_idx, -1)
+        save_doc_code = content[save_doc_idx:save_adj_idx]
+
+        self.assertIn('cleanDesc =', save_doc_code)
+        self.assertIn('emptyMonthRows.push({ rowNumber: i + 1, name: position, desc: cleanDesc });', save_doc_code)
+        desc_decl = "let cleanDesc = (description !== null && description !== undefined ? String(description) : '').trim();"
+        self.assertIn(desc_decl, save_doc_code)
+
 
 class FixAssetDuplicateRowValidationUnitTests(SimpleTestCase):
     """Verifies backend validation ensuring that within a FIX ASSET submission,
