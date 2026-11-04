@@ -641,6 +641,7 @@ const BudgetApp = (function() {
                 }
                 modalTable2.setValueFromCoords(endCol + 1, y, Math.round(sumTable2 * 100) / 100, true);
             } else {
+                let sum2 = 0;
                 const monthCounts = [];
                 for(let i = startCol; i <= endCol; i++) {
                     monthCounts.push(getNum(rowData1[i]));
