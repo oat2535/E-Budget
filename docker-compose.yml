@@ -1,9 +1,13 @@
 services:
   web:
+    container_name: e-budget-web-prd
+    image: e-budget-web-prd:latest
     build: .
     restart: unless-stopped
     ports:
-      - "5890:8000"
+      - "5895:8000"
+    env_file:
+      - .env
     environment:
       SECRET_KEY: ${SECRET_KEY}
       DEBUG: ${DEBUG:-False}
@@ -12,9 +16,9 @@ services:
       DB_DEFAULT_USER: ${DB_DEFAULT_USER}
       DB_DEFAULT_PASSWORD: ${DB_DEFAULT_PASSWORD}
       DB_DEFAULT_HOST: ${DB_DEFAULT_HOST}
-      DB_DEFAULT_PORT: ${DB_DEFAULT_PORT:-5432}
+      DB_DEFAULT_PORT: ${DB_DEFAULT_PORT:-5435}
       DB_IMEDX_NAME: ${DB_IMEDX_NAME}
       DB_IMEDX_USER: ${DB_IMEDX_USER}
       DB_IMEDX_PASSWORD: ${DB_IMEDX_PASSWORD}
       DB_IMEDX_HOST: ${DB_IMEDX_HOST}
-      DB_IMEDX_PORT: ${DB_IMEDX_PORT:-5432}
+      DB_IMEDX_PORT: ${DB_IMEDX_PORT:-5434}
