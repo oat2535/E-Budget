@@ -599,6 +599,40 @@
                     }
                 });
             };
+            window.checkDuplicateBeforeSave = function(options) {
+                const docType = options.docType || '';
+                const branchCode = options.branchCode || '';
+                const costCenterName = options.costCenterName || '';
+                const checkUrl = options.checkUrl;
+                const budgetListUrl = options.budgetListUrl;
+                const onProceed = options.onProceed;
+
+                if (!checkUrl) {
+                    if (typeof onProceed === 'function') onProceed();
+                    return;
+                }
+
+                const url = checkUrl + 
+                    (checkUrl.includes('?') ? '&' : '?') + 
+                    'doc_type=' + encodeURIComponent(docType) + 
+                    '&branch_code=' + encodeURIComponent(branchCode) + 
+                    '&cost_center=' + encodeURIComponent(costCenterName);
+
+                fetch(url)
+                    .then(function(res) { return res.json(); })
+                    .then(function(data) {
+                        if (data && data.status === 'duplicate') {
+                            window.handleBudgetSaveDuplicateResponse(data, budgetListUrl);
+                        } else {
+                            if (typeof onProceed === 'function') onProceed();
+                        }
+                    })
+                    .catch(function(err) {
+                        console.error('Error pre-checking duplicate budget document:', err);
+                        if (typeof onProceed === 'function') onProceed();
+                    });
+            };
+
             window.showZeroMonthlyRowsWarning = function(emptyRows) {
                 const escapeHtml = function(str) {
                     if (!str) return '';

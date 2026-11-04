@@ -1,4 +1,5 @@
 from django.db import connections, transaction
+from django.db.models import Q
 import logging
 from datetime import datetime
 from budget_app.models import (
@@ -9,7 +10,7 @@ from budget_app.models import (
     ebudget_budget_plan_item, ebudget_budget_plan_monthly_detail,
     ebudget_gl_actual_template
 )
-from master_data.models import ebudget_budget_item_master, ebudget_general_ledger_master
+from master_data.models import ebudget_budget_item_master, ebudget_general_ledger_master, ebudget_cost_center_master
 from budget_app.constants import EXECUTIVE_VIEW_ONLY_ROLES, STATUS_CANCELLED
 
 logger = logging.getLogger(__name__)
@@ -372,6 +373,58 @@ class BudgetService:
             )
 
     @staticmethod
+    def resolve_canonical_cost_center_name(raw_name):
+        """Resolves any cost center identifier (code '0001', abbreviation 'PH',
+        composite '0001: PH (Pet Hospital+Pet Taxi)', or full name
+        'PH (Pet Hospital+Pet Taxi)') to its canonical master cost_center_name.
+        Returns the canonical name if resolved, or the stripped input string."""
+        if not raw_name:
+            return None
+        val = str(raw_name).strip()
+        if not val:
+            return None
+        try:
+            # 1. Exact match on cost_center_name
+            cc = ebudget_cost_center_master.objects.filter(cost_center_name__iexact=val).first()
+            if cc:
+                return cc.cost_center_name
+
+            # 2. Exact match on cost_center_code
+            cc = ebudget_cost_center_master.objects.filter(cost_center_code__iexact=val).first()
+            if cc:
+                return cc.cost_center_name
+
+            # 3. Formats with colon e.g. "0001: PH (Pet Hospital+Pet Taxi)"
+            if ':' in val:
+                code_part, name_part = val.split(':', 1)
+                code_part = code_part.strip()
+                name_part = name_part.strip()
+                cc = ebudget_cost_center_master.objects.filter(
+                    Q(cost_center_code__iexact=code_part) |
+                    Q(cost_center_name__iexact=name_part) |
+                    Q(cost_center_name__istartswith=name_part)
+                ).first()
+                if cc:
+                    return cc.cost_center_name
+
+            # 4. Matches prefix e.g. "PH" -> "PH (Pet Hospital+Pet Taxi)"
+            cc = ebudget_cost_center_master.objects.filter(
+                Q(cost_center_name__istartswith=f"{val} ") |
+                Q(cost_center_name__istartswith=f"{val}(") |
+                Q(cost_center_name__istartswith=val)
+            ).first()
+            if cc:
+                return cc.cost_center_name
+
+            # 5. Fallback contains match
+            cc = ebudget_cost_center_master.objects.filter(cost_center_name__icontains=val).first()
+            if cc:
+                return cc.cost_center_name
+        except Exception as e:
+            logger.warning(f"Error resolving canonical cost center name: {e}")
+        return val
+
+    @staticmethod
     def find_existing_budget_document(model_class, create_eid, budget_year, base_branch_id, cost_center_name=None):
         """Checks if an active (non-cancelled) budget document already exists
         for the given creator, budget year, branch, and cost center.
@@ -397,9 +450,22 @@ class BudgetService:
             has_cc_field = False
 
         if has_cc_field and cost_center_name:
-            filter_kwargs['cost_center_name__iexact'] = str(cost_center_name).strip()
+            raw_cc = str(cost_center_name).strip()
+            canonical_cc = BudgetService.resolve_canonical_cost_center_name(raw_cc)
+            if canonical_cc and canonical_cc != raw_cc:
+                cc_query = Q(cost_center_name__iexact=raw_cc) | Q(cost_center_name__iexact=canonical_cc) | Q(cost_center_name__istartswith=raw_cc)
+                if '(' in canonical_cc:
+                    short_prefix = canonical_cc.split('(')[0].strip()
+                    if short_prefix:
+                        cc_query |= Q(cost_center_name__iexact=short_prefix)
+                qs = model_class.objects.filter(cc_query, **filter_kwargs).exclude(status=STATUS_CANCELLED)
+            else:
+                filter_kwargs['cost_center_name__iexact'] = raw_cc
+                qs = model_class.objects.filter(**filter_kwargs).exclude(status=STATUS_CANCELLED)
+        else:
+            qs = model_class.objects.filter(**filter_kwargs).exclude(status=STATUS_CANCELLED)
 
-        qs = model_class.objects.filter(**filter_kwargs).exclude(status=STATUS_CANCELLED).order_by('-create_date')
+        qs = qs.order_by('-create_date')
 
         values_fields = ['document_no', 'budget_year', 'base_branch_id', 'status']
         if has_cc_field:

@@ -2203,6 +2203,95 @@ class DuplicateBudgetDocumentCheckTests(SimpleTestCase):
             cost_center_name__iexact='0000: Center'
         )
 
+    def test_resolve_canonical_cost_center_name_variants(self):
+        from budget_app.services import BudgetService
+        from master_data.models import ebudget_cost_center_master
+
+        mock_cc = MagicMock()
+        mock_cc.cost_center_name = 'PH (Pet Hospital+Pet Taxi)'
+
+        with patch.object(ebudget_cost_center_master.objects, 'filter') as mock_filter:
+            mock_filter.return_value.first.return_value = mock_cc
+            res = BudgetService.resolve_canonical_cost_center_name('PH')
+            self.assertEqual(res, 'PH (Pet Hospital+Pet Taxi)')
+
+        # None or empty returns as is
+        self.assertIsNone(BudgetService.resolve_canonical_cost_center_name(None))
+        self.assertIsNone(BudgetService.resolve_canonical_cost_center_name(''))
+
+    def test_find_existing_budget_document_resolves_short_cost_center(self):
+        from budget_app.services import BudgetService
+        mock_model = MagicMock()
+        mock_qs = MagicMock()
+        mock_model.objects.filter.return_value = mock_qs
+        mock_qs.exclude.return_value = mock_qs
+        mock_qs.order_by.return_value = mock_qs
+        mock_qs.values.return_value = mock_qs
+        mock_qs.first.return_value = {
+            'document_no': 'VET-202611-002',
+            'budget_year': 2025,
+            'base_branch_id': 'R2',
+            'cost_center_name': 'PH (Pet Hospital+Pet Taxi)',
+            'status': 'PENDING'
+        }
+
+        with patch.object(BudgetService, 'resolve_canonical_cost_center_name', return_value='PH (Pet Hospital+Pet Taxi)'):
+            res = BudgetService.find_existing_budget_document(
+                mock_model,
+                create_eid='ebudget',
+                budget_year=2025,
+                base_branch_id='R2',
+                cost_center_name='PH'
+            )
+            self.assertIsNotNone(res)
+            self.assertEqual(res['document_no'], 'VET-202611-002')
+            self.assertEqual(res['cost_center_name'], 'PH (Pet Hospital+Pet Taxi)')
+
+    def test_check_duplicate_document_api_endpoint(self):
+        from budget_app.views import check_duplicate_document_api
+        from django.http import JsonResponse
+        from django.test import RequestFactory
+        from django.contrib.auth.models import AnonymousUser
+
+        rf = RequestFactory()
+
+        # 1. Duplicate found case
+        req = rf.get('/api/check_duplicate_document/?doc_type=VET&branch_code=R2&cost_center=PH')
+        user = MagicMock()
+        user.is_authenticated = True
+        user.username = 'ebudget'
+        req.user = user
+
+        mock_settings = MagicMock()
+        mock_settings.active_budget_year = 2025
+        with patch('budget_app.views.get_branch_info', return_value={'branches': ['R2'], 'needs_selection': False}), \
+             patch('budget_app.models.SystemSettings.load', return_value=mock_settings), \
+             patch('budget_app.views.check_duplicate_budget_document') as mock_check:
+            mock_check.return_value = JsonResponse({
+                'status': 'duplicate',
+                'doc_type': 'VET',
+                'document_no': 'VET-202611-002',
+                'budget_year': 2025,
+                'branch_id': 'R2',
+                'cost_center_name': 'PH (Pet Hospital+Pet Taxi)',
+                'message': 'Duplicate found'
+            })
+            resp = check_duplicate_document_api(req)
+            self.assertEqual(resp.status_code, 200)
+            data = json.loads(resp.content)
+            self.assertEqual(data['status'], 'duplicate')
+            self.assertEqual(data['document_no'], 'VET-202611-002')
+
+        # 2. No duplicate case
+        with patch('budget_app.views.get_branch_info', return_value={'branches': ['R2'], 'needs_selection': False}), \
+             patch('budget_app.models.SystemSettings.load', return_value=mock_settings), \
+             patch('budget_app.views.check_duplicate_budget_document', return_value=None):
+            resp2 = check_duplicate_document_api(req)
+            self.assertEqual(resp2.status_code, 200)
+            data2 = json.loads(resp2.content)
+            self.assertEqual(data2['status'], 'ok')
+            self.assertFalse(data2['is_duplicate'])
+
     def test_check_duplicate_budget_document_helper_includes_cost_center_in_response(self):
         from budget_app.views import check_duplicate_budget_document
         with patch('budget_app.services.BudgetService.find_existing_budget_document') as mock_find:
@@ -2260,6 +2349,30 @@ class DuplicateBudgetDocumentFrontendContractTests(SimpleTestCase):
         self.assertIn('viewGeneralLedgerDocumentDetails(openDocNo, openDocType)', content)
         self.assertIn('viewGlatDocumentDetails(openDocNo)', content)
         self.assertIn('history.replaceState', content)
+
+    def test_base_html_defines_check_duplicate_before_save(self):
+        base_html_path = os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'base.html')
+        with open(base_html_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        self.assertIn('window.checkDuplicateBeforeSave = function', content)
+        self.assertIn('window.handleBudgetSaveDuplicateResponse', content)
+        self.assertIn('checkUrl', content)
+
+    def test_all_14_add_templates_pre_check_duplicate_before_save(self):
+        import glob
+        templates_dir = os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app')
+        add_templates = glob.glob(os.path.join(templates_dir, 'budget_add*.html'))
+        self.assertEqual(len(add_templates), 14, "Expected exactly 14 add-budget templates")
+
+        for tmpl_path in add_templates:
+            fname = os.path.basename(tmpl_path)
+            with open(tmpl_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            self.assertIn("window.checkDuplicateBeforeSave", content, f"{fname} missing checkDuplicateBeforeSave call")
+            self.assertIn("api_check_duplicate_document", content, f"{fname} missing api_check_duplicate_document url")
+            self.assertIn("proceedWithSave", content, f"{fname} missing proceedWithSave callback")
 
     def test_all_14_add_templates_handle_duplicate_response(self):
         import glob

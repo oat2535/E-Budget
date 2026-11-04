@@ -892,7 +892,8 @@
                 return;
             }
             
-            Swal.fire({
+            const proceedWithSave = function() {
+                Swal.fire({
                 title: 'ยืนยันการบันทึกข้อมูล?',
                 text: "ตรวจสอบข้อมูลการปรับตำแหน่งเรียบร้อยใช่หรือไม่?",
                 icon: 'question',
@@ -935,6 +936,20 @@
                     });
                 }
             });
+            };
+
+            if (typeof window.checkDuplicateBeforeSave === 'function') {
+                window.checkDuplicateBeforeSave({
+                    docType: 'Position Adjustment',
+                    branchCode: branchCode,
+                    costCenterName: costCenterName,
+                    checkUrl: '{% url "api_check_duplicate_document" %}',
+                    budgetListUrl: '{% url "budget_list" %}',
+                    onProceed: proceedWithSave
+                });
+            } else {
+                proceedWithSave();
+            }
         });
 
         // Dynamic title update for sticky header when scrolling between tables

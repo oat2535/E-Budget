@@ -506,16 +506,17 @@ def check_duplicate_budget_document(model_class, doc_type, create_eid, budget_ye
     """Checks if an active (non-cancelled) document already exists for (create_eid, budget_year, base_branch_id, cost_center_name).
     If a duplicate is found, returns a JsonResponse with status='duplicate' and document metadata.
     Otherwise returns None."""
+    canonical_cc = BudgetService.resolve_canonical_cost_center_name(cost_center_name) if cost_center_name else None
     existing = BudgetService.find_existing_budget_document(
         model_class=model_class,
         create_eid=create_eid,
         budget_year=budget_year,
         base_branch_id=base_branch_id,
-        cost_center_name=cost_center_name
+        cost_center_name=canonical_cc or cost_center_name
     )
     if existing:
         doc_no = existing.get('document_no') or ''
-        cc = existing.get('cost_center_name') or cost_center_name or ''
+        cc = existing.get('cost_center_name') or canonical_cc or cost_center_name or ''
         cc_msg = f' Cost Center: {cc}' if cc else ''
         return JsonResponse({
             'status': 'duplicate',
@@ -532,6 +533,61 @@ def check_duplicate_budget_document(model_class, doc_type, create_eid, budget_ye
             )
         })
     return None
+
+DOC_TYPE_MODEL_MAP = {
+    'VET': (ebudget_vet_manpower, 'VET'),
+    'NON VET': (ebudget_non_vet_manpower, 'NON VET'),
+    'POSITION ADJUSTMENT': (ebudget_position_adjustment, 'Position Adjustment'),
+    'MEDICAL EQUIPMENT': (ebudget_medical_equipment, 'Medical Equipment'),
+    'COMPUTER EQUIPMENT': (ebudget_computer_equipment, 'Computer Equipment'),
+    'FURNITURE': (ebudget_furniture, 'Furniture'),
+    'TOOLS EQUIPMENT': (ebudget_tools_equipment, 'Tools Equipment'),
+    'CAR': (ebudget_car, 'Car'),
+    'RENOVATE': (ebudget_renovate, 'Renovate'),
+    'SOFTWARE': (ebudget_software, 'Software'),
+    'GL ENTRY': (ebudget_gl_entry, 'GL Entry'),
+    'REVENUE': (ebudget_revenue, 'Revenue'),
+    'BUDGET PLAN': (ebudget_budget_plan_item, 'Budget Plan'),
+    'GL ACTUAL TEMPLATE': (ebudget_gl_actual_template, 'GL Actual Template'),
+}
+
+@login_required
+def check_duplicate_document_api(request):
+    """API endpoint to pre-check if a budget document already exists before save.
+    Called by front-end Add Budget forms to warn users immediately upon clicking Save."""
+    raw_doc_type = request.GET.get('doc_type', '').strip().upper()
+    branch_code = request.GET.get('branch_code', '').strip()
+    cost_center = request.GET.get('cost_center', '').strip() or None
+
+    mapped = DOC_TYPE_MODEL_MAP.get(raw_doc_type)
+    if not mapped:
+        return JsonResponse({'status': 'ok', 'is_duplicate': False})
+
+    model_class, display_doc_type = mapped
+    username = request.user.username
+    budget_year = SystemSettings.load().active_budget_year
+
+    info = get_branch_info(request)
+    branches = info.get('branches') or []
+    if info.get('needs_selection'):
+        branch_id = branch_code if branch_code in branches else (branch_code or None)
+    else:
+        branch_id = branches[0] if branches else (branch_code or None)
+
+    if not branch_id:
+        return JsonResponse({'status': 'ok', 'is_duplicate': False})
+
+    duplicate_resp = check_duplicate_budget_document(
+        model_class=model_class,
+        doc_type=display_doc_type,
+        create_eid=username,
+        budget_year=budget_year,
+        base_branch_id=branch_id,
+        cost_center_name=cost_center
+    )
+    if duplicate_resp:
+        return duplicate_resp
+    return JsonResponse({'status': 'ok', 'is_duplicate': False})
 
 @login_required
 @require_not_executive_view_only
@@ -556,6 +612,11 @@ def budget_add_view(request):
                         'status': 'error',
                         'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งจากรายการ Dropdown เท่านั้น (ตำแหน่ง: "{pos}" ไม่มีอยู่ในระบบ)'
                     })
+            if data and data[0].get('cost_center_name'):
+                canonical_cc = BudgetService.resolve_canonical_cost_center_name(data[0]['cost_center_name'])
+                for item in data:
+                    item['cost_center_name'] = canonical_cc
+
             username = request.user.username
             branch_id, department_id = resolve_branch_for_create(request, data)
             budget_year = SystemSettings.load().active_budget_year
@@ -641,6 +702,11 @@ def budget_add_non_vet_view(request):
                         'status': 'error',
                         'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งจากรายการ Dropdown เท่านั้น (ตำแหน่ง: "{pos}" ไม่มีอยู่ในระบบ)'
                     })
+            if data and data[0].get('cost_center_name'):
+                canonical_cc = BudgetService.resolve_canonical_cost_center_name(data[0]['cost_center_name'])
+                for item in data:
+                    item['cost_center_name'] = canonical_cc
+
             username = request.user.username
             branch_id, department_id = resolve_branch_for_create(request, data)
             budget_year = SystemSettings.load().active_budget_year
@@ -1756,6 +1822,11 @@ def budget_add_adjustment_view(request):
                         'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น (ตำแหน่ง: "{new_p}" ไม่มีอยู่ในระบบ)'
                     })
 
+            if data and data[0].get('cost_center_name'):
+                canonical_cc = BudgetService.resolve_canonical_cost_center_name(data[0]['cost_center_name'])
+                for item in data:
+                    item['cost_center_name'] = canonical_cc
+
             username = request.user.username
             branch_id, department_id = resolve_branch_for_create(request, data)
             budget_year = SystemSettings.load().active_budget_year
@@ -1880,6 +1951,11 @@ def _budget_add_equipment_view(request, model_class, doc_type, template_name, su
                         'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกรายการจาก Dropdown เท่านั้น (รายการ: "{it_name}" ไม่มีอยู่ในระบบ)'
                     })
 
+            if data and data[0].get('cost_center_name'):
+                canonical_cc = BudgetService.resolve_canonical_cost_center_name(data[0]['cost_center_name'])
+                for item in data:
+                    item['cost_center_name'] = canonical_cc
+
             username = request.user.username
             branch_id, department_id = resolve_branch_for_create(request, data)
             budget_year = SystemSettings.load().active_budget_year
@@ -1984,6 +2060,11 @@ def budget_add_gl_entry_view(request):
             data = json.loads(request.body)
             if not data or not data[0].get('cost_center_name'):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
+            if data and data[0].get('cost_center_name'):
+                canonical_cc = BudgetService.resolve_canonical_cost_center_name(data[0]['cost_center_name'])
+                for item in data:
+                    item['cost_center_name'] = canonical_cc
+
             username = request.user.username
             branch_id, department_id = resolve_branch_for_create(request, data)
             budget_year = SystemSettings.load().active_budget_year
@@ -2037,6 +2118,11 @@ def budget_add_revenue_view(request):
             data = json.loads(request.body)
             if not data or not data[0].get('cost_center_name'):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
+            if data and data[0].get('cost_center_name'):
+                canonical_cc = BudgetService.resolve_canonical_cost_center_name(data[0]['cost_center_name'])
+                for item in data:
+                    item['cost_center_name'] = canonical_cc
+
             username = request.user.username
             branch_id, department_id = resolve_branch_for_create(request, data)
             budget_year = SystemSettings.load().active_budget_year
@@ -2090,6 +2176,11 @@ def budget_add_budget_plan_view(request):
             data = json.loads(request.body)
             if not data or not data[0].get('cost_center_name'):
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือก Cost Center'})
+            if data and data[0].get('cost_center_name'):
+                canonical_cc = BudgetService.resolve_canonical_cost_center_name(data[0]['cost_center_name'])
+                for item in data:
+                    item['cost_center_name'] = canonical_cc
+
             username = request.user.username
             branch_id, department_id = resolve_branch_for_create(request, data)
             budget_year = SystemSettings.load().active_budget_year

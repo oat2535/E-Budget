@@ -486,7 +486,8 @@
                 return;
             }
 
-            Swal.fire({
+            const proceedWithSave = function() {
+                Swal.fire({
                 title: 'ยืนยันการบันทึกข้อมูล?',
                 text: "คุณตรวจสอบข้อมูลครบถ้วนและต้องการบันทึกใช่หรือไม่?",
                 icon: 'question',
@@ -531,6 +532,20 @@
                     });
                 }
             });
+            };
+
+            if (typeof window.checkDuplicateBeforeSave === 'function') {
+                window.checkDuplicateBeforeSave({
+                    docType: 'Revenue',
+                    branchCode: branchCode,
+                    costCenterName: costCenterName,
+                    checkUrl: '{% url "api_check_duplicate_document" %}',
+                    budgetListUrl: '{% url "budget_list" %}',
+                    onProceed: proceedWithSave
+                });
+            } else {
+                proceedWithSave();
+            }
         });
     });
 </script>

@@ -14,6 +14,7 @@ urlpatterns = [
     path('api/document/approve/<str:doc_type>/<str:doc_no>/', views.approve_document_api, name='api_document_approve'),
     path('api/document/cancel/<str:doc_type>/<str:doc_no>/', views.cancel_document_api, name='api_document_cancel'),
     path('api/general_ledgers/', views.get_general_ledgers_api, name='api_general_ledgers'),
+    path('api/check_duplicate_document/', views.check_duplicate_document_api, name='api_check_duplicate_document'),
     path('add_adjustment/', views.budget_add_adjustment_view, name='budget_add_adjustment'),
     path('add_medical_equipment/', views.budget_add_medical_equipment_view, name='budget_add_medical_equipment'),
     path('add_computer_equipment/', views.budget_add_computer_equipment_view, name='budget_add_computer_equipment'),
