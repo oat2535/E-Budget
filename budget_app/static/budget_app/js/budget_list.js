@@ -2854,11 +2854,14 @@ const BudgetApp = (function() {
             // Type (ประเภท) Changed
             if (x === 0) {
                 const trimmedVal = (value || '').trim();
+                let newType = '';
                 if (trimmedVal !== '') {
                     const upper = trimmedVal.toUpperCase();
                     if (upper === 'VET') {
+                        newType = 'VET';
                         if (trimmedVal !== 'VET') adjTable1.setValueFromCoords(0, y, 'VET', true);
                     } else if (upper === 'NON VET' || upper === 'NON-VET' || upper === 'NONVET') {
+                        newType = 'NON VET';
                         if (trimmedVal !== 'NON VET') adjTable1.setValueFromCoords(0, y, 'NON VET', true);
                     } else {
                         adjTable1.setValueFromCoords(0, y, '', true);
@@ -2873,63 +2876,124 @@ const BudgetApp = (function() {
                         });
                     }
                 }
+                const curOldPos = (adjTable1.getValueFromCoords(1, y) || '').trim();
+                const curNewPos = (adjTable1.getValueFromCoords(3, y) || '').trim();
+                const allowedList = newType === 'VET' ? vetItems : (newType === 'NON VET' ? nonVetItems : []);
+                if (curOldPos !== '') {
+                    if (!allowedList.some(i => i.name === curOldPos)) {
+                        adjTable1.setValueFromCoords(1, y, '', true);
+                        adjTable1.setValueFromCoords(5, y, 0, true);
+                        adjTable1.setValueFromCoords(6, y, 0, true);
+                        oldSal = 0;
+                        oldAllow = 0;
+                    }
+                }
+                if (curNewPos !== '') {
+                    if (!allowedList.some(i => i.name === curNewPos)) {
+                        adjTable1.setValueFromCoords(3, y, '', true);
+                        adjTable1.setValueFromCoords(8, y, 0, true);
+                        adjTable1.setValueFromCoords(9, y, 0, true);
+                        newSal = 0;
+                        newAllow = 0;
+                    }
+                }
             }
             if (x === 1) {
+                const rowType = (adjTable1.getValueFromCoords(0, y) || '').trim().toUpperCase();
                 const trimmedVal = (value || '').trim();
-                const match = trimmedVal !== '' ? allAdjItems.find(i => i.name === trimmedVal) : null;
-                if (match) {
-                    oldSal = match.salary || 0;
-                    oldAllow = match.position_allowance || 0;
-                    adjTable1.setValueFromCoords(5, y, oldSal, true);
-                    adjTable1.setValueFromCoords(6, y, oldAllow, true);
-                } else {
+                if (rowType !== 'VET' && rowType !== 'NON VET') {
                     oldSal = 0;
                     oldAllow = 0;
-                    if (trimmedVal !== '') {
-                        adjTable1.setValueFromCoords(1, y, '', true);
-                    }
+                    adjTable1.setValueFromCoords(1, y, '', true);
                     adjTable1.setValueFromCoords(5, y, 0, true);
                     adjTable1.setValueFromCoords(6, y, 0, true);
                     if (trimmedVal !== '') {
                         Swal.fire({
                             icon: 'warning',
                             title: 'แจ้งเตือน',
-                            text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งเดิมจากรายการ Dropdown เท่านั้น ("${trimmedVal}" ไม่มีอยู่ในรายการตัวเลือก)`,
+                            text: 'กรุณาเลือกประเภท (VET หรือ NON VET) ในคอลัมน์ "ประเภท" ก่อนครับ',
                             timer: 3000,
                             showConfirmButton: false,
                             toast: true,
                             position: 'top-end'
                         });
                     }
+                } else if (trimmedVal !== '') {
+                    const allowedList = rowType === 'VET' ? vetItems : nonVetItems;
+                    const match = allowedList.find(i => i.name === trimmedVal);
+                    if (match) {
+                        oldSal = match.salary || 0;
+                        oldAllow = match.position_allowance || 0;
+                        adjTable1.setValueFromCoords(5, y, oldSal, true);
+                        adjTable1.setValueFromCoords(6, y, oldAllow, true);
+                    } else {
+                        oldSal = 0;
+                        oldAllow = 0;
+                        adjTable1.setValueFromCoords(1, y, '', true);
+                        adjTable1.setValueFromCoords(5, y, 0, true);
+                        adjTable1.setValueFromCoords(6, y, 0, true);
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'แจ้งเตือน',
+                            text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งเดิมจากรายการ Dropdown เท่านั้น ("${trimmedVal}" ไม่มีอยู่ในรายการของประเภท ${rowType})`,
+                            timer: 3000,
+                            showConfirmButton: false,
+                            toast: true,
+                            position: 'top-end'
+                        });
+                    }
+                } else {
+                    adjTable1.setValueFromCoords(5, y, 0, true);
+                    adjTable1.setValueFromCoords(6, y, 0, true);
                 }
             }
             if (x === 3) {
+                const rowType = (adjTable1.getValueFromCoords(0, y) || '').trim().toUpperCase();
                 const trimmedVal = (value || '').trim();
-                const match = trimmedVal !== '' ? allAdjItems.find(i => i.name === trimmedVal) : null;
-                if (match) {
-                    newSal = match.salary || 0;
-                    newAllow = match.position_allowance || 0;
-                    adjTable1.setValueFromCoords(8, y, newSal, true);
-                    adjTable1.setValueFromCoords(9, y, newAllow, true);
-                } else {
+                if (rowType !== 'VET' && rowType !== 'NON VET') {
                     newSal = 0;
                     newAllow = 0;
-                    if (trimmedVal !== '') {
-                        adjTable1.setValueFromCoords(3, y, '', true);
-                    }
+                    adjTable1.setValueFromCoords(3, y, '', true);
                     adjTable1.setValueFromCoords(8, y, 0, true);
                     adjTable1.setValueFromCoords(9, y, 0, true);
                     if (trimmedVal !== '') {
                         Swal.fire({
                             icon: 'warning',
                             title: 'แจ้งเตือน',
-                            text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น ("${trimmedVal}" ไม่มีอยู่ในรายการตัวเลือก)`,
+                            text: 'กรุณาเลือกประเภท (VET หรือ NON VET) ในคอลัมน์ "ประเภท" ก่อนครับ',
                             timer: 3000,
                             showConfirmButton: false,
                             toast: true,
                             position: 'top-end'
                         });
                     }
+                } else if (trimmedVal !== '') {
+                    const allowedList = rowType === 'VET' ? vetItems : nonVetItems;
+                    const match = allowedList.find(i => i.name === trimmedVal);
+                    if (match) {
+                        newSal = match.salary || 0;
+                        newAllow = match.position_allowance || 0;
+                        adjTable1.setValueFromCoords(8, y, newSal, true);
+                        adjTable1.setValueFromCoords(9, y, newAllow, true);
+                    } else {
+                        newSal = 0;
+                        newAllow = 0;
+                        adjTable1.setValueFromCoords(3, y, '', true);
+                        adjTable1.setValueFromCoords(8, y, 0, true);
+                        adjTable1.setValueFromCoords(9, y, 0, true);
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'แจ้งเตือน',
+                            text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น ("${trimmedVal}" ไม่มีอยู่ในรายการของประเภท ${rowType})`,
+                            timer: 3000,
+                            showConfirmButton: false,
+                            toast: true,
+                            position: 'top-end'
+                        });
+                    }
+                } else {
+                    adjTable1.setValueFromCoords(8, y, 0, true);
+                    adjTable1.setValueFromCoords(9, y, 0, true);
                 }
             }
             if (x === 5) oldSal = getNum(value);
@@ -2937,7 +3001,7 @@ const BudgetApp = (function() {
             if (x === 8) newSal = getNum(value);
             if (x === 9) newAllow = getNum(value);
 
-            if (x === 1 || x === 3 || x === 5 || x === 6 || x === 8 || x === 9) {
+            if (x === 0 || x === 1 || x === 3 || x === 5 || x === 6 || x === 8 || x === 9) {
                 let oldTotal = oldSal + oldAllow;
                 let newTotal = newSal + newAllow;
                 adjTable1.setValueFromCoords(7, y, oldTotal, true);
@@ -3085,7 +3149,6 @@ const BudgetApp = (function() {
 
             createAdjModalDatalist('modal-adj-vet-positions-datalist', vetItems);
             createAdjModalDatalist('modal-adj-non-vet-positions-datalist', nonVetItems);
-            createAdjModalDatalist('modal-adj-all-positions-datalist', allAdjItems);
             createAdjModalDatalist('modal-adj-type-datalist', [{ name: 'VET' }, { name: 'NON VET' }]);
 
             const modalAdjTypeEditor = {
@@ -3177,14 +3240,30 @@ const BudgetApp = (function() {
                     cell.innerText = value || '';
                 },
                 openEditor: function(cell, el, empty) {
+                    const y = parseInt(cell.getAttribute('data-y'));
+                    const rowType = (!isNaN(y) && adjTable1) ? (adjTable1.getValueFromCoords(0, y) || '').trim().toUpperCase() : '';
+
+                    if (rowType !== 'VET' && rowType !== 'NON VET') {
+                        if (adjTable1 && adjTable1.edition) {
+                            setTimeout(function() {
+                                if (adjTable1 && adjTable1.edition) adjTable1.closeEditor(cell, false);
+                            }, 0);
+                        }
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'แจ้งเตือน',
+                            text: 'กรุณาเลือกประเภท (VET หรือ NON VET) ในคอลัมน์ "ประเภท" ก่อนครับ',
+                            timer: 3000,
+                            showConfirmButton: false,
+                            toast: true,
+                            position: 'top-end'
+                        });
+                        return;
+                    }
+
                     const rect = cell.getBoundingClientRect();
                     const input = document.createElement('input');
-
-                    const y = parseInt(cell.getAttribute('data-y'));
-                    const rowType = (!isNaN(y) && adjTable1) ? adjTable1.getValueFromCoords(0, y) : '';
-                    let listId = 'modal-adj-all-positions-datalist';
-                    if (rowType === 'VET') listId = 'modal-adj-vet-positions-datalist';
-                    else if (rowType === 'NON VET') listId = 'modal-adj-non-vet-positions-datalist';
+                    let listId = rowType === 'VET' ? 'modal-adj-vet-positions-datalist' : 'modal-adj-non-vet-positions-datalist';
 
                     input.setAttribute('list', listId);
                     input.className = 'jexcel_editor eb-dropdown-input';
@@ -3223,13 +3302,20 @@ const BudgetApp = (function() {
                 closeEditor: function(cell) {
                     const input = cell.querySelector('input');
                     const val = (input ? input.value : (cell.innerText || '')).trim();
-                    if (val !== '' && !allAdjItems.some(i => i.name === val)) {
-                        const x = parseInt(cell.getAttribute('data-x'));
+                    const y = parseInt(cell.getAttribute('data-y'));
+                    const x = parseInt(cell.getAttribute('data-x'));
+                    const rowType = (!isNaN(y) && adjTable1) ? (adjTable1.getValueFromCoords(0, y) || '').trim().toUpperCase() : '';
+
+                    if (rowType !== 'VET' && rowType !== 'NON VET') {
+                        return '';
+                    }
+                    const allowedList = rowType === 'VET' ? vetItems : nonVetItems;
+                    if (val !== '' && !allowedList.some(i => i.name === val)) {
                         const label = x === 1 ? 'ตำแหน่งเดิม' : 'ตำแหน่งใหม่';
                         Swal.fire({
                             icon: 'warning',
                             title: 'แจ้งเตือน',
-                            text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือก${label}จากรายการ Dropdown เท่านั้น ("${val}" ไม่มีอยู่ในรายการตัวเลือก)`,
+                            text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือก${label}จากรายการ Dropdown เท่านั้น ("${val}" ไม่มีอยู่ในรายการของประเภท ${rowType})`,
                             timer: 3000,
                             showConfirmButton: false,
                             toast: true,
@@ -3383,6 +3469,23 @@ const BudgetApp = (function() {
                 adjSheetContainer.addEventListener('click', function(e) {
                     const cell = e.target.closest('td.eb-dropdown-cell');
                     if (cell && !cell.classList.contains('editor') && adjTable1 && !adjTable1.edition) {
+                        const x = parseInt(cell.getAttribute('data-x'));
+                        if (x === 1 || x === 3) {
+                            const y = parseInt(cell.getAttribute('data-y'));
+                            const rowType = (!isNaN(y) && adjTable1) ? (adjTable1.getValueFromCoords(0, y) || '').trim().toUpperCase() : '';
+                            if (rowType !== 'VET' && rowType !== 'NON VET') {
+                                Swal.fire({
+                                    icon: 'warning',
+                                    title: 'แจ้งเตือน',
+                                    text: 'กรุณาเลือกประเภท (VET หรือ NON VET) ในคอลัมน์ "ประเภท" ก่อนครับ',
+                                    timer: 3000,
+                                    showConfirmButton: false,
+                                    toast: true,
+                                    position: 'top-end'
+                                });
+                                return;
+                            }
+                        }
                         adjTable1.openEditor(cell, false);
                     }
                 });
@@ -3448,14 +3551,15 @@ const BudgetApp = (function() {
                     Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกประเภท (VET หรือ NON VET) จากรายการ Dropdown เท่านั้น\n(แถวที่ ${i + 1}: "${adjustmentType}" ไม่ถูกต้อง)`, 'warning');
                     return;
                 }
-                const isOldValid = allAdjItems.some(it => it.name === oldPos);
+                const allowedItems = adjustmentType === 'VET' ? vetItems : nonVetItems;
+                const isOldValid = allowedItems.some(it => it.name === oldPos);
                 if (!isOldValid) {
-                    Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งเดิมจากรายการ Dropdown เท่านั้น\n(แถวที่ ${i + 1}: "${oldPos}" ไม่มีอยู่ในรายการตัวเลือก)`, 'warning');
+                    Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งเดิมจากรายการ Dropdown ของประเภท ${adjustmentType} เท่านั้น\n(แถวที่ ${i + 1}: "${oldPos}" ไม่มีอยู่ในรายการตัวเลือก)`, 'warning');
                     return;
                 }
-                const isNewValid = allAdjItems.some(it => it.name === newPos);
+                const isNewValid = allowedItems.some(it => it.name === newPos);
                 if (!isNewValid) {
-                    Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น\n(แถวที่ ${i + 1}: "${newPos}" ไม่มีอยู่ในรายการตัวเลือก)`, 'warning');
+                    Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown ของประเภท ${adjustmentType} เท่านั้น\n(แถวที่ ${i + 1}: "${newPos}" ไม่มีอยู่ในรายการตัวเลือก)`, 'warning');
                     return;
                 }
 

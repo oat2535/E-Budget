@@ -1464,7 +1464,8 @@ def update_document_api(request, doc_type, doc_no):
                     })
         elif doc_type == 'Position Adjustment':
             all_adj_pos = [item.get('old_position_name') for item in data] + [item.get('new_position_name') for item in data]
-            adj_fks = BudgetService.get_master_fks_bulk([p for p in all_adj_pos if p])
+            vet_fks = BudgetService.get_master_fks_bulk([p for p in all_adj_pos if p], category_id=1, sub_category_id=1)
+            non_vet_fks = BudgetService.get_master_fks_bulk([p for p in all_adj_pos if p], category_id=1, sub_category_id=2)
             for item in data:
                 adj_type = (item.get('adjustment_type') or '').strip()
                 if adj_type not in ('VET', 'NON VET'):
@@ -1472,17 +1473,18 @@ def update_document_api(request, doc_type, doc_no):
                         'status': 'error',
                         'message': 'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกประเภท (VET หรือ NON VET) จากรายการ Dropdown เท่านั้น'
                     })
+                allowed_fks = vet_fks if adj_type == 'VET' else non_vet_fks
                 old_p = (item.get('old_position_name') or '').strip()
                 new_p = (item.get('new_position_name') or '').strip()
-                if not old_p or old_p not in adj_fks:
+                if not old_p or old_p not in allowed_fks:
                     return JsonResponse({
                         'status': 'error',
-                        'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งเดิมจากรายการ Dropdown เท่านั้น (ตำแหน่ง: "{old_p}" ไม่มีอยู่ในระบบ)'
+                        'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งเดิมจากรายการ Dropdown เท่านั้น (ตำแหน่ง: "{old_p}" ไม่มีอยู่ในรายการของประเภท {adj_type})'
                     })
-                if not new_p or new_p not in adj_fks:
+                if not new_p or new_p not in allowed_fks:
                     return JsonResponse({
                         'status': 'error',
-                        'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น (ตำแหน่ง: "{new_p}" ไม่มีอยู่ในระบบ)'
+                        'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น (ตำแหน่ง: "{new_p}" ไม่มีอยู่ในรายการของประเภท {adj_type})'
                     })
         elif doc_type in equipment_subcat_map:
             for item in data:
@@ -1523,7 +1525,8 @@ def update_document_api(request, doc_type, doc_no):
 
             for item in data:
                 if doc_type == 'Position Adjustment':
-                    master_obj, _ = master_fks.get(item['new_position_name'], (None, None))
+                    allowed_fks = vet_fks if item.get('adjustment_type') == 'VET' else non_vet_fks
+                    master_obj, _ = allowed_fks.get(item['new_position_name'], (None, None))
                     salary_gl, allowance_gl = resolve_adjustment_gl_codes(item.get('adjustment_type'))
                     obj = model_class.objects.create(
                         adjustment_type=item.get('adjustment_type') or None,
@@ -1801,7 +1804,8 @@ def budget_add_adjustment_view(request):
             if err:
                 return JsonResponse({'status': 'error', 'message': err})
             all_positions = [item.get('old_position_name') for item in data] + [item.get('new_position_name') for item in data]
-            master_fks = BudgetService.get_master_fks_bulk([p for p in all_positions if p])
+            vet_fks = BudgetService.get_master_fks_bulk([p for p in all_positions if p], category_id=1, sub_category_id=1)
+            non_vet_fks = BudgetService.get_master_fks_bulk([p for p in all_positions if p], category_id=1, sub_category_id=2)
             for item in data:
                 adj_type = (item.get('adjustment_type') or '').strip()
                 if adj_type not in ('VET', 'NON VET'):
@@ -1809,17 +1813,18 @@ def budget_add_adjustment_view(request):
                         'status': 'error',
                         'message': 'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกประเภท (VET หรือ NON VET) จากรายการ Dropdown เท่านั้น'
                     })
+                allowed_fks = vet_fks if adj_type == 'VET' else non_vet_fks
                 old_p = (item.get('old_position_name') or '').strip()
                 new_p = (item.get('new_position_name') or '').strip()
-                if not old_p or old_p not in master_fks:
+                if not old_p or old_p not in allowed_fks:
                     return JsonResponse({
                         'status': 'error',
-                        'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งเดิมจากรายการ Dropdown เท่านั้น (ตำแหน่ง: "{old_p}" ไม่มีอยู่ในระบบ)'
+                        'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งเดิมจากรายการ Dropdown เท่านั้น (ตำแหน่ง: "{old_p}" ไม่มีอยู่ในรายการของประเภท {adj_type})'
                     })
-                if not new_p or new_p not in master_fks:
+                if not new_p or new_p not in allowed_fks:
                     return JsonResponse({
                         'status': 'error',
-                        'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น (ตำแหน่ง: "{new_p}" ไม่มีอยู่ในระบบ)'
+                        'message': f'ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น (ตำแหน่ง: "{new_p}" ไม่มีอยู่ในรายการของประเภท {adj_type})'
                     })
 
             if data and data[0].get('cost_center_name'):
@@ -1850,7 +1855,8 @@ def budget_add_adjustment_view(request):
                     # allowance auto-fill) — GL codes come from the row's
                     # own explicit adjustment_type choice instead, not this
                     # lookup (see resolve_adjustment_gl_codes).
-                    master_obj, _ = master_fks.get(item['new_position_name'], (None, None))
+                    allowed_fks = vet_fks if item.get('adjustment_type') == 'VET' else non_vet_fks
+                    master_obj, _ = allowed_fks.get(item['new_position_name'], (None, None))
                     salary_gl, allowance_gl = resolve_adjustment_gl_codes(item.get('adjustment_type'))
                     obj = ebudget_position_adjustment.objects.create(
                         adjustment_type=item.get('adjustment_type') or None,

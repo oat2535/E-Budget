@@ -2644,3 +2644,110 @@ class FixAssetDuplicateRowFrontendContractTests(SimpleTestCase):
 
 
 
+
+
+class PositionAdjustmentTypeRestrictionTests(SimpleTestCase):
+    """Verifies that Position Adjustment (both create view template and budget_list modal)
+    strictly requires choosing adjustment_type ('VET' or 'NON VET') before allowing selection
+    of old/new positions, displays filtered positions by type, clears mismatched positions on type change,
+    and validates type consistency on backend."""
+
+    def test_adjustment_template_contract(self):
+        tmpl_path = os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'budget_add_adjustment.html')
+        with open(tmpl_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Datalists must only contain vet and non-vet, no unrestricted all-positions datalist
+        self.assertNotIn("'adj-all-positions-datalist'", content)
+        self.assertIn("'adj-vet-positions-datalist'", content)
+        self.assertIn("'adj-non-vet-positions-datalist'", content)
+
+        # Editor openEditor checks rowType and warns if missing
+        self.assertIn('rowType !== \'VET\' && rowType !== \'NON VET\'', content)
+        self.assertIn('กรุณาเลือกประเภท (VET หรือ NON VET) ในคอลัมน์ "ประเภท" ก่อนครับ', content)
+
+        # Editor closeEditor validates position belongs to allowedList of rowType
+        self.assertIn('allowedList = rowType === \'VET\' ? vetPositions : nonVetPositions', content)
+
+        # onselection intercepts single-click on col 1 & 3
+        self.assertIn('if (x1 === 1 || x1 === 3) {', content)
+        self.assertIn('sheet.getValueFromCoords(0, y1)', content)
+
+        # onchange x === 0 clears existing positions if mismatched
+        self.assertIn("if (curOldPos !== '') {", content)
+        self.assertIn('if (!allowedList.some(i => i.name === curOldPos)) {', content)
+        self.assertIn("table1.setValueFromCoords(1, y, '', true);", content)
+        self.assertIn("table1.setValueFromCoords(3, y, '', true);", content)
+
+        # Save validation verifies against allowedList
+        self.assertIn('allowedList = adjustmentType === \'VET\' ? vetPositions : nonVetPositions', content)
+
+    def test_adjustment_modal_contract(self):
+        js_path = os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'budget_list.js')
+        with open(js_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Datalists must not have unrestricted all-positions datalist
+        self.assertNotIn("'modal-adj-all-positions-datalist'", content)
+        self.assertIn("'modal-adj-vet-positions-datalist'", content)
+        self.assertIn("'modal-adj-non-vet-positions-datalist'", content)
+
+        # modalAdjPositionEditor checks rowType
+        self.assertIn('rowType !== \'VET\' && rowType !== \'NON VET\'', content)
+        self.assertIn('กรุณาเลือกประเภท (VET หรือ NON VET) ในคอลัมน์ "ประเภท" ก่อนครับ', content)
+
+        # adjSheetContainer click listener guards col 1 & 3
+        self.assertIn('if (x === 1 || x === 3) {', content)
+        self.assertIn('rowType !== \'VET\' && rowType !== \'NON VET\'', content)
+
+        # onAdjSpreadsheetChange clears mismatched positions on type change
+        self.assertIn("adjTable1.setValueFromCoords(1, y, '', true);", content)
+        self.assertIn("adjTable1.setValueFromCoords(3, y, '', true);", content)
+
+        # Save validation uses allowedItems
+        self.assertIn('allowedItems = adjustmentType === \'VET\' ? vetItems : nonVetItems', content)
+
+    @patch('budget_app.models.SystemSettings.load')
+    @patch('budget_app.services.BudgetService.get_master_fks_bulk')
+    def test_backend_validation_rejects_position_mismatched_with_type(self, mock_fks, mock_settings):
+        from unittest.mock import MagicMock
+        from django.test import RequestFactory
+        from budget_app.views import budget_add_adjustment_view
+
+        mock_settings.return_value = MagicMock(is_frozen=0, active_budget_year=2026)
+
+        def fks_side_effect(item_names, category_id=None, sub_category_id=None):
+            if sub_category_id == 1:  # VET
+                return {'สัตวแพทย์ปฏิบัติการ': (MagicMock(), 'GL_VET')}
+            elif sub_category_id == 2:  # NON VET
+                return {'เจ้าหน้าที่ธุรการ': (MagicMock(), 'GL_NONVET')}
+            return {}
+
+        mock_fks.side_effect = fks_side_effect
+        factory = RequestFactory()
+
+        # Item marked as VET but using NON VET position
+        req_vet_with_nonvet = factory.post(
+            reverse('budget_add_adjustment'),
+            data=json.dumps([{
+                'cost_center_name': 'CC1',
+                'adjustment_type': 'VET',
+                'old_position_name': 'สัตวแพทย์ปฏิบัติการ',
+                'new_position_name': 'เจ้าหน้าที่ธุรการ',  # Invalid for VET
+                'old_salary': 30000,
+                'old_allowance': 0,
+                'new_salary': 40000,
+                'new_allowance': 0,
+                'monthly_data': {'jan': {'headcount': 1, 'cost': 10000}}
+            }]),
+            content_type='application/json'
+        )
+        req_vet_with_nonvet.user = MagicMock(is_authenticated=True, username='test_user')
+        req_vet_with_nonvet.session = {}
+
+        res = budget_add_adjustment_view(req_vet_with_nonvet)
+        self.assertEqual(res.status_code, 200)
+        res_json = json.loads(res.content)
+        self.assertEqual(res_json.get('status'), 'error')
+        self.assertIn('ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น', res_json.get('message', ''))
+        self.assertIn('ไม่มีอยู่ในรายการของประเภท VET', res_json.get('message', ''))

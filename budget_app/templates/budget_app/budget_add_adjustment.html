@@ -160,7 +160,6 @@
 
         createDatalist('adj-vet-positions-datalist', vetPositions);
         createDatalist('adj-non-vet-positions-datalist', nonVetPositions);
-        createDatalist('adj-all-positions-datalist', items);
         createDatalist('adj-type-datalist', [{ name: 'VET' }, { name: 'NON VET' }]);
 
         const adjTypeEditor = {
@@ -240,14 +239,31 @@
                 cell.innerText = value || '';
             },
             openEditor: function(cell, el, empty, def) {
+                const y = parseInt(cell.getAttribute('data-y'));
+                const rowType = (!isNaN(y) && table1) ? (table1.getValueFromCoords(0, y) || '').trim().toUpperCase() : '';
+
+                if (rowType !== 'VET' && rowType !== 'NON VET') {
+                    if (table1 && table1.edition) {
+                        setTimeout(function() {
+                            if (table1 && table1.edition) table1.closeEditor(cell, false);
+                        }, 0);
+                    }
+                    Swal.fire({
+                        icon: 'warning',
+                        title: 'แจ้งเตือน',
+                        text: 'กรุณาเลือกประเภท (VET หรือ NON VET) ในคอลัมน์ "ประเภท" ก่อนครับ',
+                        timer: 3000,
+                        showConfirmButton: false,
+                        toast: true,
+                        position: 'top-end'
+                    });
+                    return;
+                }
+
                 const rect = cell.getBoundingClientRect();
                 const input = document.createElement('input');
 
-                const y = parseInt(cell.getAttribute('data-y'));
-                const rowType = (!isNaN(y) && table1) ? table1.getValueFromCoords(0, y) : '';
-                let listId = 'adj-all-positions-datalist';
-                if (rowType === 'VET') listId = 'adj-vet-positions-datalist';
-                else if (rowType === 'NON VET') listId = 'adj-non-vet-positions-datalist';
+                let listId = rowType === 'VET' ? 'adj-vet-positions-datalist' : 'adj-non-vet-positions-datalist';
 
                 input.setAttribute('list', listId);
                 input.className = 'jexcel_editor eb-dropdown-input';
@@ -289,7 +305,29 @@
             },
             closeEditor: function(cell, save) {
                 const input = cell.querySelector('input');
-                return input ? input.value.trim() : (cell.innerText || '').trim();
+                const val = input ? input.value.trim() : (cell.innerText || '').trim();
+                const y = parseInt(cell.getAttribute('data-y'));
+                const x = parseInt(cell.getAttribute('data-x'));
+                const rowType = (!isNaN(y) && table1) ? (table1.getValueFromCoords(0, y) || '').trim().toUpperCase() : '';
+
+                if (rowType !== 'VET' && rowType !== 'NON VET') {
+                    return '';
+                }
+                const allowedList = rowType === 'VET' ? vetPositions : nonVetPositions;
+                if (val !== '' && !allowedList.some(i => i.name === val)) {
+                    const label = x === 1 ? 'ตำแหน่งเดิม' : 'ตำแหน่งใหม่';
+                    Swal.fire({
+                        icon: 'warning',
+                        title: 'แจ้งเตือน',
+                        text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือก${label}จากรายการ Dropdown เท่านั้น ("${val}" ไม่มีอยู่ในรายการของประเภท ${rowType})`,
+                        timer: 3000,
+                        showConfirmButton: false,
+                        toast: true,
+                        position: 'top-end'
+                    });
+                    return '';
+                }
+                return val;
             }
         };
 
@@ -467,11 +505,14 @@
             // Type (ประเภท) Changed
             if (x === 0) {
                 const trimmedVal = (value || '').trim();
+                let newType = '';
                 if (trimmedVal !== '') {
                     const upper = trimmedVal.toUpperCase();
                     if (upper === 'VET') {
+                        newType = 'VET';
                         if (trimmedVal !== 'VET') table1.setValueFromCoords(0, y, 'VET', true);
                     } else if (upper === 'NON VET' || upper === 'NON-VET' || upper === 'NONVET') {
+                        newType = 'NON VET';
                         if (trimmedVal !== 'NON VET') table1.setValueFromCoords(0, y, 'NON VET', true);
                     } else {
                         table1.setValueFromCoords(0, y, '', true);
@@ -486,13 +527,53 @@
                         });
                     }
                 }
+                const curOldPos = (table1.getValueFromCoords(1, y) || '').trim();
+                const curNewPos = (table1.getValueFromCoords(3, y) || '').trim();
+                const allowedList = newType === 'VET' ? vetPositions : (newType === 'NON VET' ? nonVetPositions : []);
+                if (curOldPos !== '') {
+                    if (!allowedList.some(i => i.name === curOldPos)) {
+                        table1.setValueFromCoords(1, y, '', true);
+                        table1.setValueFromCoords(5, y, 0, true);
+                        table1.setValueFromCoords(6, y, 0, true);
+                        oldSal = 0;
+                        oldAllow = 0;
+                    }
+                }
+                if (curNewPos !== '') {
+                    if (!allowedList.some(i => i.name === curNewPos)) {
+                        table1.setValueFromCoords(3, y, '', true);
+                        table1.setValueFromCoords(8, y, 0, true);
+                        table1.setValueFromCoords(9, y, 0, true);
+                        newSal = 0;
+                        newAllow = 0;
+                    }
+                }
             }
 
             // Old Position Changed
             if (x === 1) {
+                const rowType = (table1.getValueFromCoords(0, y) || '').trim().toUpperCase();
                 const trimmedVal = (value || '').trim();
-                if (trimmedVal !== '') {
-                    const match = items.find(i => i.name === trimmedVal);
+                if (rowType !== 'VET' && rowType !== 'NON VET') {
+                    oldSal = 0;
+                    oldAllow = 0;
+                    table1.setValueFromCoords(1, y, '', true);
+                    table1.setValueFromCoords(5, y, 0, true);
+                    table1.setValueFromCoords(6, y, 0, true);
+                    if (trimmedVal !== '') {
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'แจ้งเตือน',
+                            text: 'กรุณาเลือกประเภท (VET หรือ NON VET) ในคอลัมน์ "ประเภท" ก่อนครับ',
+                            timer: 3000,
+                            showConfirmButton: false,
+                            toast: true,
+                            position: 'top-end'
+                        });
+                    }
+                } else if (trimmedVal !== '') {
+                    const allowedList = rowType === 'VET' ? vetPositions : nonVetPositions;
+                    const match = allowedList.find(i => i.name === trimmedVal);
                     if (match) {
                         oldSal = match.salary || 0;
                         oldAllow = match.position_allowance || 0;
@@ -507,7 +588,7 @@
                         Swal.fire({
                             icon: 'warning',
                             title: 'แจ้งเตือน',
-                            text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งเดิมจากรายการ Dropdown เท่านั้น ("${trimmedVal}" ไม่มีอยู่ในรายการตัวเลือก)`,
+                            text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งเดิมจากรายการ Dropdown เท่านั้น ("${trimmedVal}" ไม่มีอยู่ในรายการของประเภท ${rowType})`,
                             timer: 3000,
                             showConfirmButton: false,
                             toast: true,
@@ -522,9 +603,28 @@
 
             // New Position Changed
             if (x === 3) {
+                const rowType = (table1.getValueFromCoords(0, y) || '').trim().toUpperCase();
                 const trimmedVal = (value || '').trim();
-                if (trimmedVal !== '') {
-                    const match = items.find(i => i.name === trimmedVal);
+                if (rowType !== 'VET' && rowType !== 'NON VET') {
+                    newSal = 0;
+                    newAllow = 0;
+                    table1.setValueFromCoords(3, y, '', true);
+                    table1.setValueFromCoords(8, y, 0, true);
+                    table1.setValueFromCoords(9, y, 0, true);
+                    if (trimmedVal !== '') {
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'แจ้งเตือน',
+                            text: 'กรุณาเลือกประเภท (VET หรือ NON VET) ในคอลัมน์ "ประเภท" ก่อนครับ',
+                            timer: 3000,
+                            showConfirmButton: false,
+                            toast: true,
+                            position: 'top-end'
+                        });
+                    }
+                } else if (trimmedVal !== '') {
+                    const allowedList = rowType === 'VET' ? vetPositions : nonVetPositions;
+                    const match = allowedList.find(i => i.name === trimmedVal);
                     if (match) {
                         newSal = match.salary || 0;
                         newAllow = match.position_allowance || 0;
@@ -539,7 +639,7 @@
                         Swal.fire({
                             icon: 'warning',
                             title: 'แจ้งเตือน',
-                            text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น ("${trimmedVal}" ไม่มีอยู่ในรายการตัวเลือก)`,
+                            text: `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น ("${trimmedVal}" ไม่มีอยู่ในรายการของประเภท ${rowType})`,
                             timer: 3000,
                             showConfirmButton: false,
                             toast: true,
@@ -559,7 +659,7 @@
             if (x === 9) newAllow = getNum(value);
 
             // Calc Income Totals & Diffs
-            if (x === 1 || x === 3 || x === 5 || x === 6 || x === 8 || x === 9) {
+            if (x === 0 || x === 1 || x === 3 || x === 5 || x === 6 || x === 8 || x === 9) {
                 let oldTotal = oldSal + oldAllow;
                 let newTotal = newSal + newAllow;
                 table1.setValueFromCoords(7, y, oldTotal, true);
@@ -688,6 +788,21 @@
                 const sheet = (el && el.jexcel) || table1;
                 if (!sheet || typeof sheet.getCellFromCoords !== 'function') return;
                 if ((x1 === 0 || x1 === 1 || x1 === 3) && x1 === x2 && y1 === y2) {
+                    if (x1 === 1 || x1 === 3) {
+                        const rowType = (sheet.getValueFromCoords(0, y1) || '').trim().toUpperCase();
+                        if (rowType !== 'VET' && rowType !== 'NON VET') {
+                            Swal.fire({
+                                icon: 'warning',
+                                title: 'แจ้งเตือน',
+                                text: 'กรุณาเลือกประเภท (VET หรือ NON VET) ในคอลัมน์ "ประเภท" ก่อนครับ',
+                                timer: 3000,
+                                showConfirmButton: false,
+                                toast: true,
+                                position: 'top-end'
+                            });
+                            return;
+                        }
+                    }
                     const cell = sheet.getCellFromCoords(x1, y1);
                     if (cell && !sheet.edition) {
                         sheet.openEditor(cell, false);
@@ -809,14 +924,15 @@
                         Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกประเภท (VET หรือ NON VET) จากรายการ Dropdown เท่านั้น\n(แถวที่ ${i + 1}: "${adjustmentType}" ไม่ถูกต้อง)`, 'warning');
                         return;
                     }
-                    const isOldValid = items.some(it => it.name === oldPos);
+                    const allowedList = adjustmentType === 'VET' ? vetPositions : nonVetPositions;
+                    const isOldValid = allowedList.some(it => it.name === oldPos);
                     if (!isOldValid) {
-                        Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งเดิมจากรายการ Dropdown เท่านั้น\n(แถวที่ ${i + 1}: "${oldPos}" ไม่มีอยู่ในรายการตัวเลือก)`, 'warning');
+                        Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งเดิมจากรายการ Dropdown ของประเภท ${adjustmentType} เท่านั้น\n(แถวที่ ${i + 1}: "${oldPos}" ไม่มีอยู่ในรายการตัวเลือก)`, 'warning');
                         return;
                     }
-                    const isNewValid = items.some(it => it.name === newPos);
+                    const isNewValid = allowedList.some(it => it.name === newPos);
                     if (!isNewValid) {
-                        Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น\n(แถวที่ ${i + 1}: "${newPos}" ไม่มีอยู่ในรายการตัวเลือก)`, 'warning');
+                        Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown ของประเภท ${adjustmentType} เท่านั้น\n(แถวที่ ${i + 1}: "${newPos}" ไม่มีอยู่ในรายการตัวเลือก)`, 'warning');
                         return;
                     }
 
