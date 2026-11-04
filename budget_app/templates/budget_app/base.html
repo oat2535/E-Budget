@@ -543,20 +543,32 @@
                 const docNo = escapeHtml(data.document_no || '-');
                 const budgetYear = escapeHtml(String(data.budget_year || ''));
                 const branchId = escapeHtml(String(data.branch_id || ''));
+                const costCenterName = escapeHtml(String(data.cost_center_name || ''));
+
+                const costCenterBadge = costCenterName ? ` Cost Center <strong>${costCenterName}</strong>` : '';
+                const costCenterRow = costCenterName ? `
+                    <div class="mt-1 pt-1 border-top border-light">
+                        <span class="text-muted small">Cost Center:</span>
+                        <strong class="text-secondary small ms-1">${costCenterName}</strong>
+                    </div>
+                ` : '';
 
                 const htmlContent = `
                     <div class="text-start" style="font-size: 0.95rem; line-height: 1.6;">
                         <p class="mb-2">
                             ระบบตรวจพบว่ามีเอกสารงบประมาณประเภท <strong>${docType}</strong> 
                             ประจำปี <strong>${budgetYear}</strong> 
-                            ของสาขา <strong>${branchId}</strong> บันทึกอยู่ในระบบแล้ว
+                            ของสาขา <strong>${branchId}</strong>${costCenterBadge} บันทึกอยู่ในระบบแล้ว
                         </p>
-                        <div class="alert alert-info py-2 px-3 mb-3 d-flex align-items-center">
-                            <i data-feather="file-text" class="feather icon-file-text f-20 me-2 text-primary" style="width:20px;height:20px;min-width:20px;"></i>
-                            <div>
-                                <span class="text-muted d-block small">เลขที่เอกสารในระบบ:</span>
-                                <strong class="text-primary" style="font-size: 1.05rem;">${docNo}</strong>
+                        <div class="alert alert-info py-2 px-3 mb-3">
+                            <div class="d-flex align-items-center">
+                                <i data-feather="file-text" class="feather icon-file-text f-20 me-2 text-primary" style="width:20px;height:20px;min-width:20px;"></i>
+                                <div>
+                                    <span class="text-muted d-block small">เลขที่เอกสารในระบบ:</span>
+                                    <strong class="text-primary" style="font-size: 1.05rem;">${docNo}</strong>
+                                </div>
                             </div>
+                            ${costCenterRow}
                         </div>
                         <p class="text-muted small mb-0">
                             เพื่อป้องกันข้อมูลซ้ำซ้อน ท่านสามารถกดปุ่ม <strong>"ดูรายละเอียดเอกสาร"</strong> เพื่อตรวจสอบหรือปรับปรุงเอกสารดังกล่าวได้ทันที
@@ -599,7 +611,9 @@
                 };
 
                 const rowListHtml = emptyRows.map(function(r) {
-                    return `<li>แถวที่ ${r.rowNumber}: <strong>${escapeHtml(r.name)}</strong></li>`;
+                    const itemName = escapeHtml(r.name);
+                    const descStr = r.desc ? ` <span class="text-muted fw-normal">(รายละเอียด: "${escapeHtml(r.desc)}")</span>` : '';
+                    return `<li>แถวที่ ${r.rowNumber}: <strong>${itemName}</strong>${descStr}</li>`;
                 }).join('');
 
                 const swalInstance = (typeof Swal !== 'undefined' && Swal.mixin) ? Swal.mixin({ heightAuto: false }) : Swal;
@@ -611,13 +625,62 @@
                             <p class="mb-2">
                                 ระบบตรวจพบว่ามีรายการที่<strong>ยังไม่ได้ระบุจำนวนของทุกเดือน</strong> (ค่าว่าง หรือเป็น 0 ทั้งหมด) ในตารางส่วนแรก กรุณาระบุจำนวนอย่างน้อย 1 เดือนก่อนทำการบันทึกข้อมูล:
                             </p>
-                            <div class="alert alert-light border border-warning py-2 px-3 mb-2">
+                            <div class="alert alert-light border border-warning py-2 px-3 mb-2" style="max-height: 250px; overflow-y: auto;">
                                 <ul class="mb-0 text-danger" style="padding-left: 1.25rem;">
                                     ${rowListHtml}
                                 </ul>
                             </div>
                             <p class="text-muted small mb-0">
                                 * หากไม่ต้องการบันทึกรายการดังกล่าว สามารถลบแถวออกจากตารางได้ครับ
+                            </p>
+                        </div>
+                    `,
+                    confirmButtonText: 'ตกลง',
+                    confirmButtonColor: '#0061f2'
+                });
+            };
+            window.showDuplicateFixAssetRowsWarning = function(duplicateGroups, itemColLabel) {
+                const escapeHtml = function(str) {
+                    if (!str) return '';
+                    return String(str)
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;')
+                        .replace(/'/g, '&#39;');
+                };
+
+                const colLabel = (itemColLabel && String(itemColLabel).trim()) ? String(itemColLabel).trim() : 'เครื่องมือ';
+
+                const listItemsHtml = duplicateGroups.map(function(group) {
+                    const itemName = escapeHtml(group.name);
+                    const descStr = group.desc ? `<strong class="text-dark">"${escapeHtml(group.desc)}"</strong>` : '<span class="text-muted">(ไม่มีรายละเอียด / ค่าว่าง)</span>';
+                    const rowsStr = group.rowNumbers.map(n => `แถวที่ ${n}`).join(', ');
+                    return `
+                        <li class="mb-2 pb-2 border-bottom border-light">
+                            <div><span class="text-secondary small fw-bold">${escapeHtml(colLabel)}:</span> <strong class="text-primary">${itemName}</strong></div>
+                            <div><span class="text-secondary small fw-bold">รายละเอียด:</span> ${descStr}</div>
+                            <div class="mt-1"><span class="badge bg-danger text-white"><i class="feather icon-alert-circle me-1"></i>ซ้ำกันใน ${escapeHtml(rowsStr)}</span></div>
+                        </li>
+                    `;
+                }).join('');
+
+                const swalInstance = (typeof Swal !== 'undefined' && Swal.mixin) ? Swal.mixin({ heightAuto: false }) : Swal;
+                swalInstance.fire({
+                    icon: 'warning',
+                    title: 'พบรายการข้อมูลซ้ำซ้อนในตาราง',
+                    html: `
+                        <div class="text-start" style="font-size: 0.95rem; line-height: 1.6;">
+                            <p class="mb-2">
+                                ระบบตรวจพบว่ามีการระบุข้อมูล <strong>${escapeHtml(colLabel)}</strong> และ <strong>รายละเอียด</strong> ซ้ำกันในตาราง กรุณาตรวจสอบและปรับปรุงข้อมูลให้ไม่ซ้ำซ้อนกันก่อนทำการบันทึก:
+                            </p>
+                            <div class="alert alert-light border border-warning py-2 px-3 mb-2" style="max-height: 250px; overflow-y: auto;">
+                                <ul class="list-unstyled mb-0" style="padding-left: 0;">
+                                    ${listItemsHtml}
+                                </ul>
+                            </div>
+                            <p class="text-muted small mb-0">
+                                * หากเป็นรายการเดียวกันสำหรับใช้งานคนละวัตถุประสงค์ กรุณาระบุรายละเอียดเพิ่มเติมให้แตกต่างกัน หรือรวมจำนวนเข้าด้วยกันในแถวเดียวครับ
                             </p>
                         </div>
                     `,

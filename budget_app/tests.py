@@ -2171,6 +2171,64 @@ class DuplicateBudgetDocumentCheckTests(SimpleTestCase):
             )
             self.assertIsNone(resp)
 
+    def test_find_existing_budget_document_queries_with_cost_center(self):
+        from budget_app.services import BudgetService
+        mock_model = MagicMock()
+        mock_qs = MagicMock()
+        mock_model.objects.filter.return_value = mock_qs
+        mock_qs.exclude.return_value = mock_qs
+        mock_qs.order_by.return_value = mock_qs
+        mock_qs.values.return_value = mock_qs
+        mock_qs.first.return_value = {
+            'document_no': 'VET-202611-001',
+            'budget_year': 2025,
+            'base_branch_id': 'AP',
+            'cost_center_name': '0000: Center',
+            'status': 'PENDING'
+        }
+
+        res = BudgetService.find_existing_budget_document(
+            mock_model,
+            create_eid='nattchai_u',
+            budget_year=2025,
+            base_branch_id='AP',
+            cost_center_name='0000: Center'
+        )
+        self.assertIsNotNone(res)
+        self.assertEqual(res['cost_center_name'], '0000: Center')
+        mock_model.objects.filter.assert_called_with(
+            create_eid__iexact='nattchai_u',
+            budget_year=2025,
+            base_branch_id__iexact='AP',
+            cost_center_name__iexact='0000: Center'
+        )
+
+    def test_check_duplicate_budget_document_helper_includes_cost_center_in_response(self):
+        from budget_app.views import check_duplicate_budget_document
+        with patch('budget_app.services.BudgetService.find_existing_budget_document') as mock_find:
+            mock_find.return_value = {
+                'document_no': 'VET-202611-001',
+                'budget_year': 2025,
+                'base_branch_id': 'AP',
+                'cost_center_name': '0000: Center',
+                'status': 'PENDING'
+            }
+
+            resp = check_duplicate_budget_document(
+                model_class=MagicMock(),
+                doc_type='VET',
+                create_eid='nattchai_u',
+                budget_year=2025,
+                base_branch_id='AP',
+                cost_center_name='0000: Center'
+            )
+            self.assertIsNotNone(resp)
+            self.assertEqual(resp.status_code, 200)
+            data = json.loads(resp.content)
+            self.assertEqual(data['status'], 'duplicate')
+            self.assertEqual(data['cost_center_name'], '0000: Center')
+            self.assertIn('Cost Center: 0000: Center', data['message'])
+
 
 class DuplicateBudgetDocumentFrontendContractTests(SimpleTestCase):
     """Verifies that the duplicate check handling is correctly wired in
@@ -2186,6 +2244,8 @@ class DuplicateBudgetDocumentFrontendContractTests(SimpleTestCase):
         self.assertIn('ดูรายละเอียดเอกสาร', content)
         self.assertIn('open_doc_no=', content)
         self.assertIn('open_doc_type=', content)
+        self.assertIn('costCenterName', content)
+        self.assertIn('Cost Center:', content)
 
     def test_budget_list_js_auto_opens_duplicate_document(self):
         js_path = os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'budget_list.js')
@@ -2312,6 +2372,129 @@ class ZeroMonthlyDataFrontendContractTests(SimpleTestCase):
 
             self.assertIn('emptyMonthRows', content, f"{tmpl_name} must track emptyMonthRows")
             self.assertIn('showZeroMonthlyRowsWarning', content, f"{tmpl_name} must call showZeroMonthlyRowsWarning")
+
+
+class FixAssetDuplicateRowValidationUnitTests(SimpleTestCase):
+    """Verifies backend validation ensuring that within a FIX ASSET submission,
+    no two rows have identical item_name and description, using category column label."""
+
+    def test_validate_fix_asset_unique_rows_distinct_items(self):
+        from budget_app.views import validate_fix_asset_unique_rows
+        data = [
+            {'item_name': 'Computer All in One', 'description': 'ห้องตรวจ 1'},
+            {'item_name': 'Printer Laser', 'description': 'การเงิน'},
+            {'item_name': 'UPS 1000VA', 'description': ''}
+        ]
+        self.assertIsNone(validate_fix_asset_unique_rows(data))
+
+    def test_validate_fix_asset_unique_rows_same_item_different_descriptions_allowed(self):
+        from budget_app.views import validate_fix_asset_unique_rows
+        # Same item master but different descriptions must be ALLOWED
+        data = [
+            {'item_name': 'Computer All in One', 'description': 'ห้องตรวจ 1'},
+            {'item_name': 'Computer All in One', 'description': 'ห้องตรวจ 2'}
+        ]
+        self.assertIsNone(validate_fix_asset_unique_rows(data))
+
+    def test_validate_fix_asset_unique_rows_duplicate_with_description(self):
+        from budget_app.views import validate_fix_asset_unique_rows
+        data = [
+            {'item_name': 'Computer All in One', 'description': 'ห้องตรวจ 1'},
+            {'item_name': 'Printer Laser', 'description': 'การเงิน'},
+            {'item_name': 'Computer All in One', 'description': 'ห้องตรวจ 1'}
+        ]
+        err = validate_fix_asset_unique_rows(data, item_label='เครื่องมือ')
+        self.assertIsNotNone(err)
+        self.assertIn('เครื่องมือ: "Computer All in One"', err)
+        self.assertIn('รายละเอียด: "ห้องตรวจ 1"', err)
+        self.assertIn('แถวที่ 1, แถวที่ 3', err)
+
+    def test_validate_fix_asset_unique_rows_duplicate_with_empty_description(self):
+        from budget_app.views import validate_fix_asset_unique_rows
+        data = [
+            {'item_name': 'Notebook Core i5', 'description': ''},
+            {'item_name': 'Notebook Core i5', 'description': '   '}
+        ]
+        err = validate_fix_asset_unique_rows(data, item_label='เครื่องมือ')
+        self.assertIsNotNone(err)
+        self.assertIn('เครื่องมือ: "Notebook Core i5"', err)
+        self.assertIn('รายละเอียด: (ไม่มีรายละเอียด / ค่าว่าง)', err)
+        self.assertIn('แถวที่ 1, แถวที่ 2', err)
+
+    def test_validate_fix_asset_unique_rows_with_category_specific_column_label(self):
+        from budget_app.views import validate_fix_asset_unique_rows
+        # CAR category uses 'รถยนต์' as column label
+        car_data = [
+            {'item_name': 'รถพยาบาลฉุกเฉิน', 'description': 'เวรดึก'},
+            {'item_name': 'รถพยาบาลฉุกเฉิน', 'description': 'เวรดึก'}
+        ]
+        err = validate_fix_asset_unique_rows(car_data, item_label='รถยนต์')
+        self.assertIsNotNone(err)
+        self.assertIn('- รถยนต์: "รถพยาบาลฉุกเฉิน"', err)
+        self.assertIn('ระบบตรวจพบว่ามีการระบุข้อมูล รถยนต์ และ รายละเอียด ซ้ำกันในเอกสาร:', err)
+
+        # Software category uses 'Software' as column label
+        sw_data = [
+            {'item_name': 'Antivirus Server', 'description': 'Data Center'},
+            {'item_name': 'Antivirus Server', 'description': 'Data Center'}
+        ]
+        err_sw = validate_fix_asset_unique_rows(sw_data, item_label='Software')
+        self.assertIsNotNone(err_sw)
+        self.assertIn('- Software: "Antivirus Server"', err_sw)
+        self.assertIn('ระบบตรวจพบว่ามีการระบุข้อมูล Software และ รายละเอียด ซ้ำกันในเอกสาร:', err_sw)
+
+
+class FixAssetDuplicateRowFrontendContractTests(SimpleTestCase):
+    """Verifies that duplicate item master + description check is present
+    in base.html, all 7 FIX ASSET templates, and budget_list.js edit mode."""
+
+    def test_base_html_defines_show_duplicate_fix_asset_rows_warning(self):
+        base_html_path = os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app', 'base.html')
+        with open(base_html_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        self.assertIn('window.showDuplicateFixAssetRowsWarning = function(duplicateGroups, itemColLabel)', content)
+        self.assertIn('พบรายการข้อมูลซ้ำซ้อนในตาราง', content)
+        self.assertIn('colLabel', content)
+        self.assertIn('รายละเอียด:', content)
+        self.assertIn('Swal.fire', content)
+
+    def test_all_7_fix_asset_templates_have_duplicate_detection_and_priority_order(self):
+        templates_dir = os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app')
+        target_templates = [
+            'budget_add_medical_equipment.html',
+            'budget_add_computer_equipment.html',
+            'budget_add_furniture.html',
+            'budget_add_tools_equipment.html',
+            'budget_add_car.html',
+            'budget_add_renovate.html',
+            'budget_add_software.html'
+        ]
+
+        for tmpl_name in target_templates:
+            tmpl_path = os.path.join(templates_dir, tmpl_name)
+            with open(tmpl_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            self.assertIn('seenFixAssetRows', content, f"{tmpl_name} must track seenFixAssetRows")
+            self.assertIn('showDuplicateFixAssetRowsWarning(duplicateFixAssetGroups, itemColTitle)', content, f"{tmpl_name} must pass itemColTitle")
+            self.assertIn('desc: cleanDesc', content, f"{tmpl_name} must pass desc to emptyMonthRows")
+
+            # Duplicate check must run BEFORE zero-monthly warning
+            dup_pos = content.find('duplicateFixAssetGroups.length > 0')
+            empty_pos = content.find('emptyMonthRows.length > 0')
+            self.assertNotEqual(dup_pos, -1, f"{tmpl_name} must check duplicateFixAssetGroups")
+            self.assertNotEqual(empty_pos, -1, f"{tmpl_name} must check emptyMonthRows")
+            self.assertLess(dup_pos, empty_pos, f"{tmpl_name} must evaluate duplicate check before empty months check")
+
+    def test_budget_list_js_has_duplicate_detection_for_equipment(self):
+        js_path = os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'budget_list.js')
+        with open(js_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        self.assertIn('seenEquipRows', content)
+        self.assertIn('showDuplicateFixAssetRowsWarning(duplicateFixAssetGroups, colTitle)', content)
+
 
 
 

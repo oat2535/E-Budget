@@ -98,6 +98,54 @@ def validate_nonzero_monthly_rows(data, position_key='position_name'):
         )
     return None
 
+DOC_TYPE_ITEM_COLUMN_NAMES = {
+    'Medical Equipment': 'เครื่องมือ',
+    'Computer Equipment': 'เครื่องมือ',
+    'Furniture': 'เครื่องมือ',
+    'Tools & Equipment': 'เครื่องมือ',
+    'CAR': 'รถยนต์',
+    'Renovate': 'ปรับปรุง',
+    'Software': 'Software',
+}
+
+def validate_fix_asset_unique_rows(data, item_label='เครื่องมือ'):
+    """Validates that within a single FIX ASSET submission, no two rows have the
+    exact same item_name and description.
+    Returns error message string listing the duplicated rows, or None if valid."""
+    seen = {}  # key -> list of 1-based row indices
+    items_meta = {}  # key -> (item_name, description)
+    for idx, item in enumerate(data, start=1):
+        item_name = (item.get('item_name') or '').strip()
+        desc = (item.get('description') or '').strip()
+        if not item_name:
+            continue
+        key = (item_name.lower(), desc.lower())
+        if key not in seen:
+            seen[key] = [idx]
+            items_meta[key] = (item_name, desc)
+        else:
+            seen[key].append(idx)
+
+    duplicates = [
+        (items_meta[k][0], items_meta[k][1], rows)
+        for k, rows in seen.items()
+        if len(rows) > 1
+    ]
+
+    if duplicates:
+        lines = []
+        for name, desc, rows in duplicates:
+            rows_str = ", ".join(f"แถวที่ {r}" for r in rows)
+            desc_str = f'"{desc}"' if desc else '(ไม่มีรายละเอียด / ค่าว่าง)'
+            lines.append(f'- {item_label}: "{name}" | รายละเอียด: {desc_str} — ซ้ำกันใน {rows_str}')
+        err_list = "\n".join(lines)
+        return (
+            f"ระบบตรวจพบว่ามีการระบุข้อมูล {item_label} และ รายละเอียด ซ้ำกันในเอกสาร:\n"
+            f"{err_list}\n"
+            f"กรุณาระบุรายละเอียดให้แตกต่างกัน หรือรวมจำนวนเข้าด้วยกันในแถวเดียว"
+        )
+    return None
+
 def resolve_price_threshold_gl_code(purchase_price, gl_code_high, gl_code_low, threshold):
     """Generic capitalization-threshold GL policy shared by equipment
     categories whose master data has no GL column (Medical Equipment,
@@ -454,27 +502,32 @@ def budget_list_view(request):
         **get_branch_selection_context(request),
     })
 
-def check_duplicate_budget_document(model_class, doc_type, create_eid, budget_year, base_branch_id):
-    """Checks if an active (non-cancelled) document already exists for (create_eid, budget_year, base_branch_id).
+def check_duplicate_budget_document(model_class, doc_type, create_eid, budget_year, base_branch_id, cost_center_name=None):
+    """Checks if an active (non-cancelled) document already exists for (create_eid, budget_year, base_branch_id, cost_center_name).
     If a duplicate is found, returns a JsonResponse with status='duplicate' and document metadata.
     Otherwise returns None."""
     existing = BudgetService.find_existing_budget_document(
         model_class=model_class,
         create_eid=create_eid,
         budget_year=budget_year,
-        base_branch_id=base_branch_id
+        base_branch_id=base_branch_id,
+        cost_center_name=cost_center_name
     )
     if existing:
         doc_no = existing.get('document_no') or ''
+        cc = existing.get('cost_center_name') or cost_center_name or ''
+        cc_msg = f' Cost Center: {cc}' if cc else ''
         return JsonResponse({
             'status': 'duplicate',
             'doc_type': doc_type,
             'document_no': doc_no,
             'budget_year': existing.get('budget_year'),
             'branch_id': existing.get('base_branch_id'),
+            'cost_center_name': cc,
+            'create_user': create_eid,
             'message': (
                 f'พบเอกสาร {doc_type} เลขที่ {doc_no} ปีงบประมาณ {existing.get("budget_year")} '
-                f'สำหรับสาขา {existing.get("base_branch_id")} ในระบบแล้ว '
+                f'สำหรับสาขา {existing.get("base_branch_id")}{cc_msg} ในระบบแล้ว '
                 f'ท่านสามารถเปิดดูรายละเอียดเอกสารดังกล่าวได้ทันที'
             )
         })
@@ -512,7 +565,8 @@ def budget_add_view(request):
                 doc_type='VET',
                 create_eid=username,
                 budget_year=budget_year,
-                base_branch_id=branch_id
+                base_branch_id=branch_id,
+                cost_center_name=data[0].get('cost_center_name')
             )
             if duplicate_resp:
                 return duplicate_resp
@@ -596,7 +650,8 @@ def budget_add_non_vet_view(request):
                 doc_type='NON VET',
                 create_eid=username,
                 budget_year=budget_year,
-                base_branch_id=branch_id
+                base_branch_id=branch_id,
+                cost_center_name=data[0].get('cost_center_name')
             )
             if duplicate_resp:
                 return duplicate_resp
@@ -1384,6 +1439,10 @@ def update_document_api(request, doc_type, doc_no):
                 err = validate_manpower_headcount_integers(data, 'item_name')
                 if err:
                     return JsonResponse({'status': 'error', 'message': err})
+                item_label = DOC_TYPE_ITEM_COLUMN_NAMES.get(doc_type, 'เครื่องมือ')
+                err = validate_fix_asset_unique_rows(data, item_label=item_label)
+                if err:
+                    return JsonResponse({'status': 'error', 'message': err})
                 err = validate_nonzero_monthly_rows(data, 'item_name')
                 if err:
                     return JsonResponse({'status': 'error', 'message': err})
@@ -1706,7 +1765,8 @@ def budget_add_adjustment_view(request):
                 doc_type='Position Adjustment',
                 create_eid=username,
                 budget_year=budget_year,
-                base_branch_id=branch_id
+                base_branch_id=branch_id,
+                cost_center_name=data[0].get('cost_center_name')
             )
             if duplicate_resp:
                 return duplicate_resp
@@ -1793,6 +1853,10 @@ def _budget_add_equipment_view(request, model_class, doc_type, template_name, su
             err = validate_manpower_headcount_integers(data, 'item_name')
             if err:
                 return JsonResponse({'status': 'error', 'message': err})
+            item_label = DOC_TYPE_ITEM_COLUMN_NAMES.get(doc_type, 'เครื่องมือ')
+            err = validate_fix_asset_unique_rows(data, item_label=item_label)
+            if err:
+                return JsonResponse({'status': 'error', 'message': err})
             err = validate_nonzero_monthly_rows(data, 'item_name')
             if err:
                 return JsonResponse({'status': 'error', 'message': err})
@@ -1825,7 +1889,8 @@ def _budget_add_equipment_view(request, model_class, doc_type, template_name, su
                 doc_type=doc_type,
                 create_eid=username,
                 budget_year=budget_year,
-                base_branch_id=branch_id
+                base_branch_id=branch_id,
+                cost_center_name=data[0].get('cost_center_name')
             )
             if duplicate_resp:
                 return duplicate_resp
@@ -1928,7 +1993,8 @@ def budget_add_gl_entry_view(request):
                 doc_type='GL Entry',
                 create_eid=username,
                 budget_year=budget_year,
-                base_branch_id=branch_id
+                base_branch_id=branch_id,
+                cost_center_name=data[0].get('cost_center_name')
             )
             if duplicate_resp:
                 return duplicate_resp
@@ -1980,7 +2046,8 @@ def budget_add_revenue_view(request):
                 doc_type='Revenue',
                 create_eid=username,
                 budget_year=budget_year,
-                base_branch_id=branch_id
+                base_branch_id=branch_id,
+                cost_center_name=data[0].get('cost_center_name')
             )
             if duplicate_resp:
                 return duplicate_resp
@@ -2032,7 +2099,8 @@ def budget_add_budget_plan_view(request):
                 doc_type='Budget Plan',
                 create_eid=username,
                 budget_year=budget_year,
-                base_branch_id=branch_id
+                base_branch_id=branch_id,
+                cost_center_name=data[0].get('cost_center_name')
             )
             if duplicate_resp:
                 return duplicate_resp
@@ -2095,7 +2163,8 @@ def budget_add_gl_actual_template_view(request):
                 doc_type='GL Actual Template',
                 create_eid=username,
                 budget_year=budget_year,
-                base_branch_id=branch_code
+                base_branch_id=branch_code,
+                cost_center_name=None
             )
             if duplicate_resp:
                 return duplicate_resp

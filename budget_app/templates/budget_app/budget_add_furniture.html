@@ -518,6 +518,7 @@
             let rows = table1.getData();
             let dataToSave = [];
             let emptyMonthRows = [];
+            let seenFixAssetRows = new Map();
 
             for (let i = 0; i < rows.length; i++) {
                 let row = rows[i];
@@ -526,6 +527,13 @@
                 let salary = getNum(row[2]);
 
                 if (position) {
+                    let cleanDesc = (description !== null && description !== undefined ? String(description) : '').trim();
+                    let dupKey = position.toLowerCase() + '|||' + cleanDesc.toLowerCase();
+                    if (!seenFixAssetRows.has(dupKey)) {
+                        seenFixAssetRows.set(dupKey, { name: position, desc: cleanDesc, rowNumbers: [i + 1] });
+                    } else {
+                        seenFixAssetRows.get(dupKey).rowNumbers.push(i + 1);
+                    }
                     const isItemInMaster = items.some(it => it.name === position);
                     if (!isItemInMaster) {
                         Swal.fire('แจ้งเตือน', `ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกรายการจาก Dropdown เท่านั้น\n(แถวที่ ${i + 1}: "${position}" ไม่มีอยู่ในรายการตัวเลือก)`, 'warning');
@@ -562,7 +570,7 @@
                         }
                     }
                     if (!hasPositiveMonth) {
-                        emptyMonthRows.push({ rowNumber: i + 1, name: position });
+                        emptyMonthRows.push({ rowNumber: i + 1, name: position, desc: cleanDesc });
                     }
 
                     let monthlyData = {
@@ -589,6 +597,18 @@
                         'monthly_data': monthlyData
                     });
                 }
+            }
+
+            let duplicateFixAssetGroups = [];
+            for (let entry of seenFixAssetRows.values()) {
+                if (entry.rowNumbers.length > 1) {
+                    duplicateFixAssetGroups.push(entry);
+                }
+            }
+            if (duplicateFixAssetGroups.length > 0) {
+                const itemColTitle = (columns && columns[0] && columns[0].title) ? columns[0].title : 'เครื่องมือ';
+                showDuplicateFixAssetRowsWarning(duplicateFixAssetGroups, itemColTitle);
+                return;
             }
 
             if (emptyMonthRows.length > 0) {

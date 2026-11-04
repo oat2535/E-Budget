@@ -571,7 +571,8 @@
                         monthCounts.push(count);
                     }
                     if (!hasPositiveMonth) {
-                        emptyMonthRows.push({ rowNumber: i + 1, name: position });
+                        let cleanDesc = (detail !== null && detail !== undefined ? String(detail) : "").trim();
+                        emptyMonthRows.push({ rowNumber: i + 1, name: position, desc: cleanDesc });
                     }
                     const monthlyBudget = computeMonthlyBudget(monthCounts, salary + allowance);
 

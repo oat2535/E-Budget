@@ -372,9 +372,9 @@ class BudgetService:
             )
 
     @staticmethod
-    def find_existing_budget_document(model_class, create_eid, budget_year, base_branch_id):
+    def find_existing_budget_document(model_class, create_eid, budget_year, base_branch_id, cost_center_name=None):
         """Checks if an active (non-cancelled) budget document already exists
-        for the given creator, budget year, and branch.
+        for the given creator, budget year, branch, and cost center.
         Returns a dict of document info if found, or None."""
         if not model_class or not create_eid or not budget_year or not base_branch_id:
             return None
@@ -383,13 +383,29 @@ class BudgetService:
         except (ValueError, TypeError):
             return None
 
-        qs = model_class.objects.filter(
-            create_eid__iexact=str(create_eid).strip(),
-            budget_year=year_val,
-            base_branch_id__iexact=str(base_branch_id).strip()
-        ).exclude(status=STATUS_CANCELLED).order_by('-create_date')
+        filter_kwargs = {
+            'create_eid__iexact': str(create_eid).strip(),
+            'budget_year': year_val,
+            'base_branch_id__iexact': str(base_branch_id).strip(),
+        }
 
-        return qs.values('document_no', 'budget_year', 'base_branch_id', 'status').first()
+        has_cc_field = False
+        try:
+            model_class._meta.get_field('cost_center_name')
+            has_cc_field = True
+        except Exception:
+            has_cc_field = False
+
+        if has_cc_field and cost_center_name:
+            filter_kwargs['cost_center_name__iexact'] = str(cost_center_name).strip()
+
+        qs = model_class.objects.filter(**filter_kwargs).exclude(status=STATUS_CANCELLED).order_by('-create_date')
+
+        values_fields = ['document_no', 'budget_year', 'base_branch_id', 'status']
+        if has_cc_field:
+            values_fields.append('cost_center_name')
+
+        return qs.values(*values_fields).first()
 
 
 def is_executive_view_only_user(request):

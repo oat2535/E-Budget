@@ -1518,6 +1518,7 @@ const BudgetApp = (function() {
 
         let rows = modalTable1.getData();
         let dataToSave = [];
+        let seenEquipRows = new Map();
 
         for (let i = 0; i < rows.length; i++) {
             let row = rows[i];
@@ -1527,6 +1528,16 @@ const BudgetApp = (function() {
             let allowance = isNonVet ? getNum(row[allowanceCol]) : 0;
 
             if (position) {
+                if (isEquipment) {
+                    let cleanDesc = (description !== null && description !== undefined ? String(description) : '').trim();
+                    let dupKey = position.toLowerCase() + '|||' + cleanDesc.toLowerCase();
+                    if (!seenEquipRows.has(dupKey)) {
+                        seenEquipRows.set(dupKey, { name: position, desc: cleanDesc, rowNumbers: [i + 1] });
+                    } else {
+                        seenEquipRows.get(dupKey).rowNumbers.push(i + 1);
+                    }
+                }
+
                 if (isEquipment || isVet || isNonVet) {
                     const isItemInMaster = itemsList.some(it => it.name === position);
                     if (!isItemInMaster) {
@@ -1611,6 +1622,29 @@ const BudgetApp = (function() {
                     }
                 }
                 dataToSave.push(rowData);
+            }
+        }
+
+        if (isEquipment) {
+            let duplicateFixAssetGroups = [];
+            for (let entry of seenEquipRows.values()) {
+                if (entry.rowNumbers.length > 1) {
+                    duplicateFixAssetGroups.push(entry);
+                }
+            }
+            if (duplicateFixAssetGroups.length > 0) {
+                let colTitle = 'เครื่องมือ';
+                if (isCar) colTitle = 'รถยนต์';
+                else if (isRenovate) colTitle = 'ปรับปรุง';
+                else if (isSoftware) colTitle = 'Software';
+
+                if (typeof showDuplicateFixAssetRowsWarning === 'function') {
+                    showDuplicateFixAssetRowsWarning(duplicateFixAssetGroups, colTitle);
+                } else {
+                    const listStr = duplicateFixAssetGroups.map(g => `${colTitle}: ${g.name} (รายละเอียด: ${g.desc || 'ไม่มีรายละเอียด'}) แถวที่: ${g.rowNumbers.join(', ')}`).join('\n');
+                    Swal.fire('พบรายการข้อมูลซ้ำซ้อน', `ตรวจพบรายการ${colTitle}และรายละเอียดซ้ำกัน:\n` + listStr, 'warning');
+                }
+                return;
             }
         }
         
