@@ -514,6 +514,10 @@ const BudgetApp = (function() {
                     if (isNonVet) {
                         modalTable1.setValueFromCoords(allowanceCol, y, match.position_allowance || 0, true);
                     }
+                    const cell0 = modalTable1.records && modalTable1.records[y] ? modalTable1.records[y][0] : null;
+                    if (cell0 && !cell0.classList.contains('editor')) {
+                        cell0.innerText = match.name;
+                    }
                 } else {
                     if (trimmedVal !== '') {
                         modalTable1.setValueFromCoords(0, y, '', true);
@@ -1360,6 +1364,11 @@ const BudgetApp = (function() {
                         cell.innerText = value || '';
                     },
                     openEditor: function(cell, el, empty) {
+                        const y = parseInt(cell.getAttribute('data-y') || 0);
+                        const currentValue = (modalTable1 && typeof modalTable1.getValueFromCoords === 'function')
+                            ? (modalTable1.getValueFromCoords(0, y) || '')
+                            : (cell.innerText || '');
+
                         const rect = cell.getBoundingClientRect();
                         const input = document.createElement('input');
                         input.setAttribute('list', datalistId);
@@ -1372,7 +1381,7 @@ const BudgetApp = (function() {
                         input.style.outline = 'none';
                         input.style.padding = '0 4px';
                         input.style.font = 'inherit';
-                        input.value = empty ? '' : (cell.innerText || '');
+                        input.value = empty ? '' : currentValue;
                         cell.classList.add('editor');
                         cell.innerHTML = '';
                         cell.appendChild(input);
@@ -1472,6 +1481,16 @@ const BudgetApp = (function() {
                 ondeleterow: function(el, rowNumber, numOfRows) {
                     if (modalTable2) modalTable2.deleteRow(rowNumber, numOfRows);
                 },
+                onselection: function(el, x1, y1, x2, y2, origin) {
+                    const sheet = (el && el.jexcel) || modalTable1;
+                    if (!sheet || typeof sheet.getCellFromCoords !== 'function') return;
+                    if (x1 === 0 && x2 === 0 && y1 === y2) {
+                        const cell = sheet.getCellFromCoords(0, y1);
+                        if (cell && !sheet.edition) {
+                            sheet.openEditor(cell, false);
+                        }
+                    }
+                },
             });
 
             // Build strictly readOnly columns for Table 2 (Calculation Table).
@@ -1530,6 +1549,7 @@ const BudgetApp = (function() {
             if (!sheetContainer._dropdownClickBound) {
                 sheetContainer._dropdownClickBound = true;
                 sheetContainer.addEventListener('click', function(e) {
+                    if (e.target.tagName === 'INPUT' || e.target.classList.contains('jexcel_editor')) return;
                     const cell = e.target.closest('td.eb-dropdown-cell');
                     if (cell && !cell.classList.contains('editor') && modalTable1 && !modalTable1.edition) {
                         modalTable1.openEditor(cell, false);
@@ -1548,6 +1568,9 @@ const BudgetApp = (function() {
         // modalTable1's oninsertrow hook mirrors this into modalTable2, so
         // it isn't done here too (that would double-insert).
         if (isEditMode && modalTable1 && modalTable2) {
+            if (modalTable1.edition) {
+                modalTable1.closeEditor(modalTable1.edition[0], true);
+            }
             modalTable1.insertRow();
         }
     }
@@ -3252,6 +3275,11 @@ const BudgetApp = (function() {
                     cell.innerText = value || '';
                 },
                 openEditor: function(cell, el, empty) {
+                    const y = parseInt(cell.getAttribute('data-y') || 0);
+                    const currentValue = (adjTable1 && typeof adjTable1.getValueFromCoords === 'function')
+                        ? (adjTable1.getValueFromCoords(0, y) || '')
+                        : (cell.innerText || '');
+
                     const rect = cell.getBoundingClientRect();
                     const input = document.createElement('input');
 
@@ -3265,7 +3293,7 @@ const BudgetApp = (function() {
                     input.style.outline = 'none';
                     input.style.padding = '0 4px';
                     input.style.font = 'inherit';
-                    input.value = empty ? '' : (cell.innerText || '');
+                    input.value = empty ? '' : currentValue;
                     cell.classList.add('editor');
                     cell.innerHTML = '';
                     cell.appendChild(input);
@@ -3347,6 +3375,11 @@ const BudgetApp = (function() {
                         return;
                     }
 
+                    const x = parseInt(cell.getAttribute('data-x') || 0);
+                    const currentValue = (adjTable1 && typeof adjTable1.getValueFromCoords === 'function')
+                        ? (adjTable1.getValueFromCoords(x, y) || '')
+                        : (cell.innerText || '');
+
                     const rect = cell.getBoundingClientRect();
                     const input = document.createElement('input');
                     let listId = rowType === 'VET' ? 'modal-adj-vet-positions-datalist' : 'modal-adj-non-vet-positions-datalist';
@@ -3361,7 +3394,7 @@ const BudgetApp = (function() {
                     input.style.outline = 'none';
                     input.style.padding = '0 4px';
                     input.style.font = 'inherit';
-                    input.value = empty ? '' : (cell.innerText || '');
+                    input.value = empty ? '' : currentValue;
                     cell.classList.add('editor');
                     cell.innerHTML = '';
                     cell.appendChild(input);
@@ -3469,6 +3502,20 @@ const BudgetApp = (function() {
                     if (adjTable2) adjTable2.deleteRow(rowNumber, numOfRows);
                     if (adjTable3) adjTable3.deleteRow(rowNumber, numOfRows);
                 },
+                onselection: function(el, x1, y1, x2, y2, origin) {
+                    const sheet = (el && el.jexcel) || adjTable1;
+                    if (!sheet || typeof sheet.getCellFromCoords !== 'function') return;
+                    if ((x1 === 0 || x1 === 1 || x1 === 3) && x1 === x2 && y1 === y2) {
+                        const cell = sheet.getCellFromCoords(x1, y1);
+                        if (cell && !sheet.edition) {
+                            if (x1 === 1 || x1 === 3) {
+                                const rowType = (sheet.getValueFromCoords(0, y1) || '').trim().toUpperCase();
+                                if (rowType !== 'VET' && rowType !== 'NON VET') return;
+                            }
+                            sheet.openEditor(cell, false);
+                        }
+                    }
+                },
             });
 
             // Rebuild adjTable2 and adjTable3 with allowInsertRow/allowDeleteRow: true
@@ -3553,6 +3600,7 @@ const BudgetApp = (function() {
             if (!adjSheetContainer._dropdownClickBound) {
                 adjSheetContainer._dropdownClickBound = true;
                 adjSheetContainer.addEventListener('click', function(e) {
+                    if (e.target.tagName === 'INPUT' || e.target.classList.contains('jexcel_editor')) return;
                     const cell = e.target.closest('td.eb-dropdown-cell');
                     if (cell && !cell.classList.contains('editor') && adjTable1 && !adjTable1.edition) {
                         const x = parseInt(cell.getAttribute('data-x'));
@@ -3587,6 +3635,9 @@ const BudgetApp = (function() {
         // adjTable1's oninsertrow hook mirrors this into adjTable2/adjTable3,
         // so it isn't done here too (that would double-insert).
         if (isAdjEditMode && adjTable1 && adjTable2 && adjTable3) {
+            if (adjTable1.edition) {
+                adjTable1.closeEditor(adjTable1.edition[0], true);
+            }
             adjTable1.insertRow();
         }
     }
