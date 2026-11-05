@@ -100,6 +100,14 @@ class BudgetService:
         if bank_sub_name and 'BACK' in sub_name_upper:
             valid_branch_ids = {code for code, _ in GL_ACTUAL_TEMPLATE_BRANCHES if code != 'HO'}
             try:
+                with connections['default'].cursor() as cursor:
+                    cursor.execute("SELECT sub_branch_id FROM base_sub_branch")
+                    for r in cursor.fetchall():
+                        if r and r[0] and r[0].strip().upper() != 'HO':
+                            valid_branch_ids.add(r[0].strip().upper())
+            except Exception as e:
+                logger.warning(f"Error fetching base_sub_branch for BACK user parsing: {e}")
+            try:
                 with connections['imedx'].cursor() as cursor:
                     cursor.execute("SELECT base_site_branch_id FROM base_site_branch")
                     for r in cursor.fetchall():
@@ -184,8 +192,9 @@ class BudgetService:
     @staticmethod
     def get_branch_names_from_imedx(codes):
         """Bulk code->name lookup for the branch-picker dropdown.
-        Fetches descriptions from base_site_branch, with fallback/enrichment
-        from GL_ACTUAL_TEMPLATE_BRANCHES (ensuring 'HO' -> 'สำนักงานใหญ่', etc.)."""
+        Fetches code and description from base_sub_branch in the default database,
+        with fallback/enrichment from imedx base_site_branch and
+        GL_ACTUAL_TEMPLATE_BRANCHES (ensuring 'BN' -> 'สาขาบางนา', 'HO' -> 'สำนักงานใหญ่', etc.)."""
         codes = [c for c in set(codes) if c]
         if not codes:
             return {}
@@ -194,18 +203,57 @@ class BudgetService:
         for code in codes:
             if code in fallback_map:
                 result[code] = fallback_map[code]
+
+        # Primary lookup from base_sub_branch (default database)
         try:
-            with connections['imedx'].cursor() as cursor:
+            with connections['default'].cursor() as cursor:
                 cursor.execute(
-                    "SELECT base_site_branch_id, description FROM base_site_branch WHERE base_site_branch_id = ANY(%s)",
+                    "SELECT sub_branch_id, sub_branch_name FROM base_sub_branch WHERE sub_branch_id = ANY(%s)",
                     [codes]
                 )
                 for code, name in cursor.fetchall():
                     if name:
-                        result[code] = name
+                        result[code] = name.strip()
         except Exception as e:
-            logger.error(f"Error fetching branch names for {codes}: {e}")
+            logger.warning(f"Error fetching branch names from base_sub_branch for {codes}: {e}")
+
+        # Fallback/enrichment from imedx base_site_branch if any codes are still missing
+        missing = [c for c in codes if c not in result]
+        if missing:
+            try:
+                with connections['imedx'].cursor() as cursor:
+                    cursor.execute(
+                        "SELECT base_site_branch_id, description FROM base_site_branch WHERE base_site_branch_id = ANY(%s)",
+                        [missing]
+                    )
+                    for code, name in cursor.fetchall():
+                        if name and code not in result:
+                            result[code] = name.strip()
+            except Exception as e:
+                logger.warning(f"Error fetching branch names from base_site_branch for {missing}: {e}")
         return result
+
+    get_branch_names = get_branch_names_from_imedx
+
+    @staticmethod
+    def get_all_branches():
+        """Returns all branches (code and name) from base_sub_branch in the default database,
+        falling back to GL_ACTUAL_TEMPLATE_BRANCHES if table is unavailable."""
+        branches = []
+        try:
+            with connections['default'].cursor() as cursor:
+                cursor.execute(
+                    "SELECT sub_branch_id, sub_branch_name FROM base_sub_branch ORDER BY sub_branch_id"
+                )
+                rows = cursor.fetchall()
+                if rows:
+                    for code, name in rows:
+                        if code and name:
+                            branches.append({'code': code.strip(), 'name': name.strip()})
+                    return branches
+        except Exception as e:
+            logger.warning(f"Error fetching all branches from base_sub_branch: {e}")
+        return [{'code': code, 'name': name} for code, name in GL_ACTUAL_TEMPLATE_BRANCHES]
 
     @staticmethod
     def get_master_fks(item_name_val):
@@ -327,8 +375,6 @@ class BudgetService:
         fk_field = fk_field_map.get(doc_type)
         if not fk_field:
             return
-            
-        BudgetMonthlyDetail.objects.filter(**{fk_field: parent_obj}).delete()
 
         is_fix_asset = doc_type in (
             'Medical Equipment', 'Computer Equipment', 'Furniture',
@@ -354,6 +400,16 @@ class BudgetService:
         sorted_months.sort(key=lambda x: x[0])
 
         running_dep = 0.0
+        running_headcount = 0.0
+        row_salary = float(getattr(parent_obj, 'salary', 0) or 0)
+        row_allowance = float(getattr(parent_obj, 'position_allowance', 0) or 0)
+        old_salary = float(getattr(parent_obj, 'old_salary', 0) or 0)
+        old_allowance = float(getattr(parent_obj, 'old_allowance', 0) or 0)
+        new_salary = float(getattr(parent_obj, 'new_salary', 0) or 0)
+        new_allowance = float(getattr(parent_obj, 'new_allowance', 0) or 0)
+
+        existing_details = {d.month: d for d in BudgetMonthlyDetail.objects.filter(**{fk_field: parent_obj})}
+
         for month_int, data in sorted_months:
             headcount = data.get('headcount') or data.get('count') or 0
             if doc_type in (
@@ -376,77 +432,133 @@ class BudgetService:
                 running_dep += cost_num / (gl_depreciation * 12.0)
                 cum_dep = round(running_dep, 2)
 
-            BudgetMonthlyDetail.objects.create(
-                month=month_int,
-                headcount=headcount,
-                cost=cost,
-                cumulative_depreciation=cum_dep,
-                **{fk_field: parent_obj}
-            )
+            m_salary = 0.0
+            m_allowance = 0.0
+            m_new_salary = 0.0
+            m_new_allowance = 0.0
+            if doc_type == 'NON VET':
+                running_headcount += headcount
+                m_salary = round(running_headcount * row_salary, 2)
+                m_allowance = round(running_headcount * row_allowance, 2)
+            elif doc_type == 'Position Adjustment':
+                running_headcount += headcount
+                m_salary = round(running_headcount * old_salary, 2)
+                m_allowance = round(running_headcount * old_allowance, 2)
+                m_new_salary = round(running_headcount * new_salary, 2)
+                m_new_allowance = round(running_headcount * new_allowance, 2)
+
+            if month_int in existing_details:
+                detail = existing_details[month_int]
+                detail.headcount = headcount
+                detail.cost = cost
+                detail.salary = m_salary
+                detail.position_allowance = m_allowance
+                detail.new_salary = m_new_salary
+                detail.new_allowance = m_new_allowance
+                detail.cumulative_depreciation = cum_dep
+                detail.save(update_fields=[
+                    'headcount', 'cost', 'salary', 'position_allowance',
+                    'new_salary', 'new_allowance', 'cumulative_depreciation'
+                ])
+            else:
+                BudgetMonthlyDetail.objects.create(
+                    month=month_int,
+                    headcount=headcount,
+                    cost=cost,
+                    salary=m_salary,
+                    position_allowance=m_allowance,
+                    new_salary=m_new_salary,
+                    new_allowance=m_new_allowance,
+                    cumulative_depreciation=cum_dep,
+                    **{fk_field: parent_obj}
+                )
 
     @staticmethod
     @transaction.atomic
     def save_gl_entry_monthly_data(parent_obj, monthly_data_dict):
-        """Same delete-and-recreate pattern as save_monthly_data, but for
-        ebudget_gl_entry_monthly_detail's shape (detail_note/amount/
-        cumulative_amount) — GL entries have no headcount concept, so they
-        don't fit BudgetMonthlyDetail's {headcount, cost} columns."""
-        ebudget_gl_entry_monthly_detail.objects.filter(gl_entry=parent_obj).delete()
+        """In-place upsert for ebudget_gl_entry_monthly_detail — preserves
+        existing record IDs when editing to prevent sequence churn."""
+        existing_details = {d.month: d for d in ebudget_gl_entry_monthly_detail.objects.filter(gl_entry=parent_obj)}
 
         for month_str, data in monthly_data_dict.items():
             month_int = MONTH_MAP.get(month_str.lower())
             if not month_int:
                 continue
 
-            ebudget_gl_entry_monthly_detail.objects.create(
-                month=month_int,
-                detail_note=data.get('detail_note') or None,
-                amount=data.get('amount') or 0,
-                cumulative_amount=data.get('cumulative_amount') or 0,
-                gl_entry=parent_obj
-            )
+            detail_note = data.get('detail_note') or None
+            amount = data.get('amount') or 0
+            cumulative_amount = data.get('cumulative_amount') or 0
+
+            if month_int in existing_details:
+                d = existing_details[month_int]
+                d.detail_note = detail_note
+                d.amount = amount
+                d.cumulative_amount = cumulative_amount
+                d.save(update_fields=['detail_note', 'amount', 'cumulative_amount'])
+            else:
+                ebudget_gl_entry_monthly_detail.objects.create(
+                    month=month_int,
+                    detail_note=detail_note,
+                    amount=amount,
+                    cumulative_amount=cumulative_amount,
+                    gl_entry=parent_obj
+                )
 
     @staticmethod
     @transaction.atomic
     def save_revenue_monthly_data(parent_obj, monthly_data_dict):
-        """Same shape/pattern as save_gl_entry_monthly_data, for Revenue's
-        own ebudget_revenue_monthly_detail table — kept as a separate child
-        table (not reusing ebudget_gl_entry_monthly_detail) so Revenue and
-        EXPENSE documents never share rows despite having identical column
-        shapes."""
-        ebudget_revenue_monthly_detail.objects.filter(revenue_entry=parent_obj).delete()
+        """In-place upsert for ebudget_revenue_monthly_detail — preserves
+        existing record IDs when editing to prevent sequence churn."""
+        existing_details = {d.month: d for d in ebudget_revenue_monthly_detail.objects.filter(revenue_entry=parent_obj)}
 
         for month_str, data in monthly_data_dict.items():
             month_int = MONTH_MAP.get(month_str.lower())
             if not month_int:
                 continue
 
-            ebudget_revenue_monthly_detail.objects.create(
-                month=month_int,
-                detail_note=data.get('detail_note') or None,
-                amount=data.get('amount') or 0,
-                cumulative_amount=data.get('cumulative_amount') or 0,
-                revenue_entry=parent_obj
-            )
+            detail_note = data.get('detail_note') or None
+            amount = data.get('amount') or 0
+            cumulative_amount = data.get('cumulative_amount') or 0
+
+            if month_int in existing_details:
+                d = existing_details[month_int]
+                d.detail_note = detail_note
+                d.amount = amount
+                d.cumulative_amount = cumulative_amount
+                d.save(update_fields=['detail_note', 'amount', 'cumulative_amount'])
+            else:
+                ebudget_revenue_monthly_detail.objects.create(
+                    month=month_int,
+                    detail_note=detail_note,
+                    amount=amount,
+                    cumulative_amount=cumulative_amount,
+                    revenue_entry=parent_obj
+                )
 
     @staticmethod
     @transaction.atomic
     def save_budget_plan_monthly_data(parent_obj, monthly_data_dict):
-        """Same delete-and-recreate pattern as save_gl_entry_monthly_data, but
-        for ebudget_budget_plan_monthly_detail's shape: a single amount per
-        month, no detail_note/cumulative_amount."""
-        ebudget_budget_plan_monthly_detail.objects.filter(plan_item=parent_obj).delete()
+        """In-place upsert for ebudget_budget_plan_monthly_detail — preserves
+        existing record IDs when editing to prevent sequence churn."""
+        existing_details = {d.month: d for d in ebudget_budget_plan_monthly_detail.objects.filter(plan_item=parent_obj)}
 
         for month_str, data in monthly_data_dict.items():
             month_int = MONTH_MAP.get(month_str.lower())
             if not month_int:
                 continue
 
-            ebudget_budget_plan_monthly_detail.objects.create(
-                month=month_int,
-                amount=data.get('amount') or 0,
-                plan_item=parent_obj
-            )
+            amount = data.get('amount') or 0
+
+            if month_int in existing_details:
+                d = existing_details[month_int]
+                d.amount = amount
+                d.save(update_fields=['amount'])
+            else:
+                ebudget_budget_plan_monthly_detail.objects.create(
+                    month=month_int,
+                    amount=amount,
+                    plan_item=parent_obj
+                )
 
     @staticmethod
     def resolve_canonical_cost_center_name(raw_name):

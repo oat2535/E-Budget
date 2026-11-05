@@ -41,6 +41,22 @@ const BudgetApp = (function() {
     let currentAdjCostCenterName = '';
     let currentAdjBranchCode = '';
     let isAdjUpdating = false;
+    let lastAdjVetAllowanceAlertTime = 0;
+    function showVetAllowanceAlert() {
+        const now = Date.now();
+        if (now - lastAdjVetAllowanceAlertTime < 1000) return;
+        lastAdjVetAllowanceAlertTime = now;
+        if (typeof Swal !== 'undefined') {
+            Swal.fire({
+                icon: 'warning',
+                title: 'แจ้งเตือน',
+                text: 'ตำแหน่งประเภท VET ไม่มีค่าตำแหน่ง (ค่าวัดระดับ) จึงไม่สามารถระบุค่าตำแหน่งเดิมหรือค่าตำแหน่งใหม่ได้ครับ (กรอกได้เฉพาะประเภท NON VET)',
+                confirmButtonText: 'ตกลง',
+                confirmButtonColor: '#3085d6',
+                timer: 4000
+            });
+        }
+    }
 
     let glatModalInstance = null;
     let glatTable = null;
@@ -122,9 +138,34 @@ const BudgetApp = (function() {
 
         const adjModalSheetEl = document.getElementById('adjModalSpreadsheet1');
         if (adjModalSheetEl) {
+            adjModalSheetEl.addEventListener('click', function(e) {
+                if (!isAdjEditMode || !adjTable1) return;
+                const td = e.target.closest('td');
+                if (!td) return;
+                const x = parseInt(td.getAttribute('data-x'));
+                const y = parseInt(td.getAttribute('data-y'));
+                if ((x === 6 || x === 9) && !isNaN(y)) {
+                    const rowType = (adjTable1.getValueFromCoords(0, y) || '').trim().toUpperCase();
+                    if (rowType === 'VET') {
+                        showVetAllowanceAlert();
+                    }
+                }
+            });
+
             adjModalSheetEl.addEventListener('keydown', function(e) {
                 if (adjTable1 && adjTable1.selectedCell && isAdjEditMode) {
                     const x = adjTable1.selectedCell[0];
+                    const y = adjTable1.selectedCell[1];
+                    if ((x === 6 || x === 9) && !isNaN(y)) {
+                        const rowType = (adjTable1.getValueFromCoords(0, y) || '').trim().toUpperCase();
+                        if (rowType === 'VET') {
+                            const allowedNavKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'Escape'];
+                            if (!allowedNavKeys.includes(e.key)) {
+                                e.preventDefault();
+                                showVetAllowanceAlert();
+                            }
+                        }
+                    }
                     if (x >= 13 && x <= 24) {
                         if (e.ctrlKey || e.metaKey || e.altKey) return;
                         const allowedControlKeys = ['Backspace', 'Tab', 'Enter', 'Escape', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
@@ -1123,6 +1164,7 @@ const BudgetApp = (function() {
                         columns.push({ type: 'numeric', title: m, width: 85, readOnly: true, mask: '#,##0' });
                     });
                     columns.push({ type: 'numeric', title: 'รวม', width: 100, readOnly: true, mask: '#,##0' });
+                    columns.push({ type: 'hidden' });
 
                     let data1 = [];
                     let data2 = [];
@@ -1175,6 +1217,7 @@ const BudgetApp = (function() {
                             }
                         });
                         row1.push(sumCount);
+                        row1.push(item.id || '');
                         if (isEquipment) {
                             row2.push(Math.round(sumDepYear * 100) / 100);
                         } else {
@@ -1450,6 +1493,7 @@ const BudgetApp = (function() {
                 columns.push({ type: 'numeric', title: m, width: 85, readOnly: false, mask: '#,##0' });
             });
             columns.push({ type: 'numeric', title: 'รวม', width: 100, readOnly: true, mask: '#,##0' });
+            columns.push({ type: 'hidden' });
             
             const currentData = modalTable1.getData();
             modalTable1.destroy();
@@ -1730,10 +1774,20 @@ const BudgetApp = (function() {
                 });
             } else {
                 const monthlyBudget = computeMonthlyBudget(monthCounts, salary + allowance);
+                const salaryBudget = isNonVet ? computeMonthlyBudget(monthCounts, salary) : null;
+                const allowanceBudget = isNonVet ? computeMonthlyBudget(monthCounts, allowance) : null;
                 monthKeys.forEach((key, idx) => {
-                    monthlyData[key] = { headcount: monthCounts[idx], cost: monthlyBudget[idx].cost };
+                    monthlyData[key] = {
+                        headcount: monthCounts[idx],
+                        cost: monthlyBudget[idx].cost,
+                        salary: isNonVet ? salaryBudget[idx].cost : 0,
+                        position_allowance: isNonVet ? allowanceBudget[idx].cost : 0
+                    };
                 });
             }
+
+            const idVal = row[row.length - 1];
+            const rowId = (idVal && !isNaN(parseInt(idVal, 10))) ? parseInt(idVal, 10) : null;
 
             let rowData = {};
             if (isEquipment) {
@@ -1759,6 +1813,9 @@ const BudgetApp = (function() {
                 if (isVet || isNonVet) {
                     rowData['description'] = description;
                 }
+            }
+            if (rowId) {
+                rowData['id'] = rowId;
             }
             dataToSave.push(rowData);
         }
@@ -2094,6 +2151,7 @@ const BudgetApp = (function() {
             { type: 'text', align: 'left', title: 'รายละเอียด', width: 150, readOnly: !editable },
             ...monthColumns,
             { type: 'numeric', title: 'รวม', width: 110, readOnly: true, mask: '#,##0' },
+            { type: 'hidden' },
         ];
     }
 
@@ -2101,7 +2159,7 @@ const BudgetApp = (function() {
         const monthValues = monthKeysShort.map(key => getNum((item.monthly_data[key] || {}).amount));
         const total = sumMonthlyData(item.monthly_data);
         const glName = item.general_ledger_name && item.general_ledger_name !== '-' ? item.general_ledger_name : '';
-        return [glName, item.detail_note || '', ...monthValues, total];
+        return [glName, item.detail_note || '', ...monthValues, total, item.id || ''];
     }
 
     // ยอดรวมแต่ละเดือน (column sum ข้ามทุกแถว) สำหรับ popup รายละเอียดเอกสาร
@@ -2205,6 +2263,7 @@ const BudgetApp = (function() {
             { type: 'text', align: 'left', title: columnLabel, width: 260, readOnly: !editable },
             ...monthColumns,
             { type: 'numeric', title: 'รวม', width: 110, readOnly: true, mask: '#,##0' },
+            { type: 'hidden' },
         ];
     }
 
@@ -2214,7 +2273,7 @@ const BudgetApp = (function() {
         const glName = item.general_ledger_name && item.general_ledger_name !== '-' ? item.general_ledger_name : '';
         const itemCode = item.item_code && item.item_code !== '-' ? item.item_code : '';
         const description = item.description && item.description !== '-' ? item.description : '';
-        return [glName, itemCode, description, ...monthValues, total];
+        return [glName, itemCode, description, ...monthValues, total, item.id || ''];
     }
 
     // Converts a jspreadsheet row already on screen back into the API's item
@@ -2223,13 +2282,21 @@ const BudgetApp = (function() {
     function glEntryGridRowToItem(row) {
         const monthly_data = {};
         monthKeysShort.forEach((key, m) => { monthly_data[key] = { amount: row[2 + m] }; });
-        return { general_ledger_name: row[0], detail_note: row[1], monthly_data };
+        const idVal = row[row.length - 1];
+        const rowId = (idVal && !isNaN(parseInt(idVal, 10))) ? parseInt(idVal, 10) : null;
+        const res = { general_ledger_name: row[0], detail_note: row[1], monthly_data };
+        if (rowId) res.id = rowId;
+        return res;
     }
 
     function budgetPlanGridRowToItem(row, category) {
         const monthly_data = {};
         monthKeysShort.forEach((key, m) => { monthly_data[key] = { amount: row[3 + m] }; });
-        return { budget_category: category, general_ledger_name: row[0], item_code: row[1], description: row[2], monthly_data };
+        const idVal = row[row.length - 1];
+        const rowId = (idVal && !isNaN(parseInt(idVal, 10))) ? parseInt(idVal, 10) : null;
+        const res = { budget_category: category, general_ledger_name: row[0], item_code: row[1], description: row[2], monthly_data };
+        if (rowId) res.id = rowId;
+        return res;
     }
 
     function addGlRowButton(table) {
@@ -2534,13 +2601,17 @@ const BudgetApp = (function() {
                 if (!glName) return;
                 const monthlyData = {};
                 monthKeysShort.forEach((key, m) => { monthlyData[key] = { amount: getNum(row[2 + m]) }; });
-                dataToSave.push({
+                const idVal = row[row.length - 1];
+                const rowId = (idVal && !isNaN(parseInt(idVal, 10))) ? parseInt(idVal, 10) : null;
+                const entry = {
                     general_ledger_code: getGlCode(glName),
                     detail_note: row[1] || '',
                     cost_center_name: costCenterName,
                     branch_code: branchCode,
                     monthly_data: monthlyData,
-                });
+                };
+                if (rowId) entry.id = rowId;
+                dataToSave.push(entry);
             });
         } else {
             BUDGET_PLAN_SECTIONS.forEach((section, idx) => {
@@ -2553,7 +2624,9 @@ const BudgetApp = (function() {
                     if (!glName && !itemCode && !description) return;
                     const monthlyData = {};
                     monthKeysShort.forEach((key, m) => { monthlyData[key] = { amount: getNum(row[3 + m]) }; });
-                    dataToSave.push({
+                    const idVal = row[row.length - 1];
+                    const rowId = (idVal && !isNaN(parseInt(idVal, 10))) ? parseInt(idVal, 10) : null;
+                    const entry = {
                         budget_category: section.category,
                         item_code: itemCode || '',
                         general_ledger_code: getGlCode(glName) || '',
@@ -2561,7 +2634,9 @@ const BudgetApp = (function() {
                         cost_center_name: costCenterName,
                         branch_code: branchCode,
                         monthly_data: monthlyData,
-                    });
+                    };
+                    if (rowId) entry.id = rowId;
+                    dataToSave.push(entry);
                 });
             });
         }
@@ -2811,7 +2886,8 @@ const BudgetApp = (function() {
                         { type: 'numeric', title: 'Oct', width: 60, readOnly: true },
                         { type: 'numeric', title: 'Nov', width: 60, readOnly: true },
                         { type: 'numeric', title: 'Dec', width: 60, readOnly: true },
-                        { type: 'numeric', title: 'รวม (คน)', width: 80, readOnly: true, mask: '#,##0' }
+                        { type: 'numeric', title: 'รวม (คน)', width: 80, readOnly: true, mask: '#,##0' },
+                        { type: 'hidden' }
                     ];
 
                     const cols2 = [
@@ -2877,6 +2953,7 @@ const BudgetApp = (function() {
                         let sumHC = 0;
                         monthHeadcounts.forEach(hc => { r1.push(hc); sumHC += hc; });
                         r1.push(sumHC);
+                        r1.push(item.id || '');
 
                         // Carry-forward, same as onAdjSpreadsheetChange/budget_add_adjustment.html
                         // — a position change's cost keeps applying to every month after it
@@ -2897,7 +2974,25 @@ const BudgetApp = (function() {
                     adjTable1 = jspreadsheet(document.getElementById('adjModalSpreadsheet1'), {
                         data: data1, columns: cols1, allowInsertRow: false, allowDeleteRow: false,
                         allowInsertColumn: false, allowManualInsertColumn: false, allowDeleteColumn: false,
-                        tableOverflow: true, contextMenu: function() { return false; }, freezeColumns: 5
+                        tableOverflow: true, contextMenu: function() { return false; }, freezeColumns: 5,
+                        updateTable: function(el, cell, col, row, val, label, cellName) {
+                            if (col === 6 || col === 9) {
+                                const sheet = (el && el.jexcel) || adjTable1;
+                                const rowType = (sheet && typeof sheet.getValueFromCoords === 'function')
+                                    ? (sheet.getValueFromCoords(0, row) || '').trim().toUpperCase() : '';
+                                if (rowType === 'VET') {
+                                    cell.style.backgroundColor = '#f1f3f5';
+                                    cell.style.color = '#adb5bd';
+                                    cell.style.cursor = 'not-allowed';
+                                    cell.classList.add('readonly');
+                                } else {
+                                    cell.style.backgroundColor = '';
+                                    cell.style.color = '';
+                                    cell.style.cursor = '';
+                                    cell.classList.remove('readonly');
+                                }
+                            }
+                        }
                     });
                     adjTable2 = jspreadsheet(document.getElementById('adjModalSpreadsheet2'), {
                         data: data2, columns: cols2, allowInsertRow: false, allowDeleteRow: false,
@@ -2981,6 +3076,12 @@ const BudgetApp = (function() {
                         });
                     }
                 }
+                if (newType === 'VET') {
+                    adjTable1.setValueFromCoords(6, y, 0, true);
+                    adjTable1.setValueFromCoords(9, y, 0, true);
+                    oldAllow = 0;
+                    newAllow = 0;
+                }
                 const curOldPos = (adjTable1.getValueFromCoords(1, y) || '').trim();
                 const curNewPos = (adjTable1.getValueFromCoords(3, y) || '').trim();
                 const allowedList = newType === 'VET' ? vetItems : (newType === 'NON VET' ? nonVetItems : []);
@@ -3028,7 +3129,7 @@ const BudgetApp = (function() {
                     const match = allowedList.find(i => i.name === trimmedVal);
                     if (match) {
                         oldSal = match.salary || 0;
-                        oldAllow = match.position_allowance || 0;
+                        oldAllow = rowType === 'VET' ? 0 : (match.position_allowance || 0);
                         adjTable1.setValueFromCoords(5, y, oldSal, true);
                         adjTable1.setValueFromCoords(6, y, oldAllow, true);
                     } else {
@@ -3077,7 +3178,7 @@ const BudgetApp = (function() {
                     const match = allowedList.find(i => i.name === trimmedVal);
                     if (match) {
                         newSal = match.salary || 0;
-                        newAllow = match.position_allowance || 0;
+                        newAllow = rowType === 'VET' ? 0 : (match.position_allowance || 0);
                         adjTable1.setValueFromCoords(8, y, newSal, true);
                         adjTable1.setValueFromCoords(9, y, newAllow, true);
                     } else {
@@ -3102,9 +3203,27 @@ const BudgetApp = (function() {
                 }
             }
             if (x === 5) oldSal = getNum(value);
-            if (x === 6) oldAllow = getNum(value);
+            if (x === 6) {
+                const rowType = (adjTable1.getValueFromCoords(0, y) || '').trim().toUpperCase();
+                if (rowType === 'VET') {
+                    oldAllow = 0;
+                    adjTable1.setValueFromCoords(6, y, 0, true);
+                    showVetAllowanceAlert();
+                } else {
+                    oldAllow = getNum(value);
+                }
+            }
             if (x === 8) newSal = getNum(value);
-            if (x === 9) newAllow = getNum(value);
+            if (x === 9) {
+                const rowType = (adjTable1.getValueFromCoords(0, y) || '').trim().toUpperCase();
+                if (rowType === 'VET') {
+                    newAllow = 0;
+                    adjTable1.setValueFromCoords(9, y, 0, true);
+                    showVetAllowanceAlert();
+                } else {
+                    newAllow = getNum(value);
+                }
+            }
 
             if (x === 0 || x === 1 || x === 3 || x === 5 || x === 6 || x === 8 || x === 9) {
                 let oldTotal = oldSal + oldAllow;
@@ -3473,7 +3592,8 @@ const BudgetApp = (function() {
                 { type: 'numeric', title: 'Oct', width: 60 },
                 { type: 'numeric', title: 'Nov', width: 60 },
                 { type: 'numeric', title: 'Dec', width: 60 },
-                { type: 'numeric', title: 'รวม (คน)', width: 80, readOnly: true, mask: '#,##0' }
+                { type: 'numeric', title: 'รวม (คน)', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'hidden' }
             ];
             
             const currentData = adjTable1.getData();
@@ -3490,6 +3610,41 @@ const BudgetApp = (function() {
                 tableOverflow: true,
                 freezeColumns: 5,
                 onchange: onAdjSpreadsheetChange,
+                updateTable: function(el, cell, col, row, val, label, cellName) {
+                    if (col === 6 || col === 9) {
+                        const sheet = (el && el.jexcel) || adjTable1;
+                        const rowType = (sheet && typeof sheet.getValueFromCoords === 'function')
+                            ? (sheet.getValueFromCoords(0, row) || '').trim().toUpperCase() : '';
+                        if (rowType === 'VET') {
+                            cell.style.backgroundColor = '#f1f3f5';
+                            cell.style.color = '#adb5bd';
+                            cell.style.cursor = 'not-allowed';
+                            cell.classList.add('readonly');
+                        } else {
+                            cell.style.backgroundColor = '';
+                            cell.style.color = '';
+                            cell.style.cursor = '';
+                            cell.classList.remove('readonly');
+                        }
+                    }
+                },
+                oneditionstart: function(el, cell, x, y) {
+                    x = parseInt(x);
+                    y = parseInt(y);
+                    if (x === 6 || x === 9) {
+                        const sheet = (el && el.jexcel) || adjTable1;
+                        const rowType = (sheet && typeof sheet.getValueFromCoords === 'function')
+                            ? (sheet.getValueFromCoords(0, y) || '').trim().toUpperCase() : '';
+                        if (rowType === 'VET') {
+                            setTimeout(function() {
+                                if (sheet && sheet.edition) {
+                                    sheet.closeEditor(cell, false);
+                                }
+                            }, 0);
+                            showVetAllowanceAlert();
+                        }
+                    }
+                },
                 contextMenu: function() { return true; },
                 // adjTable1 can gain or lose rows through the "เพิ่มรายการ" button,
                 // pressing Enter on the last row, or right-click context menu delete row.
@@ -3701,6 +3856,10 @@ const BudgetApp = (function() {
                     return;
                 }
 
+                if (adjustmentType === 'VET') {
+                    oldAllow = 0;
+                    newAllow = 0;
+                }
                 let diffSal = newSal - oldSal;
                 let diffAllow = newAllow - oldAllow;
                 const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
@@ -3746,21 +3905,27 @@ const BudgetApp = (function() {
                 // what was shown before Save.
                 const salaryBudget = computeMonthlyBudget(monthCounts, diffSal);
                 const allowanceBudget = computeMonthlyBudget(monthCounts, diffAllow);
+                const oldSalaryBudget = computeMonthlyBudget(monthCounts, oldSal);
+                const oldAllowanceBudget = computeMonthlyBudget(monthCounts, oldAllow);
+                const newSalaryBudget = computeMonthlyBudget(monthCounts, newSal);
+                const newAllowanceBudget = computeMonthlyBudget(monthCounts, newAllow);
                 let monthlyData = {};
                 monthKeys.forEach((key, idx) => {
                     monthlyData[key] = {
                         headcount: monthCounts[idx],
-                        // BudgetMonthlyDetail only has one 'cost' column, so the
-                        // two per-month budgets shown on screen are combined
-                        // here into the single total that actually gets persisted
-                        // (see budget_add_adjustment.html for the same fix on create).
                         cost: salaryBudget[idx].cost + allowanceBudget[idx].cost,
                         salary_diff_cost: salaryBudget[idx].cost,
                         allowance_diff_cost: allowanceBudget[idx].cost,
+                        old_salary: oldSalaryBudget[idx].cost,
+                        old_allowance: oldAllowanceBudget[idx].cost,
+                        new_salary: newSalaryBudget[idx].cost,
+                        new_allowance: newAllowanceBudget[idx].cost,
                     };
                 });
 
-                dataToSave.push({
+                const idVal = row[row.length - 1];
+                const rowId = (idVal && !isNaN(parseInt(idVal, 10))) ? parseInt(idVal, 10) : null;
+                const adjEntry = {
                     'adjustment_type': adjustmentType,
                     'old_position_name': oldPos,
                     'old_description': oldDetail || '',
@@ -3773,7 +3938,9 @@ const BudgetApp = (function() {
                     'cost_center_name': costCenterName,
                     'branch_code': branchCode,
                     'monthly_data': monthlyData
-                });
+                };
+                if (rowId) adjEntry['id'] = rowId;
+                dataToSave.push(adjEntry);
             }
         }
 
@@ -4085,6 +4252,13 @@ const BudgetApp = (function() {
         });
         glatTable.setHeader(2, glatActualColumnLabel(currentGlatMonthCount));
 
+        if (items && items.length > 0) {
+            items.forEach((item, idx) => {
+                if (glatTemplateRows[idx] && item.id) {
+                    glatTemplateRows[idx].id = item.id;
+                }
+            });
+        }
         const rowsMeta = (items && items.length > 0)
             ? items.map(item => ({ row_type: item.row_type }))
             : glatTemplateRows;
@@ -4301,7 +4475,7 @@ const BudgetApp = (function() {
         const rows = glatTable ? glatTable.getData() : [];
         const dataToSave = glatTemplateRows.map((r, i) => {
             const row = rows[i] || [];
-            return {
+            const entry = {
                 template_row_id: r.template_row_id,
                 row_order: r.row_order,
                 code: r.code,
@@ -4318,6 +4492,8 @@ const BudgetApp = (function() {
                 growth_pct_2: getNum(currentGlatGrowthPct2),
                 growth_pct_3: getNum(currentGlatGrowthPct3),
             };
+            if (r.id) entry.id = r.id;
+            return entry;
         });
 
         Swal.fire({

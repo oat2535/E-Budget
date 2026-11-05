@@ -224,6 +224,23 @@
             }
         };
 
+        let lastVetAllowanceAlertTime = 0;
+        function showVetAllowanceAlert() {
+            const now = Date.now();
+            if (now - lastVetAllowanceAlertTime < 1000) return;
+            lastVetAllowanceAlertTime = now;
+            if (typeof Swal !== 'undefined') {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'แจ้งเตือน',
+                    text: 'ตำแหน่งประเภท VET ไม่มีค่าตำแหน่ง (ค่าวัดระดับ) จึงไม่สามารถระบุค่าตำแหน่งเดิมหรือค่าตำแหน่งใหม่ได้ครับ (กรอกได้เฉพาะประเภท NON VET)',
+                    confirmButtonText: 'ตกลง',
+                    confirmButtonColor: '#3085d6',
+                    timer: 4000
+                });
+            }
+        }
+
         const adjPositionEditor = {
             createCell: function(cell) {
                 cell.classList.add('eb-dropdown-cell');
@@ -527,6 +544,12 @@
                         });
                     }
                 }
+                if (newType === 'VET') {
+                    table1.setValueFromCoords(6, y, 0, true);
+                    table1.setValueFromCoords(9, y, 0, true);
+                    oldAllow = 0;
+                    newAllow = 0;
+                }
                 const curOldPos = (table1.getValueFromCoords(1, y) || '').trim();
                 const curNewPos = (table1.getValueFromCoords(3, y) || '').trim();
                 const allowedList = newType === 'VET' ? vetPositions : (newType === 'NON VET' ? nonVetPositions : []);
@@ -576,7 +599,7 @@
                     const match = allowedList.find(i => i.name === trimmedVal);
                     if (match) {
                         oldSal = match.salary || 0;
-                        oldAllow = match.position_allowance || 0;
+                        oldAllow = rowType === 'VET' ? 0 : (match.position_allowance || 0);
                         table1.setValueFromCoords(5, y, oldSal, true);
                         table1.setValueFromCoords(6, y, oldAllow, true);
                     } else {
@@ -627,7 +650,7 @@
                     const match = allowedList.find(i => i.name === trimmedVal);
                     if (match) {
                         newSal = match.salary || 0;
-                        newAllow = match.position_allowance || 0;
+                        newAllow = rowType === 'VET' ? 0 : (match.position_allowance || 0);
                         table1.setValueFromCoords(8, y, newSal, true);
                         table1.setValueFromCoords(9, y, newAllow, true);
                     } else {
@@ -654,9 +677,27 @@
 
             // Manual Salary/Allowance Changed
             if (x === 5) oldSal = getNum(value);
-            if (x === 6) oldAllow = getNum(value);
+            if (x === 6) {
+                const rowType = (table1.getValueFromCoords(0, y) || '').trim().toUpperCase();
+                if (rowType === 'VET') {
+                    oldAllow = 0;
+                    table1.setValueFromCoords(6, y, 0, true);
+                    showVetAllowanceAlert();
+                } else {
+                    oldAllow = getNum(value);
+                }
+            }
             if (x === 8) newSal = getNum(value);
-            if (x === 9) newAllow = getNum(value);
+            if (x === 9) {
+                const rowType = (table1.getValueFromCoords(0, y) || '').trim().toUpperCase();
+                if (rowType === 'VET') {
+                    newAllow = 0;
+                    table1.setValueFromCoords(9, y, 0, true);
+                    showVetAllowanceAlert();
+                } else {
+                    newAllow = getNum(value);
+                }
+            }
 
             // Calc Income Totals & Diffs
             if (x === 0 || x === 1 || x === 3 || x === 5 || x === 6 || x === 8 || x === 9) {
@@ -767,6 +808,41 @@
             columns: cols1,
             minDimensions: [26, 1],
             onchange: onchange,
+            updateTable: function(el, cell, col, row, val, label, cellName) {
+                if (col === 6 || col === 9) {
+                    const sheet = (el && el.jexcel) || table1;
+                    const rowType = (sheet && typeof sheet.getValueFromCoords === 'function')
+                        ? (sheet.getValueFromCoords(0, row) || '').trim().toUpperCase() : '';
+                    if (rowType === 'VET') {
+                        cell.style.backgroundColor = '#f1f3f5';
+                        cell.style.color = '#adb5bd';
+                        cell.style.cursor = 'not-allowed';
+                        cell.classList.add('readonly');
+                    } else {
+                        cell.style.backgroundColor = '';
+                        cell.style.color = '';
+                        cell.style.cursor = '';
+                        cell.classList.remove('readonly');
+                    }
+                }
+            },
+            oneditionstart: function(el, cell, x, y) {
+                x = parseInt(x);
+                y = parseInt(y);
+                if (x === 6 || x === 9) {
+                    const sheet = (el && el.jexcel) || table1;
+                    const rowType = (sheet && typeof sheet.getValueFromCoords === 'function')
+                        ? (sheet.getValueFromCoords(0, y) || '').trim().toUpperCase() : '';
+                    if (rowType === 'VET') {
+                        setTimeout(function() {
+                            if (sheet && sheet.edition) {
+                                sheet.closeEditor(cell, false);
+                            }
+                        }, 0);
+                        showVetAllowanceAlert();
+                    }
+                }
+            },
             allowInsertColumn: false,
             allowManualInsertColumn: false,
             allowDeleteColumn: false,
@@ -851,12 +927,36 @@
         // Ensure table2 and table3 synchronize whenever Enter is pressed to create a new row
         // And block decimal point (.) and minus (-) in month headcount columns (Jan - Dec: x = 13 to 24)
         const table1SpreadsheetEl = document.getElementById('table1-spreadsheet');
+        table1SpreadsheetEl.addEventListener('click', function(e) {
+            const td = e.target.closest('td');
+            if (!td) return;
+            const x = parseInt(td.getAttribute('data-x'));
+            const y = parseInt(td.getAttribute('data-y'));
+            if ((x === 6 || x === 9) && !isNaN(y) && table1) {
+                const rowType = (table1.getValueFromCoords(0, y) || '').trim().toUpperCase();
+                if (rowType === 'VET') {
+                    showVetAllowanceAlert();
+                }
+            }
+        });
+
         table1SpreadsheetEl.addEventListener('keydown', function(e) {
             if (e.which === 13) {
                 setTimeout(syncTableRows, 0);
             }
             if (table1 && table1.selectedCell) {
                 const x = table1.selectedCell[0];
+                const y = table1.selectedCell[1];
+                if ((x === 6 || x === 9) && !isNaN(y)) {
+                    const rowType = (table1.getValueFromCoords(0, y) || '').trim().toUpperCase();
+                    if (rowType === 'VET') {
+                        const allowedNavKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'Escape'];
+                        if (!allowedNavKeys.includes(e.key)) {
+                            e.preventDefault();
+                            showVetAllowanceAlert();
+                        }
+                    }
+                }
                 if (x >= 13 && x <= 24) {
                     if (e.ctrlKey || e.metaKey || e.altKey) return;
                     const allowedControlKeys = ['Backspace', 'Tab', 'Enter', 'Escape', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
@@ -944,6 +1044,10 @@
                         return;
                     }
 
+                    if (adjustmentType === 'VET') {
+                        oldAllow = 0;
+                        newAllow = 0;
+                    }
                     let diffSal = newSal - oldSal;
                     let diffAllow = newAllow - oldAllow;
 
@@ -979,17 +1083,22 @@
                     }
                     const salaryBudget = computeMonthlyBudget(monthCounts, diffSal);
                     const allowanceBudget = computeMonthlyBudget(monthCounts, diffAllow);
+                    const oldSalaryBudget = computeMonthlyBudget(monthCounts, oldSal);
+                    const oldAllowanceBudget = computeMonthlyBudget(monthCounts, oldAllow);
+                    const newSalaryBudget = computeMonthlyBudget(monthCounts, newSal);
+                    const newAllowanceBudget = computeMonthlyBudget(monthCounts, newAllow);
 
                     let monthlyData = {};
                     monthKeys.forEach((key, idx) => {
                         monthlyData[key] = {
                             headcount: monthCounts[idx],
-                            // BudgetMonthlyDetail only has one 'cost' column, so the two
-                            // per-month budgets shown on screen (table2/table3) are combined
-                            // here into the single total that actually gets persisted.
                             cost: salaryBudget[idx].cost + allowanceBudget[idx].cost,
                             salary_diff_cost: salaryBudget[idx].cost,
                             allowance_diff_cost: allowanceBudget[idx].cost,
+                            old_salary: oldSalaryBudget[idx].cost,
+                            old_allowance: oldAllowanceBudget[idx].cost,
+                            new_salary: newSalaryBudget[idx].cost,
+                            new_allowance: newAllowanceBudget[idx].cost,
                         };
                     });
 

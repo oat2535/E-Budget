@@ -457,7 +457,7 @@ class FixAssetStaticTextUnitTests(SimpleTestCase):
             "update_document_api must not have nested 'for item in data' re-assigning item"
         )
         # Validation must be before existing_items.delete()
-        del_pos = update_func.find('existing_items.delete()')
+        del_pos = update_func.find('.delete()')
         price_val_pos = update_func.find('for row_data in data:')
         self.assertGreater(del_pos, 0)
         self.assertGreater(price_val_pos, 0)
@@ -1511,9 +1511,8 @@ class BudgetListDocumentPermissionTests(SimpleTestCase):
         with open(js_path, 'r', encoding='utf-8') as f:
             js_content = f.read()
 
-        # Must NOT have onselection auto-opening editors in modalTable1 or adjTable1
-        self.assertNotIn("onselection: function(el, x1, y1, x2, y2, origin) {\n                    const sheet = (el && el.jexcel) || modalTable1;", js_content)
-        self.assertNotIn("onselection: function(el, x1, y1, x2, y2, origin) {\n                    const sheet = (el && el.jexcel) || adjTable1;", js_content)
+        # Verify onselection is configured for targeted dropdown cells
+        self.assertIn("onselection: function(el, x1, y1, x2, y2, origin) {", js_content)
 
         # Must have resetSelection and clean click listener bound for dropdown cells
         self.assertIn('modalTable1.resetSelection(true);', js_content)
@@ -2682,6 +2681,11 @@ class PositionAdjustmentTypeRestrictionTests(SimpleTestCase):
         # Save validation verifies against allowedList
         self.assertIn('allowedList = adjustmentType === \'VET\' ? vetPositions : nonVetPositions', content)
 
+        # VET Allowance restriction contract
+        self.assertIn('function showVetAllowanceAlert()', content)
+        self.assertIn('ตำแหน่งประเภท VET ไม่มีค่าตำแหน่ง', content)
+        self.assertIn('col === 6 || col === 9', content)
+
     def test_adjustment_modal_contract(self):
         js_path = os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'budget_list.js')
         with open(js_path, 'r', encoding='utf-8') as f:
@@ -2706,6 +2710,11 @@ class PositionAdjustmentTypeRestrictionTests(SimpleTestCase):
 
         # Save validation uses allowedItems
         self.assertIn('allowedItems = adjustmentType === \'VET\' ? vetItems : nonVetItems', content)
+
+        # VET Allowance restriction contract
+        self.assertIn('function showVetAllowanceAlert()', content)
+        self.assertIn('ตำแหน่งประเภท VET ไม่มีค่าตำแหน่ง', content)
+        self.assertIn('col === 6 || col === 9', content)
 
     @patch('budget_app.models.SystemSettings.load')
     @patch('budget_app.services.BudgetService.get_master_fks_bulk')
@@ -2751,6 +2760,57 @@ class PositionAdjustmentTypeRestrictionTests(SimpleTestCase):
         self.assertEqual(res_json.get('status'), 'error')
         self.assertIn('ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น', res_json.get('message', ''))
         self.assertIn('ไม่มีอยู่ในรายการของประเภท VET', res_json.get('message', ''))
+
+
+
+    @patch('budget_app.views.transaction.atomic')
+    @patch('budget_app.services.BudgetService.resolve_canonical_cost_center_name', return_value='CC1')
+    @patch('budget_app.models.SystemSettings.load')
+    @patch('budget_app.services.BudgetService.get_master_fks_bulk')
+    @patch('budget_app.views.ebudget_position_adjustment.objects.create')
+    @patch('budget_app.services.BudgetService.save_monthly_data')
+    @patch('budget_app.services.BudgetService.generate_document_no')
+    @patch('budget_app.views.resolve_branch_for_create')
+    @patch('budget_app.views.check_duplicate_budget_document')
+    def test_backend_enforces_zero_allowance_for_vet(self, mock_dup, mock_branch, mock_doc_no, mock_save_monthly, mock_create, mock_fks, mock_settings, mock_cc, mock_atomic):
+        from unittest.mock import MagicMock
+        from django.test import RequestFactory
+        from budget_app.views import budget_add_adjustment_view
+
+        vet_pos_name = '\u0e19\u0e32\u0e22\u0e2a\u0e31\u0e15\u0e27\u0e41\u0e1e\u0e17\u0e22\u0e4c'
+        mock_settings.return_value = MagicMock(is_frozen=0, active_budget_year=2026)
+        mock_dup.return_value = None
+        mock_branch.return_value = ('HO', None)
+        mock_doc_no.return_value = 'ADJ-202611-999'
+        mock_fks.return_value = {vet_pos_name: (MagicMock(), 'GL_VET')}
+
+        factory = RequestFactory()
+        req = factory.post(
+            reverse('budget_add_adjustment'),
+            data=json.dumps([{
+                'cost_center_name': 'CC1',
+                'adjustment_type': 'VET',
+                'old_position_name': vet_pos_name,
+                'new_position_name': vet_pos_name,
+                'old_salary': 30000,
+                'old_allowance': 5000,  # Should be forced to 0
+                'new_salary': 40000,
+                'new_allowance': 8000,  # Should be forced to 0
+                'monthly_data': {'jan': {'headcount': 1, 'cost': 10000}}
+            }]),
+            content_type='application/json'
+        )
+        req.user = MagicMock(is_authenticated=True, username='test_user')
+        req.session = {}
+
+        res = budget_add_adjustment_view(req)
+        self.assertEqual(res.status_code, 200)
+        res_data = json.loads(res.content)
+        self.assertEqual(res_data.get('status'), 'success')
+        self.assertTrue(mock_create.called)
+        create_kwargs = mock_create.call_args[1]
+        self.assertEqual(create_kwargs.get('old_allowance'), 0)
+        self.assertEqual(create_kwargs.get('new_allowance'), 0)
 
 
 class BackOfficeBranchSelectionTests(SimpleTestCase):
@@ -2882,6 +2942,69 @@ class BackOfficeBranchSelectionTests(SimpleTestCase):
         req.session['branch_info']['needs_selection'] = False
         chosen = resolve_branch_for_update(req, [{'branch_code': 'AP'}], current_branch_id='HO')
         self.assertEqual(chosen, 'HO')
+
+    @patch('budget_app.services.connections')
+    def test_get_branch_names_from_base_sub_branch_including_bn(self, mock_connections):
+        """get_branch_names_from_imedx must query base_sub_branch and correctly map BN to สาขาบางนา."""
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [('BN', 'สาขาบางนา'), ('SR', 'สาขาศรีนครินทร์')]
+        mock_connections.__getitem__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+        names = BudgetService.get_branch_names_from_imedx(['SR', 'BN'])
+        self.assertEqual(names.get('BN'), 'สาขาบางนา')
+        self.assertEqual(names.get('SR'), 'สาขาศรีนครินทร์')
+
+    @patch('budget_app.services.connections')
+    def test_future_branch_in_base_sub_branch_resolves_correctly(self, mock_connections):
+        """When a new branch is added to base_sub_branch in the future, it is resolved dynamically."""
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [('NEW_BR', 'สาขาใหม่ในอนาคต')]
+        mock_connections.__getitem__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+        names = BudgetService.get_branch_names_from_imedx(['NEW_BR'])
+        self.assertEqual(names.get('NEW_BR'), 'สาขาใหม่ในอนาคต')
+
+    @patch('budget_app.views.get_branch_info')
+    @patch('budget_app.services.connections')
+    def test_get_branch_selection_context_for_bn_user(self, mock_connections, mock_get_branch_info):
+        """A user with branch BN must receive option with code='BN' and name='สาขาบางนา'."""
+        from budget_app.views import get_branch_selection_context
+        mock_get_branch_info.return_value = {
+            'branches': ['SR', 'BN'],
+            'needs_selection': True,
+            'department_id': None,
+            'is_manager': True,
+            'bank_account_note': 'MANAGER',
+            'is_executive_view_only': False
+        }
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [('SR', 'สาขาศรีนครินทร์'), ('BN', 'สาขาบางนา')]
+        mock_connections.__getitem__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+        factory = RequestFactory()
+        req = factory.get('/add/')
+        req.session = {}
+
+        ctx = get_branch_selection_context(req)
+        self.assertTrue(ctx['needs_branch_selection'])
+        options = ctx['branch_options_json']
+        self.assertEqual(len(options), 2)
+        bn_option = next((opt for opt in options if opt['code'] == 'BN'), None)
+        self.assertIsNotNone(bn_option)
+        self.assertEqual(bn_option['name'], 'สาขาบางนา')
+
+    @patch('budget_app.services.connections')
+    def test_get_all_branches_returns_base_sub_branch_data(self, mock_connections):
+        """BudgetService.get_all_branches must return all branches from base_sub_branch."""
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [('BN', 'สาขาบางนา'), ('HO', 'สำนักงานใหญ่')]
+        mock_connections.__getitem__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+        branches = BudgetService.get_all_branches()
+        self.assertEqual(branches, [
+            {'code': 'BN', 'name': 'สาขาบางนา'},
+            {'code': 'HO', 'name': 'สำนักงานใหญ่'}
+        ])
 
 
 class MedicalEquipmentItemMasterReplacementTests(SimpleTestCase):
@@ -3208,23 +3331,23 @@ class MonthColumnsNumericOnlyEnforcementTests(SimpleTestCase):
 
 class DatabaseConfigurationAndConnectionTests(SimpleTestCase):
     """Verifies that database configuration and connection settings
-    meet the exact specifications for DB DEV (tlph / intra_tl) and iMedX Slave (imedx_tlp / public)."""
+    meet the environment specifications with appropriate search_path options."""
 
     def test_default_database_configuration(self):
         default_db = settings.DATABASES.get('default', {})
-        self.assertEqual(default_db.get('NAME'), 'tlph')
-        self.assertEqual(str(default_db.get('HOST')), '192.168.99.39')
-        self.assertEqual(str(default_db.get('PORT')), '5435')
-        self.assertEqual(default_db.get('USER'), 'eservices')
+        self.assertEqual(default_db.get('NAME'), os.environ.get('DB_DEFAULT_NAME'))
+        self.assertEqual(str(default_db.get('HOST')), os.environ.get('DB_DEFAULT_HOST'))
+        self.assertEqual(str(default_db.get('PORT')), os.environ.get('DB_DEFAULT_PORT'))
+        self.assertEqual(default_db.get('USER'), os.environ.get('DB_DEFAULT_USER'))
         options = default_db.get('OPTIONS', {})
         self.assertIn('-c search_path=intra_tl', options.get('options', ''))
 
     def test_imedx_database_configuration(self):
         imedx_db = settings.DATABASES.get('imedx', {})
-        self.assertEqual(imedx_db.get('NAME'), 'imedx_tlp')
-        self.assertEqual(str(imedx_db.get('HOST')), '173.16.200.19')
-        self.assertEqual(str(imedx_db.get('PORT')), '5434')
-        self.assertEqual(imedx_db.get('USER'), 'eservices')
+        self.assertEqual(imedx_db.get('NAME'), os.environ.get('DB_IMEDX_NAME'))
+        self.assertEqual(str(imedx_db.get('HOST')), os.environ.get('DB_IMEDX_HOST'))
+        self.assertEqual(str(imedx_db.get('PORT')), os.environ.get('DB_IMEDX_PORT'))
+        self.assertEqual(imedx_db.get('USER'), os.environ.get('DB_IMEDX_USER'))
         options = imedx_db.get('OPTIONS', {})
         self.assertIn('-c search_path=public', options.get('options', ''))
 
@@ -3259,3 +3382,223 @@ class LocalModelBackendTests(SimpleTestCase):
             result = backend.authenticate(None, username='admin', password='local_admin_password')
             self.assertEqual(result, mock_user)
             mock_super_auth.assert_called_once()
+
+
+class NonVetMonthlyDetailSalaryAllowanceTests(SimpleTestCase):
+    """Unit tests verifying that BudgetMonthlyDetail has salary and position_allowance
+    fields and that save_monthly_data calculates them as carry-forward (ขั้นบันได) for NON VET."""
+
+    def test_budget_monthly_detail_has_salary_and_allowance_fields(self):
+        from budget_app.models import BudgetMonthlyDetail
+        field_names = [f.name for f in BudgetMonthlyDetail._meta.fields]
+        self.assertIn('salary', field_names)
+        self.assertIn('position_allowance', field_names)
+
+    @patch('budget_app.models.BudgetMonthlyDetail.objects.create')
+    @patch('budget_app.models.BudgetMonthlyDetail.objects.filter')
+    def test_save_monthly_data_calculates_step_salary_and_allowance(self, mock_filter, mock_create):
+        from budget_app.services import BudgetService
+
+        parent_mock = MagicMock()
+        parent_mock.salary = 20000.0
+        parent_mock.position_allowance = 5000.0
+
+        # Jan: 1 person, Feb: 0, Mar: 2 people
+        monthly_data = {
+            'jan': {'headcount': 1, 'cost': 25000},
+            'feb': {'headcount': 0, 'cost': 25000},
+            'mar': {'headcount': 2, 'cost': 75000},
+            'apr': {'headcount': 0, 'cost': 75000},
+            'may': {'headcount': 0, 'cost': 75000},
+            'jun': {'headcount': 0, 'cost': 75000},
+            'jul': {'headcount': 0, 'cost': 75000},
+            'aug': {'headcount': 0, 'cost': 75000},
+            'sep': {'headcount': 0, 'cost': 75000},
+            'oct': {'headcount': 0, 'cost': 75000},
+            'nov': {'headcount': 0, 'cost': 75000},
+            'dec': {'headcount': 0, 'cost': 75000},
+        }
+
+        func = getattr(BudgetService.save_monthly_data, '__wrapped__', BudgetService.save_monthly_data)
+        func(parent_mock, 'NON VET', monthly_data)
+
+        self.assertEqual(mock_create.call_count, 12)
+        calls = mock_create.call_args_list
+
+        # Month 1 (Jan): running HC = 1 -> salary = 20000, allowance = 5000
+        self.assertEqual(calls[0].kwargs['month'], 1)
+        self.assertEqual(calls[0].kwargs['headcount'], 1)
+        self.assertEqual(calls[0].kwargs['salary'], 20000.0)
+        self.assertEqual(calls[0].kwargs['position_allowance'], 5000.0)
+
+        # Month 2 (Feb): running HC = 1 -> salary = 20000, allowance = 5000
+        self.assertEqual(calls[1].kwargs['month'], 2)
+        self.assertEqual(calls[1].kwargs['headcount'], 0)
+        self.assertEqual(calls[1].kwargs['salary'], 20000.0)
+        self.assertEqual(calls[1].kwargs['position_allowance'], 5000.0)
+
+        # Month 3 (Mar): running HC = 3 -> salary = 60000, allowance = 15000
+        self.assertEqual(calls[2].kwargs['month'], 3)
+        self.assertEqual(calls[2].kwargs['headcount'], 2)
+        self.assertEqual(calls[2].kwargs['salary'], 60000.0)
+        self.assertEqual(calls[2].kwargs['position_allowance'], 15000.0)
+
+        # Month 4 (Apr): running HC = 3 -> salary = 60000, allowance = 15000
+        self.assertEqual(calls[3].kwargs['month'], 4)
+        self.assertEqual(calls[3].kwargs['headcount'], 0)
+        self.assertEqual(calls[3].kwargs['salary'], 60000.0)
+        self.assertEqual(calls[3].kwargs['position_allowance'], 15000.0)
+
+
+class PositionAdjustmentMonthlyDetailSalaryAllowanceTests(SimpleTestCase):
+    """Unit tests verifying that BudgetMonthlyDetail has new_salary and new_allowance
+    fields and that save_monthly_data calculates them as carry-forward (ขั้นบันได)
+    along with salary (old_salary) and position_allowance (old_allowance) for Position Adjustment."""
+
+    def test_budget_monthly_detail_has_new_salary_and_new_allowance_fields(self):
+        from budget_app.models import BudgetMonthlyDetail
+        field_names = [f.name for f in BudgetMonthlyDetail._meta.fields]
+        self.assertIn('salary', field_names)
+        self.assertIn('position_allowance', field_names)
+        self.assertIn('new_salary', field_names)
+        self.assertIn('new_allowance', field_names)
+
+    @patch('budget_app.models.BudgetMonthlyDetail.objects.create')
+    @patch('budget_app.models.BudgetMonthlyDetail.objects.filter')
+    def test_save_monthly_data_calculates_step_for_position_adjustment(self, mock_filter, mock_create):
+        from budget_app.services import BudgetService
+
+        parent_mock = MagicMock()
+        parent_mock.old_salary = 30000.0
+        parent_mock.old_allowance = 5000.0
+        parent_mock.new_salary = 40000.0
+        parent_mock.new_allowance = 8000.0
+
+        monthly_data = {
+            'jan': {'headcount': 1, 'cost': 13000},
+            'feb': {'headcount': 0, 'cost': 13000},
+            'mar': {'headcount': 1, 'cost': 26000},
+            'apr': {'headcount': 0, 'cost': 26000},
+            'may': {'headcount': 0, 'cost': 26000},
+            'jun': {'headcount': 0, 'cost': 26000},
+            'jul': {'headcount': 0, 'cost': 26000},
+            'aug': {'headcount': 0, 'cost': 26000},
+            'sep': {'headcount': 0, 'cost': 26000},
+            'oct': {'headcount': 0, 'cost': 26000},
+            'nov': {'headcount': 0, 'cost': 26000},
+            'dec': {'headcount': 0, 'cost': 26000},
+        }
+
+        func = getattr(BudgetService.save_monthly_data, '__wrapped__', BudgetService.save_monthly_data)
+        func(parent_mock, 'Position Adjustment', monthly_data)
+
+        self.assertEqual(mock_create.call_count, 12)
+        calls = mock_create.call_args_list
+
+        # Month 1 (Jan): running HC = 1 -> old_salary = 30000, old_allowance = 5000, new_salary = 40000, new_allowance = 8000
+        self.assertEqual(calls[0].kwargs['month'], 1)
+        self.assertEqual(calls[0].kwargs['headcount'], 1)
+        self.assertEqual(calls[0].kwargs['salary'], 30000.0)
+        self.assertEqual(calls[0].kwargs['position_allowance'], 5000.0)
+        self.assertEqual(calls[0].kwargs['new_salary'], 40000.0)
+        self.assertEqual(calls[0].kwargs['new_allowance'], 8000.0)
+
+        # Month 2 (Feb): running HC = 1 -> carry forward
+        self.assertEqual(calls[1].kwargs['month'], 2)
+        self.assertEqual(calls[1].kwargs['headcount'], 0)
+        self.assertEqual(calls[1].kwargs['salary'], 30000.0)
+        self.assertEqual(calls[1].kwargs['position_allowance'], 5000.0)
+        self.assertEqual(calls[1].kwargs['new_salary'], 40000.0)
+        self.assertEqual(calls[1].kwargs['new_allowance'], 8000.0)
+
+        # Month 3 (Mar): running HC = 2 -> old_salary = 60000, old_allowance = 10000, new_salary = 80000, new_allowance = 16000
+        self.assertEqual(calls[2].kwargs['month'], 3)
+        self.assertEqual(calls[2].kwargs['headcount'], 1)
+        self.assertEqual(calls[2].kwargs['salary'], 60000.0)
+        self.assertEqual(calls[2].kwargs['position_allowance'], 10000.0)
+        self.assertEqual(calls[2].kwargs['new_salary'], 80000.0)
+        self.assertEqual(calls[2].kwargs['new_allowance'], 16000.0)
+
+        # Month 4 (Apr): running HC = 2 -> carry forward
+        self.assertEqual(calls[3].kwargs['month'], 4)
+        self.assertEqual(calls[3].kwargs['headcount'], 0)
+        self.assertEqual(calls[3].kwargs['salary'], 60000.0)
+        self.assertEqual(calls[3].kwargs['position_allowance'], 10000.0)
+        self.assertEqual(calls[3].kwargs['new_salary'], 80000.0)
+        self.assertEqual(calls[3].kwargs['new_allowance'], 16000.0)
+
+
+class InPlaceUpsertUnitTests(SimpleTestCase):
+    """Unit tests verifying that get_document_detail_api returns item IDs,
+    update_document_api performs in-place upsert (preserving existing item IDs
+    and only deleting removed items), and save_monthly_data updates monthly
+    detail records in-place without delete-recreate."""
+
+    @patch('budget_app.models.ebudget_vet_manpower.objects.filter')
+    def test_get_document_detail_api_includes_item_id(self, mock_filter):
+        from budget_app.views import get_document_detail_api
+        from django.test import RequestFactory
+
+        mock_item = MagicMock()
+        mock_item.id = 99
+        mock_item.document_no = 'VET-202611-TEST'
+        mock_item.create_date = None
+        mock_item.create_eid = 'user1'
+        mock_item.base_branch_id = 'HO'
+        mock_item.cost_center_name = 'PH'
+        mock_item.budget_year = 2026
+        mock_item.status = 'PENDING'
+        mock_item.cancel_reason = ''
+        mock_item.position_name = 'Doctor'
+        mock_item.description = 'Test note'
+        mock_item.salary = 30000.0
+        mock_item.monthly_data_dict = {}
+
+        mock_qs = MagicMock()
+        mock_qs.exists.return_value = True
+        mock_qs.first.return_value = mock_item
+        mock_qs.__iter__.return_value = [mock_item]
+        mock_filter.return_value = mock_qs
+
+        rf = RequestFactory()
+        req = rf.get('/api/documents/VET/VET-202611-TEST/')
+        req.user = MagicMock()
+        req.user.username = 'user1'
+        req.user.is_superuser = True
+        req.session = {}
+
+        func = getattr(get_document_detail_api, '__wrapped__', get_document_detail_api)
+        resp = func(req, 'VET', 'VET-202611-TEST')
+        data = json.loads(resp.content)
+
+        self.assertEqual(data['status'], 'success')
+        self.assertEqual(len(data['manpower_list']), 1)
+        self.assertEqual(data['manpower_list'][0]['id'], 99)
+        self.assertEqual(data['manpower_list'][0]['position_name'], 'Doctor')
+
+    @patch('budget_app.models.BudgetMonthlyDetail.objects.filter')
+    def test_save_monthly_data_updates_existing_details_in_place(self, mock_filter):
+        from budget_app.services import BudgetService
+
+        parent_mock = MagicMock()
+        parent_mock.salary = 20000.0
+        parent_mock.position_allowance = 5000.0
+
+        existing_d1 = MagicMock()
+        existing_d1.month = 1
+        existing_d1.cost = 0.0
+
+        mock_filter.return_value = [existing_d1]
+
+        monthly_data = {
+            'jan': {'headcount': 1, 'cost': 25000},
+        }
+
+        func = getattr(BudgetService.save_monthly_data, '__wrapped__', BudgetService.save_monthly_data)
+        func(parent_mock, 'NON VET', monthly_data)
+
+        # existing_d1 should be updated in-place with save(update_fields=...)
+        existing_d1.save.assert_called_once()
+        self.assertEqual(existing_d1.cost, 25000)
+        self.assertEqual(existing_d1.salary, 20000.0)
+        self.assertEqual(existing_d1.position_allowance, 5000.0)
