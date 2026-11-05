@@ -587,10 +587,17 @@
                         emptyMonthRows.push({ rowNumber: i + 1, name: position, desc: cleanDesc });
                     }
                     const monthlyBudget = computeMonthlyBudget(monthCounts, salary + allowance);
+                    const salaryBudget = computeMonthlyBudget(monthCounts, salary);
+                    const allowanceBudget = computeMonthlyBudget(monthCounts, allowance);
 
                     let monthlyData = {};
                     monthKeys.forEach((key, idx) => {
-                        monthlyData[key] = { headcount: monthCounts[idx], cost: monthlyBudget[idx].cost };
+                        monthlyData[key] = {
+                            headcount: monthCounts[idx],
+                            cost: monthlyBudget[idx].cost,
+                            salary: salaryBudget[idx].cost,
+                            position_allowance: allowanceBudget[idx].cost
+                        };
                     });
 
                     dataToSave.push({

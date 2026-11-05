@@ -1771,8 +1771,15 @@ const BudgetApp = (function() {
                 });
             } else {
                 const monthlyBudget = computeMonthlyBudget(monthCounts, salary + allowance);
+                const salaryBudget = isNonVet ? computeMonthlyBudget(monthCounts, salary) : null;
+                const allowanceBudget = isNonVet ? computeMonthlyBudget(monthCounts, allowance) : null;
                 monthKeys.forEach((key, idx) => {
-                    monthlyData[key] = { headcount: monthCounts[idx], cost: monthlyBudget[idx].cost };
+                    monthlyData[key] = {
+                        headcount: monthCounts[idx],
+                        cost: monthlyBudget[idx].cost,
+                        salary: isNonVet ? salaryBudget[idx].cost : 0,
+                        position_allowance: isNonVet ? allowanceBudget[idx].cost : 0
+                    };
                 });
             }
 

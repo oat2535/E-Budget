@@ -3382,3 +3382,69 @@ class LocalModelBackendTests(SimpleTestCase):
             result = backend.authenticate(None, username='admin', password='local_admin_password')
             self.assertEqual(result, mock_user)
             mock_super_auth.assert_called_once()
+
+
+class NonVetMonthlyDetailSalaryAllowanceTests(SimpleTestCase):
+    """Unit tests verifying that BudgetMonthlyDetail has salary and position_allowance
+    fields and that save_monthly_data calculates them as carry-forward (ขั้นบันได) for NON VET."""
+
+    def test_budget_monthly_detail_has_salary_and_allowance_fields(self):
+        from budget_app.models import BudgetMonthlyDetail
+        field_names = [f.name for f in BudgetMonthlyDetail._meta.fields]
+        self.assertIn('salary', field_names)
+        self.assertIn('position_allowance', field_names)
+
+    @patch('budget_app.models.BudgetMonthlyDetail.objects.create')
+    @patch('budget_app.models.BudgetMonthlyDetail.objects.filter')
+    def test_save_monthly_data_calculates_step_salary_and_allowance(self, mock_filter, mock_create):
+        from budget_app.services import BudgetService
+
+        parent_mock = MagicMock()
+        parent_mock.salary = 20000.0
+        parent_mock.position_allowance = 5000.0
+
+        # Jan: 1 person, Feb: 0, Mar: 2 people
+        monthly_data = {
+            'jan': {'headcount': 1, 'cost': 25000},
+            'feb': {'headcount': 0, 'cost': 25000},
+            'mar': {'headcount': 2, 'cost': 75000},
+            'apr': {'headcount': 0, 'cost': 75000},
+            'may': {'headcount': 0, 'cost': 75000},
+            'jun': {'headcount': 0, 'cost': 75000},
+            'jul': {'headcount': 0, 'cost': 75000},
+            'aug': {'headcount': 0, 'cost': 75000},
+            'sep': {'headcount': 0, 'cost': 75000},
+            'oct': {'headcount': 0, 'cost': 75000},
+            'nov': {'headcount': 0, 'cost': 75000},
+            'dec': {'headcount': 0, 'cost': 75000},
+        }
+
+        func = getattr(BudgetService.save_monthly_data, '__wrapped__', BudgetService.save_monthly_data)
+        func(parent_mock, 'NON VET', monthly_data)
+
+        self.assertEqual(mock_create.call_count, 12)
+        calls = mock_create.call_args_list
+
+        # Month 1 (Jan): running HC = 1 -> salary = 20000, allowance = 5000
+        self.assertEqual(calls[0].kwargs['month'], 1)
+        self.assertEqual(calls[0].kwargs['headcount'], 1)
+        self.assertEqual(calls[0].kwargs['salary'], 20000.0)
+        self.assertEqual(calls[0].kwargs['position_allowance'], 5000.0)
+
+        # Month 2 (Feb): running HC = 1 -> salary = 20000, allowance = 5000
+        self.assertEqual(calls[1].kwargs['month'], 2)
+        self.assertEqual(calls[1].kwargs['headcount'], 0)
+        self.assertEqual(calls[1].kwargs['salary'], 20000.0)
+        self.assertEqual(calls[1].kwargs['position_allowance'], 5000.0)
+
+        # Month 3 (Mar): running HC = 3 -> salary = 60000, allowance = 15000
+        self.assertEqual(calls[2].kwargs['month'], 3)
+        self.assertEqual(calls[2].kwargs['headcount'], 2)
+        self.assertEqual(calls[2].kwargs['salary'], 60000.0)
+        self.assertEqual(calls[2].kwargs['position_allowance'], 15000.0)
+
+        # Month 4 (Apr): running HC = 3 -> salary = 60000, allowance = 15000
+        self.assertEqual(calls[3].kwargs['month'], 4)
+        self.assertEqual(calls[3].kwargs['headcount'], 0)
+        self.assertEqual(calls[3].kwargs['salary'], 60000.0)
+        self.assertEqual(calls[3].kwargs['position_allowance'], 15000.0)

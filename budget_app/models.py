@@ -99,6 +99,8 @@ class ebudget_vet_manpower(models.Model):
                 res[m_str] = {
                     'headcount': float(detail.headcount),
                     'cost': float(detail.cost),
+                    'salary': float(getattr(detail, 'salary', 0) or 0),
+                    'position_allowance': float(getattr(detail, 'position_allowance', 0) or 0),
                     'cumulative_depreciation': float(getattr(detail, 'cumulative_depreciation', 0) or 0)
                 }
         return res
@@ -162,6 +164,8 @@ class ebudget_non_vet_manpower(models.Model):
                 res[m_str] = {
                     'headcount': float(detail.headcount),
                     'cost': float(detail.cost),
+                    'salary': float(getattr(detail, 'salary', 0) or 0),
+                    'position_allowance': float(getattr(detail, 'position_allowance', 0) or 0),
                     'cumulative_depreciation': float(getattr(detail, 'cumulative_depreciation', 0) or 0)
                 }
         return res
@@ -234,6 +238,8 @@ class ebudget_position_adjustment(models.Model):
                 res[m_str] = {
                     'headcount': float(detail.headcount),
                     'cost': float(detail.cost),
+                    'salary': float(getattr(detail, 'salary', 0) or 0),
+                    'position_allowance': float(getattr(detail, 'position_allowance', 0) or 0),
                     'cumulative_depreciation': float(getattr(detail, 'cumulative_depreciation', 0) or 0)
                 }
         return res
@@ -290,6 +296,8 @@ class ebudget_medical_equipment(models.Model):
                 res[m_str] = {
                     'headcount': float(detail.headcount),
                     'cost': float(detail.cost),
+                    'salary': float(getattr(detail, 'salary', 0) or 0),
+                    'position_allowance': float(getattr(detail, 'position_allowance', 0) or 0),
                     'cumulative_depreciation': float(getattr(detail, 'cumulative_depreciation', 0) or 0)
                 }
         return res
@@ -346,6 +354,8 @@ class ebudget_computer_equipment(models.Model):
                 res[m_str] = {
                     'headcount': float(detail.headcount),
                     'cost': float(detail.cost),
+                    'salary': float(getattr(detail, 'salary', 0) or 0),
+                    'position_allowance': float(getattr(detail, 'position_allowance', 0) or 0),
                     'cumulative_depreciation': float(getattr(detail, 'cumulative_depreciation', 0) or 0)
                 }
         return res
@@ -402,6 +412,8 @@ class ebudget_furniture(models.Model):
                 res[m_str] = {
                     'headcount': float(detail.headcount),
                     'cost': float(detail.cost),
+                    'salary': float(getattr(detail, 'salary', 0) or 0),
+                    'position_allowance': float(getattr(detail, 'position_allowance', 0) or 0),
                     'cumulative_depreciation': float(getattr(detail, 'cumulative_depreciation', 0) or 0)
                 }
         return res
@@ -458,6 +470,8 @@ class ebudget_tools_equipment(models.Model):
                 res[m_str] = {
                     'headcount': float(detail.headcount),
                     'cost': float(detail.cost),
+                    'salary': float(getattr(detail, 'salary', 0) or 0),
+                    'position_allowance': float(getattr(detail, 'position_allowance', 0) or 0),
                     'cumulative_depreciation': float(getattr(detail, 'cumulative_depreciation', 0) or 0)
                 }
         return res
@@ -511,6 +525,8 @@ class ebudget_car(models.Model):
                 res[m_str] = {
                     'headcount': float(detail.headcount),
                     'cost': float(detail.cost),
+                    'salary': float(getattr(detail, 'salary', 0) or 0),
+                    'position_allowance': float(getattr(detail, 'position_allowance', 0) or 0),
                     'cumulative_depreciation': float(getattr(detail, 'cumulative_depreciation', 0) or 0)
                 }
         return res
@@ -564,6 +580,8 @@ class ebudget_renovate(models.Model):
                 res[m_str] = {
                     'headcount': float(detail.headcount),
                     'cost': float(detail.cost),
+                    'salary': float(getattr(detail, 'salary', 0) or 0),
+                    'position_allowance': float(getattr(detail, 'position_allowance', 0) or 0),
                     'cumulative_depreciation': float(getattr(detail, 'cumulative_depreciation', 0) or 0)
                 }
         return res
@@ -617,6 +635,8 @@ class ebudget_software(models.Model):
                 res[m_str] = {
                     'headcount': float(detail.headcount),
                     'cost': float(detail.cost),
+                    'salary': float(getattr(detail, 'salary', 0) or 0),
+                    'position_allowance': float(getattr(detail, 'position_allowance', 0) or 0),
                     'cumulative_depreciation': float(getattr(detail, 'cumulative_depreciation', 0) or 0)
                 }
         return res
@@ -635,6 +655,8 @@ class BudgetMonthlyDetail(models.Model):
     month = models.PositiveSmallIntegerField(choices=MONTH_CHOICES, verbose_name="เดือน (1-12)")
     headcount = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="จำนวน (คน/ชิ้น)")
     cost = models.DecimalField(max_digits=14, decimal_places=2, default=0, verbose_name="งบประมาณ (Cost)")
+    salary = models.DecimalField(max_digits=14, decimal_places=2, default=0, verbose_name="เงินเดือน (Salary)")
+    position_allowance = models.DecimalField(max_digits=14, decimal_places=2, default=0, verbose_name="ค่าวัดระดับ/ค่าตำแหน่ง (Position Allowance)")
     cumulative_depreciation = models.DecimalField(max_digits=14, decimal_places=2, default=0, verbose_name="ค่าเสื่อมราคาสะสม")
     
     vet_budget = models.ForeignKey(ebudget_vet_manpower, on_delete=models.CASCADE, null=True, blank=True, related_name='monthly_details')

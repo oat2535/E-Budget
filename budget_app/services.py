@@ -402,6 +402,10 @@ class BudgetService:
         sorted_months.sort(key=lambda x: x[0])
 
         running_dep = 0.0
+        running_headcount = 0.0
+        row_salary = float(getattr(parent_obj, 'salary', 0) or 0)
+        row_allowance = float(getattr(parent_obj, 'position_allowance', 0) or 0)
+
         for month_int, data in sorted_months:
             headcount = data.get('headcount') or data.get('count') or 0
             if doc_type in (
@@ -424,10 +428,19 @@ class BudgetService:
                 running_dep += cost_num / (gl_depreciation * 12.0)
                 cum_dep = round(running_dep, 2)
 
+            m_salary = 0.0
+            m_allowance = 0.0
+            if doc_type == 'NON VET':
+                running_headcount += headcount
+                m_salary = round(running_headcount * row_salary, 2)
+                m_allowance = round(running_headcount * row_allowance, 2)
+
             BudgetMonthlyDetail.objects.create(
                 month=month_int,
                 headcount=headcount,
                 cost=cost,
+                salary=m_salary,
+                position_allowance=m_allowance,
                 cumulative_depreciation=cum_dep,
                 **{fk_field: parent_obj}
             )
