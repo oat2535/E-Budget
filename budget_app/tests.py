@@ -3448,3 +3448,81 @@ class NonVetMonthlyDetailSalaryAllowanceTests(SimpleTestCase):
         self.assertEqual(calls[3].kwargs['headcount'], 0)
         self.assertEqual(calls[3].kwargs['salary'], 60000.0)
         self.assertEqual(calls[3].kwargs['position_allowance'], 15000.0)
+
+
+class PositionAdjustmentMonthlyDetailSalaryAllowanceTests(SimpleTestCase):
+    """Unit tests verifying that BudgetMonthlyDetail has new_salary and new_allowance
+    fields and that save_monthly_data calculates them as carry-forward (ขั้นบันได)
+    along with salary (old_salary) and position_allowance (old_allowance) for Position Adjustment."""
+
+    def test_budget_monthly_detail_has_new_salary_and_new_allowance_fields(self):
+        from budget_app.models import BudgetMonthlyDetail
+        field_names = [f.name for f in BudgetMonthlyDetail._meta.fields]
+        self.assertIn('salary', field_names)
+        self.assertIn('position_allowance', field_names)
+        self.assertIn('new_salary', field_names)
+        self.assertIn('new_allowance', field_names)
+
+    @patch('budget_app.models.BudgetMonthlyDetail.objects.create')
+    @patch('budget_app.models.BudgetMonthlyDetail.objects.filter')
+    def test_save_monthly_data_calculates_step_for_position_adjustment(self, mock_filter, mock_create):
+        from budget_app.services import BudgetService
+
+        parent_mock = MagicMock()
+        parent_mock.old_salary = 30000.0
+        parent_mock.old_allowance = 5000.0
+        parent_mock.new_salary = 40000.0
+        parent_mock.new_allowance = 8000.0
+
+        monthly_data = {
+            'jan': {'headcount': 1, 'cost': 13000},
+            'feb': {'headcount': 0, 'cost': 13000},
+            'mar': {'headcount': 1, 'cost': 26000},
+            'apr': {'headcount': 0, 'cost': 26000},
+            'may': {'headcount': 0, 'cost': 26000},
+            'jun': {'headcount': 0, 'cost': 26000},
+            'jul': {'headcount': 0, 'cost': 26000},
+            'aug': {'headcount': 0, 'cost': 26000},
+            'sep': {'headcount': 0, 'cost': 26000},
+            'oct': {'headcount': 0, 'cost': 26000},
+            'nov': {'headcount': 0, 'cost': 26000},
+            'dec': {'headcount': 0, 'cost': 26000},
+        }
+
+        func = getattr(BudgetService.save_monthly_data, '__wrapped__', BudgetService.save_monthly_data)
+        func(parent_mock, 'Position Adjustment', monthly_data)
+
+        self.assertEqual(mock_create.call_count, 12)
+        calls = mock_create.call_args_list
+
+        # Month 1 (Jan): running HC = 1 -> old_salary = 30000, old_allowance = 5000, new_salary = 40000, new_allowance = 8000
+        self.assertEqual(calls[0].kwargs['month'], 1)
+        self.assertEqual(calls[0].kwargs['headcount'], 1)
+        self.assertEqual(calls[0].kwargs['salary'], 30000.0)
+        self.assertEqual(calls[0].kwargs['position_allowance'], 5000.0)
+        self.assertEqual(calls[0].kwargs['new_salary'], 40000.0)
+        self.assertEqual(calls[0].kwargs['new_allowance'], 8000.0)
+
+        # Month 2 (Feb): running HC = 1 -> carry forward
+        self.assertEqual(calls[1].kwargs['month'], 2)
+        self.assertEqual(calls[1].kwargs['headcount'], 0)
+        self.assertEqual(calls[1].kwargs['salary'], 30000.0)
+        self.assertEqual(calls[1].kwargs['position_allowance'], 5000.0)
+        self.assertEqual(calls[1].kwargs['new_salary'], 40000.0)
+        self.assertEqual(calls[1].kwargs['new_allowance'], 8000.0)
+
+        # Month 3 (Mar): running HC = 2 -> old_salary = 60000, old_allowance = 10000, new_salary = 80000, new_allowance = 16000
+        self.assertEqual(calls[2].kwargs['month'], 3)
+        self.assertEqual(calls[2].kwargs['headcount'], 1)
+        self.assertEqual(calls[2].kwargs['salary'], 60000.0)
+        self.assertEqual(calls[2].kwargs['position_allowance'], 10000.0)
+        self.assertEqual(calls[2].kwargs['new_salary'], 80000.0)
+        self.assertEqual(calls[2].kwargs['new_allowance'], 16000.0)
+
+        # Month 4 (Apr): running HC = 2 -> carry forward
+        self.assertEqual(calls[3].kwargs['month'], 4)
+        self.assertEqual(calls[3].kwargs['headcount'], 0)
+        self.assertEqual(calls[3].kwargs['salary'], 60000.0)
+        self.assertEqual(calls[3].kwargs['position_allowance'], 10000.0)
+        self.assertEqual(calls[3].kwargs['new_salary'], 80000.0)
+        self.assertEqual(calls[3].kwargs['new_allowance'], 16000.0)

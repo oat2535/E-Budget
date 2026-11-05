@@ -405,6 +405,10 @@ class BudgetService:
         running_headcount = 0.0
         row_salary = float(getattr(parent_obj, 'salary', 0) or 0)
         row_allowance = float(getattr(parent_obj, 'position_allowance', 0) or 0)
+        old_salary = float(getattr(parent_obj, 'old_salary', 0) or 0)
+        old_allowance = float(getattr(parent_obj, 'old_allowance', 0) or 0)
+        new_salary = float(getattr(parent_obj, 'new_salary', 0) or 0)
+        new_allowance = float(getattr(parent_obj, 'new_allowance', 0) or 0)
 
         for month_int, data in sorted_months:
             headcount = data.get('headcount') or data.get('count') or 0
@@ -430,10 +434,18 @@ class BudgetService:
 
             m_salary = 0.0
             m_allowance = 0.0
+            m_new_salary = 0.0
+            m_new_allowance = 0.0
             if doc_type == 'NON VET':
                 running_headcount += headcount
                 m_salary = round(running_headcount * row_salary, 2)
                 m_allowance = round(running_headcount * row_allowance, 2)
+            elif doc_type == 'Position Adjustment':
+                running_headcount += headcount
+                m_salary = round(running_headcount * old_salary, 2)
+                m_allowance = round(running_headcount * old_allowance, 2)
+                m_new_salary = round(running_headcount * new_salary, 2)
+                m_new_allowance = round(running_headcount * new_allowance, 2)
 
             BudgetMonthlyDetail.objects.create(
                 month=month_int,
@@ -441,6 +453,8 @@ class BudgetService:
                 cost=cost,
                 salary=m_salary,
                 position_allowance=m_allowance,
+                new_salary=m_new_salary,
+                new_allowance=m_new_allowance,
                 cumulative_depreciation=cum_dep,
                 **{fk_field: parent_obj}
             )

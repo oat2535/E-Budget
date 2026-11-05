@@ -3875,17 +3875,21 @@ const BudgetApp = (function() {
                 // what was shown before Save.
                 const salaryBudget = computeMonthlyBudget(monthCounts, diffSal);
                 const allowanceBudget = computeMonthlyBudget(monthCounts, diffAllow);
+                const oldSalaryBudget = computeMonthlyBudget(monthCounts, oldSal);
+                const oldAllowanceBudget = computeMonthlyBudget(monthCounts, oldAllow);
+                const newSalaryBudget = computeMonthlyBudget(monthCounts, newSal);
+                const newAllowanceBudget = computeMonthlyBudget(monthCounts, newAllow);
                 let monthlyData = {};
                 monthKeys.forEach((key, idx) => {
                     monthlyData[key] = {
                         headcount: monthCounts[idx],
-                        // BudgetMonthlyDetail only has one 'cost' column, so the
-                        // two per-month budgets shown on screen are combined
-                        // here into the single total that actually gets persisted
-                        // (see budget_add_adjustment.html for the same fix on create).
                         cost: salaryBudget[idx].cost + allowanceBudget[idx].cost,
                         salary_diff_cost: salaryBudget[idx].cost,
                         allowance_diff_cost: allowanceBudget[idx].cost,
+                        old_salary: oldSalaryBudget[idx].cost,
+                        old_allowance: oldAllowanceBudget[idx].cost,
+                        new_salary: newSalaryBudget[idx].cost,
+                        new_allowance: newAllowanceBudget[idx].cost,
                     };
                 });
 
