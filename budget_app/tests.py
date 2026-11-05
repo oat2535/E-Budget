@@ -2943,6 +2943,69 @@ class BackOfficeBranchSelectionTests(SimpleTestCase):
         chosen = resolve_branch_for_update(req, [{'branch_code': 'AP'}], current_branch_id='HO')
         self.assertEqual(chosen, 'HO')
 
+    @patch('budget_app.services.connections')
+    def test_get_branch_names_from_base_sub_branch_including_bn(self, mock_connections):
+        """get_branch_names_from_imedx must query base_sub_branch and correctly map BN to สาขาบางนา."""
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [('BN', 'สาขาบางนา'), ('SR', 'สาขาศรีนครินทร์')]
+        mock_connections.__getitem__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+        names = BudgetService.get_branch_names_from_imedx(['SR', 'BN'])
+        self.assertEqual(names.get('BN'), 'สาขาบางนา')
+        self.assertEqual(names.get('SR'), 'สาขาศรีนครินทร์')
+
+    @patch('budget_app.services.connections')
+    def test_future_branch_in_base_sub_branch_resolves_correctly(self, mock_connections):
+        """When a new branch is added to base_sub_branch in the future, it is resolved dynamically."""
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [('NEW_BR', 'สาขาใหม่ในอนาคต')]
+        mock_connections.__getitem__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+        names = BudgetService.get_branch_names_from_imedx(['NEW_BR'])
+        self.assertEqual(names.get('NEW_BR'), 'สาขาใหม่ในอนาคต')
+
+    @patch('budget_app.views.get_branch_info')
+    @patch('budget_app.services.connections')
+    def test_get_branch_selection_context_for_bn_user(self, mock_connections, mock_get_branch_info):
+        """A user with branch BN must receive option with code='BN' and name='สาขาบางนา'."""
+        from budget_app.views import get_branch_selection_context
+        mock_get_branch_info.return_value = {
+            'branches': ['SR', 'BN'],
+            'needs_selection': True,
+            'department_id': None,
+            'is_manager': True,
+            'bank_account_note': 'MANAGER',
+            'is_executive_view_only': False
+        }
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [('SR', 'สาขาศรีนครินทร์'), ('BN', 'สาขาบางนา')]
+        mock_connections.__getitem__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+        factory = RequestFactory()
+        req = factory.get('/add/')
+        req.session = {}
+
+        ctx = get_branch_selection_context(req)
+        self.assertTrue(ctx['needs_branch_selection'])
+        options = ctx['branch_options_json']
+        self.assertEqual(len(options), 2)
+        bn_option = next((opt for opt in options if opt['code'] == 'BN'), None)
+        self.assertIsNotNone(bn_option)
+        self.assertEqual(bn_option['name'], 'สาขาบางนา')
+
+    @patch('budget_app.services.connections')
+    def test_get_all_branches_returns_base_sub_branch_data(self, mock_connections):
+        """BudgetService.get_all_branches must return all branches from base_sub_branch."""
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [('BN', 'สาขาบางนา'), ('HO', 'สำนักงานใหญ่')]
+        mock_connections.__getitem__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+        branches = BudgetService.get_all_branches()
+        self.assertEqual(branches, [
+            {'code': 'BN', 'name': 'สาขาบางนา'},
+            {'code': 'HO', 'name': 'สำนักงานใหญ่'}
+        ])
+
 
 class MedicalEquipmentItemMasterReplacementTests(SimpleTestCase):
     """Unit tests verifying the Medical Equipment items loaded from

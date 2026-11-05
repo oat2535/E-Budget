@@ -100,6 +100,14 @@ class BudgetService:
         if bank_sub_name and 'BACK' in sub_name_upper:
             valid_branch_ids = {code for code, _ in GL_ACTUAL_TEMPLATE_BRANCHES if code != 'HO'}
             try:
+                with connections['default'].cursor() as cursor:
+                    cursor.execute("SELECT sub_branch_id FROM base_sub_branch")
+                    for r in cursor.fetchall():
+                        if r and r[0] and r[0].strip().upper() != 'HO':
+                            valid_branch_ids.add(r[0].strip().upper())
+            except Exception as e:
+                logger.warning(f"Error fetching base_sub_branch for BACK user parsing: {e}")
+            try:
                 with connections['imedx'].cursor() as cursor:
                     cursor.execute("SELECT base_site_branch_id FROM base_site_branch")
                     for r in cursor.fetchall():
@@ -184,8 +192,9 @@ class BudgetService:
     @staticmethod
     def get_branch_names_from_imedx(codes):
         """Bulk code->name lookup for the branch-picker dropdown.
-        Fetches descriptions from base_site_branch, with fallback/enrichment
-        from GL_ACTUAL_TEMPLATE_BRANCHES (ensuring 'HO' -> 'สำนักงานใหญ่', etc.)."""
+        Fetches code and description from base_sub_branch in the default database,
+        with fallback/enrichment from imedx base_site_branch and
+        GL_ACTUAL_TEMPLATE_BRANCHES (ensuring 'BN' -> 'สาขาบางนา', 'HO' -> 'สำนักงานใหญ่', etc.)."""
         codes = [c for c in set(codes) if c]
         if not codes:
             return {}
@@ -194,18 +203,57 @@ class BudgetService:
         for code in codes:
             if code in fallback_map:
                 result[code] = fallback_map[code]
+
+        # Primary lookup from base_sub_branch (default database)
         try:
-            with connections['imedx'].cursor() as cursor:
+            with connections['default'].cursor() as cursor:
                 cursor.execute(
-                    "SELECT base_site_branch_id, description FROM base_site_branch WHERE base_site_branch_id = ANY(%s)",
+                    "SELECT sub_branch_id, sub_branch_name FROM base_sub_branch WHERE sub_branch_id = ANY(%s)",
                     [codes]
                 )
                 for code, name in cursor.fetchall():
                     if name:
-                        result[code] = name
+                        result[code] = name.strip()
         except Exception as e:
-            logger.error(f"Error fetching branch names for {codes}: {e}")
+            logger.warning(f"Error fetching branch names from base_sub_branch for {codes}: {e}")
+
+        # Fallback/enrichment from imedx base_site_branch if any codes are still missing
+        missing = [c for c in codes if c not in result]
+        if missing:
+            try:
+                with connections['imedx'].cursor() as cursor:
+                    cursor.execute(
+                        "SELECT base_site_branch_id, description FROM base_site_branch WHERE base_site_branch_id = ANY(%s)",
+                        [missing]
+                    )
+                    for code, name in cursor.fetchall():
+                        if name and code not in result:
+                            result[code] = name.strip()
+            except Exception as e:
+                logger.warning(f"Error fetching branch names from base_site_branch for {missing}: {e}")
         return result
+
+    get_branch_names = get_branch_names_from_imedx
+
+    @staticmethod
+    def get_all_branches():
+        """Returns all branches (code and name) from base_sub_branch in the default database,
+        falling back to GL_ACTUAL_TEMPLATE_BRANCHES if table is unavailable."""
+        branches = []
+        try:
+            with connections['default'].cursor() as cursor:
+                cursor.execute(
+                    "SELECT sub_branch_id, sub_branch_name FROM base_sub_branch ORDER BY sub_branch_id"
+                )
+                rows = cursor.fetchall()
+                if rows:
+                    for code, name in rows:
+                        if code and name:
+                            branches.append({'code': code.strip(), 'name': name.strip()})
+                    return branches
+        except Exception as e:
+            logger.warning(f"Error fetching all branches from base_sub_branch: {e}")
+        return [{'code': code, 'name': name} for code, name in GL_ACTUAL_TEMPLATE_BRANCHES]
 
     @staticmethod
     def get_master_fks(item_name_val):

@@ -498,7 +498,7 @@ def budget_list_view(request):
         'items_software_json': software_items_list,
         'cost_centers_json': get_cost_centers_json(),
         'glat_template_rows_json': glat_template_rows_json,
-        'glat_branches_json': [{'code': code, 'name': name} for code, name in GL_ACTUAL_TEMPLATE_BRANCHES],
+        'glat_branches_json': BudgetService.get_all_branches(),
         **get_branch_selection_context(request),
     })
 
@@ -1418,7 +1418,7 @@ def update_document_api(request, doc_type, doc_no):
         # can't go through resolve_branch_for_update at all.
         if doc_type == 'GL Actual Template':
             chosen_branch = data[0].get('branch_code') if data else None
-            valid_branch_codes = {code for code, _ in GL_ACTUAL_TEMPLATE_BRANCHES}
+            valid_branch_codes = {b['code'] for b in BudgetService.get_all_branches()}
             if chosen_branch not in valid_branch_codes:
                 raise ValueError('กรุณาเลือกสาขาให้ถูกต้อง')
             base_branch_id = chosen_branch
@@ -2259,7 +2259,7 @@ def budget_add_gl_actual_template_view(request):
                 return JsonResponse({'status': 'error', 'message': 'ไม่มีข้อมูลสำหรับบันทึก'})
 
             branch_code = data[0].get('branch_code')
-            valid_branch_codes = {code for code, _ in GL_ACTUAL_TEMPLATE_BRANCHES}
+            valid_branch_codes = {b['code'] for b in BudgetService.get_all_branches()}
             if branch_code not in valid_branch_codes:
                 return JsonResponse({'status': 'error', 'message': 'กรุณาเลือกสาขาให้ถูกต้อง'})
 
@@ -2321,7 +2321,7 @@ def budget_add_gl_actual_template_view(request):
 
     return render(request, 'budget_app/budget_add_gl_actual_template.html', {
         'template_rows_json': template_rows_json,
-        'branches_json': [{'code': code, 'name': name} for code, name in GL_ACTUAL_TEMPLATE_BRANCHES],
+        'branches_json': BudgetService.get_all_branches(),
         'actual_year': datetime.now().year,
     })
 
