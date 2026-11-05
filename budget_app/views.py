@@ -1253,6 +1253,7 @@ def get_document_detail_api(request, doc_type, doc_no):
     for item in items:
         if doc_type == 'Position Adjustment':
             data = {
+                'id': item.id,
                 'adjustment_type': item.adjustment_type,
                 'old_position_name': item.old_position_name,
                 'old_description': item.old_description or '',
@@ -1270,6 +1271,7 @@ def get_document_detail_api(request, doc_type, doc_no):
                 if hasattr(item, 'monthly_data_dict') else 0.0
             )
             data = {
+                'id': item.id,
                 'item_name': item.item_name,
                 'description': item.description or '',
                 'purchase_price': float(item.purchase_price),
@@ -1278,6 +1280,7 @@ def get_document_detail_api(request, doc_type, doc_no):
             }
         elif doc_type == 'GL Entry' or doc_type == 'Revenue':
             data = {
+                'id': item.id,
                 'general_ledger_code': item.general_ledger_code,
                 'general_ledger_name': gl_name_by_code.get(item.general_ledger_code, item.general_ledger_code),
                 'proportion': float(item.proportion),
@@ -1287,6 +1290,7 @@ def get_document_detail_api(request, doc_type, doc_no):
             }
         elif doc_type == 'Budget Plan':
             data = {
+                'id': item.id,
                 'budget_category': item.budget_category,
                 'budget_category_display': item.get_budget_category_display(),
                 'item_code': item.item_code,
@@ -1297,6 +1301,8 @@ def get_document_detail_api(request, doc_type, doc_no):
             }
         elif doc_type == 'GL Actual Template':
             data = {
+                'id': item.id,
+                'template_row_id': item.template_row_id,
                 'row_order': item.row_order,
                 'code': item.code,
                 'label': item.label,
@@ -1309,6 +1315,7 @@ def get_document_detail_api(request, doc_type, doc_no):
             }
         else:
             data = {
+                'id': item.id,
                 'position_name': item.position_name,
                 'salary': float(item.salary),
                 'monthly_data': item.monthly_data_dict
@@ -1526,169 +1533,233 @@ def update_document_api(request, doc_type, doc_no):
                             'status': 'error',
                             'message': f'ราคาซื้อในหมวดสินทรัพย์ถาวร (Fix Asset) ต้องมีมูลค่าตั้งแต่ 5,000 บาทขึ้นไป (รายการ: {row_data.get("item_name")})'
                         })
-            existing_items.delete()
+            existing_map = {item.id: item for item in existing_items}
+            submitted_ids = {
+                int(item['id'])
+                for item in data
+                if item.get('id') and str(item.get('id')).isdigit() and int(item.get('id')) in existing_map
+            }
 
+            # 1. Delete rows removed by the user in the UI
+            existing_items.exclude(id__in=submitted_ids).delete()
+
+            # 2. In-Place Upsert (Update existing rows, Create new rows)
             for item in data:
+                item_id = item.get('id')
+                item_id_int = int(item_id) if item_id and str(item_id).isdigit() and int(item_id) in existing_map else None
+
                 if doc_type == 'Position Adjustment':
                     allowed_fks = vet_fks if item.get('adjustment_type') == 'VET' else non_vet_fks
                     master_obj, _ = allowed_fks.get(item['new_position_name'], (None, None))
                     salary_gl, allowance_gl = resolve_adjustment_gl_codes(item.get('adjustment_type'))
-                    obj = model_class.objects.create(
-                        adjustment_type=item.get('adjustment_type') or None,
-                        old_position_name=item['old_position_name'],
-                        old_description=item.get('old_description') or None,
-                        new_position_name=item['new_position_name'],
-                        new_description=item.get('new_description') or None,
-                        old_salary=item['old_salary'],
-                        old_allowance=0 if item.get('adjustment_type') == 'VET' else item['old_allowance'],
-                        new_salary=item['new_salary'],
-                        new_allowance=0 if item.get('adjustment_type') == 'VET' else item['new_allowance'],
-                        base_branch_id=base_branch_id,
-                        department_id=department_id,
-                        cost_center_name=item.get('cost_center_name'),
-                        document_no=doc_no,
-                        create_date=create_date,
-                        create_eid=create_eid,
-                        modify_eid=username,
-                        item_master=master_obj,
-                        salary_general_ledger_code=salary_gl,
-                        allowance_general_ledger_code=allowance_gl,
-                        budget_year=budget_year
-                    )
-
+                    fields = {
+                        'adjustment_type': item.get('adjustment_type') or None,
+                        'old_position_name': item['old_position_name'],
+                        'old_description': item.get('old_description') or None,
+                        'new_position_name': item['new_position_name'],
+                        'new_description': item.get('new_description') or None,
+                        'old_salary': item['old_salary'],
+                        'old_allowance': 0 if item.get('adjustment_type') == 'VET' else item['old_allowance'],
+                        'new_salary': item['new_salary'],
+                        'new_allowance': 0 if item.get('adjustment_type') == 'VET' else item['new_allowance'],
+                        'base_branch_id': base_branch_id,
+                        'department_id': department_id,
+                        'cost_center_name': item.get('cost_center_name'),
+                        'modify_eid': username,
+                        'item_master': master_obj,
+                        'salary_general_ledger_code': salary_gl,
+                        'allowance_general_ledger_code': allowance_gl,
+                        'budget_year': budget_year
+                    }
+                    if item_id_int:
+                        obj = existing_map[item_id_int]
+                        for k, v in fields.items():
+                            setattr(obj, k, v)
+                        obj.save()
+                    else:
+                        fields.update({
+                            'document_no': doc_no,
+                            'create_date': create_date,
+                            'create_eid': create_eid,
+                        })
+                        obj = model_class.objects.create(**fields)
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
+
                 elif doc_type == 'VET':
                     master_obj, gl_code = master_fks.get(item['position_name'], (None, None))
-                    obj = model_class.objects.create(
-                        position_name=item['position_name'],
-                        description=item.get('description') or None,
-                        salary=item['salary'],
-                        base_branch_id=base_branch_id,
-                        department_id=department_id,
-                        cost_center_name=item.get('cost_center_name'),
-                        document_no=doc_no,
-                        create_date=create_date,
-                        create_eid=create_eid,
-                        modify_eid=username,
-                        item_master=master_obj,
-                        general_ledger_code=gl_code or VET_CUSTOM_POSITION_GL_CODE,
-                        budget_year=budget_year
-                    )
-
+                    fields = {
+                        'position_name': item['position_name'],
+                        'description': item.get('description') or None,
+                        'salary': item['salary'],
+                        'base_branch_id': base_branch_id,
+                        'department_id': department_id,
+                        'cost_center_name': item.get('cost_center_name'),
+                        'modify_eid': username,
+                        'item_master': master_obj,
+                        'general_ledger_code': gl_code or VET_CUSTOM_POSITION_GL_CODE,
+                        'budget_year': budget_year
+                    }
+                    if item_id_int:
+                        obj = existing_map[item_id_int]
+                        for k, v in fields.items():
+                            setattr(obj, k, v)
+                        obj.save()
+                    else:
+                        fields.update({
+                            'document_no': doc_no,
+                            'create_date': create_date,
+                            'create_eid': create_eid,
+                        })
+                        obj = model_class.objects.create(**fields)
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
+
                 elif doc_type in ('Medical Equipment', 'Computer Equipment', 'Furniture', 'Tools & Equipment', 'CAR', 'Renovate', 'Software'):
                     master_obj, gl_code = master_fks.get(item['item_name'], (None, None))
                     gl_code = resolve_equipment_gl_code(doc_type, item['purchase_price'], fallback_gl_code=gl_code)
-                    obj = model_class.objects.create(
-                        item_name=item['item_name'],
-                        description=item.get('description') or None,
-                        purchase_price=item['purchase_price'],
-                        base_branch_id=base_branch_id,
-                        department_id=department_id,
-                        cost_center_name=item.get('cost_center_name'),
-                        document_no=doc_no,
-                        create_date=create_date,
-                        create_eid=create_eid,
-                        modify_eid=username,
-                        item_master=master_obj,
-                        general_ledger_code=gl_code,
-                        budget_year=budget_year
-                    )
-
+                    fields = {
+                        'item_name': item['item_name'],
+                        'description': item.get('description') or None,
+                        'purchase_price': item['purchase_price'],
+                        'base_branch_id': base_branch_id,
+                        'department_id': department_id,
+                        'cost_center_name': item.get('cost_center_name'),
+                        'modify_eid': username,
+                        'item_master': master_obj,
+                        'general_ledger_code': gl_code,
+                        'budget_year': budget_year
+                    }
+                    if item_id_int:
+                        obj = existing_map[item_id_int]
+                        for k, v in fields.items():
+                            setattr(obj, k, v)
+                        obj.save()
+                    else:
+                        fields.update({
+                            'document_no': doc_no,
+                            'create_date': create_date,
+                            'create_eid': create_eid,
+                        })
+                        obj = model_class.objects.create(**fields)
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
+
                 elif doc_type == 'GL Entry' or doc_type == 'Revenue':
                     proportion, depreciation = gl_master_fields.get(item.get('general_ledger_code'), (0, 0))
-                    obj = model_class.objects.create(
-                        general_ledger_code=item.get('general_ledger_code'),
-                        proportion=proportion,
-                        depreciation=depreciation,
-                        detail_note=item.get('detail_note') or None,
-                        base_branch_id=base_branch_id,
-                        department_id=department_id,
-                        cost_center_name=item.get('cost_center_name'),
-                        document_no=doc_no,
-                        create_date=create_date,
-                        create_eid=create_eid,
-                        modify_eid=username,
-                        budget_year=budget_year
-                    )
-                    # Identical create() fields, but a different child table
-                    # per type (ebudget_gl_entry_monthly_detail vs
-                    # ebudget_revenue_monthly_detail) — see
-                    # BudgetService.save_revenue_monthly_data.
+                    fields = {
+                        'general_ledger_code': item.get('general_ledger_code'),
+                        'proportion': proportion,
+                        'depreciation': depreciation,
+                        'detail_note': item.get('detail_note') or None,
+                        'base_branch_id': base_branch_id,
+                        'department_id': department_id,
+                        'cost_center_name': item.get('cost_center_name'),
+                        'modify_eid': username,
+                        'budget_year': budget_year
+                    }
+                    if item_id_int:
+                        obj = existing_map[item_id_int]
+                        for k, v in fields.items():
+                            setattr(obj, k, v)
+                        obj.save()
+                    else:
+                        fields.update({
+                            'document_no': doc_no,
+                            'create_date': create_date,
+                            'create_eid': create_eid,
+                        })
+                        obj = model_class.objects.create(**fields)
                     if doc_type == 'GL Entry':
                         BudgetService.save_gl_entry_monthly_data(obj, item['monthly_data'])
                     else:
                         BudgetService.save_revenue_monthly_data(obj, item['monthly_data'])
+
                 elif doc_type == 'Budget Plan':
-                    obj = model_class.objects.create(
-                        budget_category=item.get('budget_category'),
-                        item_code=item.get('item_code'),
-                        general_ledger_code=item.get('general_ledger_code'),
-                        description=item.get('description'),
-                        base_branch_id=base_branch_id,
-                        department_id=department_id,
-                        cost_center_name=item.get('cost_center_name'),
-                        document_no=doc_no,
-                        create_date=create_date,
-                        create_eid=create_eid,
-                        modify_eid=username,
-                        budget_year=budget_year
-                    )
+                    fields = {
+                        'budget_category': item.get('budget_category'),
+                        'item_code': item.get('item_code'),
+                        'general_ledger_code': item.get('general_ledger_code'),
+                        'description': item.get('description'),
+                        'base_branch_id': base_branch_id,
+                        'department_id': department_id,
+                        'cost_center_name': item.get('cost_center_name'),
+                        'modify_eid': username,
+                        'budget_year': budget_year
+                    }
+                    if item_id_int:
+                        obj = existing_map[item_id_int]
+                        for k, v in fields.items():
+                            setattr(obj, k, v)
+                        obj.save()
+                    else:
+                        fields.update({
+                            'document_no': doc_no,
+                            'create_date': create_date,
+                            'create_eid': create_eid,
+                        })
+                        obj = model_class.objects.create(**fields)
                     BudgetService.save_budget_plan_monthly_data(obj, item['monthly_data'])
+
                 elif doc_type == 'GL Actual Template':
-                    # growth_pct_1/2/3 and actual_month_count are document-
-                    # level (one value for the whole document, not per row)
-                    # — every row in the payload carries the same value, so
-                    # reading them from item (rather than data[0]) once per
-                    # row is simplest and matches how cost_center_name/
-                    # branch_code are already read per-row elsewhere above.
-                    model_class.objects.create(
-                        template_row_id=item.get('template_row_id'),
-                        row_order=item['row_order'],
-                        code=item['code'],
-                        label=item['label'],
-                        row_type=item['row_type'],
-                        actual_value=item.get('actual_value', 0),
-                        per_month_value=item.get('per_month_value', 0),
-                        annualized_value=item.get('annualized_value', 0),
-                        sales_ratio=item.get('sales_ratio', 0),
-                        growth_rate=item.get('growth_rate', 0),
-                        base_branch_id=base_branch_id,
-                        department_id=department_id,
-                        budget_year=budget_year,
-                        actual_month_count=item.get('actual_month_count') or None,
-                        growth_pct_1=item.get('growth_pct_1', 0),
-                        growth_pct_2=item.get('growth_pct_2', 0),
-                        growth_pct_3=item.get('growth_pct_3', 0),
-                        document_no=doc_no,
-                        create_date=create_date,
-                        create_eid=create_eid,
-                        modify_eid=username,
-                    )
+                    fields = {
+                        'template_row_id': item.get('template_row_id'),
+                        'row_order': item['row_order'],
+                        'code': item['code'],
+                        'label': item['label'],
+                        'row_type': item['row_type'],
+                        'actual_value': item.get('actual_value', 0),
+                        'per_month_value': item.get('per_month_value', 0),
+                        'annualized_value': item.get('annualized_value', 0),
+                        'sales_ratio': item.get('sales_ratio', 0),
+                        'growth_rate': item.get('growth_rate', 0),
+                        'base_branch_id': base_branch_id,
+                        'department_id': department_id,
+                        'budget_year': budget_year,
+                        'actual_month_count': item.get('actual_month_count') or None,
+                        'growth_pct_1': item.get('growth_pct_1', 0),
+                        'growth_pct_2': item.get('growth_pct_2', 0),
+                        'growth_pct_3': item.get('growth_pct_3', 0),
+                        'modify_eid': username,
+                    }
+                    if item_id_int:
+                        obj = existing_map[item_id_int]
+                        for k, v in fields.items():
+                            setattr(obj, k, v)
+                        obj.save()
+                    else:
+                        fields.update({
+                            'document_no': doc_no,
+                            'create_date': create_date,
+                            'create_eid': create_eid,
+                        })
+                        model_class.objects.create(**fields)
+
                 else:
-                    # NON VET only (every other manpower-shaped type has its
-                    # own elif above) — GL codes are fixed by accounting
-                    # policy, not looked up per position; see
-                    # budget_add_non_vet_view for the same reasoning.
                     master_obj, _ = master_fks.get(item['position_name'], (None, None))
-                    obj = model_class.objects.create(
-                        position_name=item['position_name'],
-                        description=item.get('description') or None,
-                        salary=item['salary'],
-                        position_allowance=item.get('position_allowance', 0),
-                        base_branch_id=base_branch_id,
-                        department_id=department_id,
-                        cost_center_name=item.get('cost_center_name'),
-                        document_no=doc_no,
-                        create_date=create_date,
-                        create_eid=create_eid,
-                        modify_eid=username,
-                        item_master=master_obj,
-                        salary_general_ledger_code=NON_VET_SALARY_GL_CODE,
-                        position_allowance_general_ledger_code=NON_VET_ALLOWANCE_GL_CODE,
-                        budget_year=budget_year
-                    )
+                    fields = {
+                        'position_name': item['position_name'],
+                        'description': item.get('description') or None,
+                        'salary': item['salary'],
+                        'position_allowance': item.get('position_allowance', 0),
+                        'base_branch_id': base_branch_id,
+                        'department_id': department_id,
+                        'cost_center_name': item.get('cost_center_name'),
+                        'modify_eid': username,
+                        'item_master': master_obj,
+                        'salary_general_ledger_code': NON_VET_SALARY_GL_CODE,
+                        'position_allowance_general_ledger_code': NON_VET_ALLOWANCE_GL_CODE,
+                        'budget_year': budget_year
+                    }
+                    if item_id_int:
+                        obj = existing_map[item_id_int]
+                        for k, v in fields.items():
+                            setattr(obj, k, v)
+                        obj.save()
+                    else:
+                        fields.update({
+                            'document_no': doc_no,
+                            'create_date': create_date,
+                            'create_eid': create_eid,
+                        })
+                        obj = model_class.objects.create(**fields)
                     BudgetService.save_monthly_data(obj, doc_type, item['monthly_data'])
                 
         return JsonResponse({'status': 'success'})

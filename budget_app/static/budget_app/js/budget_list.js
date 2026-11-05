@@ -1164,6 +1164,7 @@ const BudgetApp = (function() {
                         columns.push({ type: 'numeric', title: m, width: 85, readOnly: true, mask: '#,##0' });
                     });
                     columns.push({ type: 'numeric', title: 'รวม', width: 100, readOnly: true, mask: '#,##0' });
+                    columns.push({ type: 'hidden' });
 
                     let data1 = [];
                     let data2 = [];
@@ -1216,6 +1217,7 @@ const BudgetApp = (function() {
                             }
                         });
                         row1.push(sumCount);
+                        row1.push(item.id || '');
                         if (isEquipment) {
                             row2.push(Math.round(sumDepYear * 100) / 100);
                         } else {
@@ -1491,6 +1493,7 @@ const BudgetApp = (function() {
                 columns.push({ type: 'numeric', title: m, width: 85, readOnly: false, mask: '#,##0' });
             });
             columns.push({ type: 'numeric', title: 'รวม', width: 100, readOnly: true, mask: '#,##0' });
+            columns.push({ type: 'hidden' });
             
             const currentData = modalTable1.getData();
             modalTable1.destroy();
@@ -1783,6 +1786,9 @@ const BudgetApp = (function() {
                 });
             }
 
+            const idVal = row[row.length - 1];
+            const rowId = (idVal && !isNaN(parseInt(idVal, 10))) ? parseInt(idVal, 10) : null;
+
             let rowData = {};
             if (isEquipment) {
                 rowData = {
@@ -1807,6 +1813,9 @@ const BudgetApp = (function() {
                 if (isVet || isNonVet) {
                     rowData['description'] = description;
                 }
+            }
+            if (rowId) {
+                rowData['id'] = rowId;
             }
             dataToSave.push(rowData);
         }
@@ -2142,6 +2151,7 @@ const BudgetApp = (function() {
             { type: 'text', align: 'left', title: 'รายละเอียด', width: 150, readOnly: !editable },
             ...monthColumns,
             { type: 'numeric', title: 'รวม', width: 110, readOnly: true, mask: '#,##0' },
+            { type: 'hidden' },
         ];
     }
 
@@ -2149,7 +2159,7 @@ const BudgetApp = (function() {
         const monthValues = monthKeysShort.map(key => getNum((item.monthly_data[key] || {}).amount));
         const total = sumMonthlyData(item.monthly_data);
         const glName = item.general_ledger_name && item.general_ledger_name !== '-' ? item.general_ledger_name : '';
-        return [glName, item.detail_note || '', ...monthValues, total];
+        return [glName, item.detail_note || '', ...monthValues, total, item.id || ''];
     }
 
     // ยอดรวมแต่ละเดือน (column sum ข้ามทุกแถว) สำหรับ popup รายละเอียดเอกสาร
@@ -2253,6 +2263,7 @@ const BudgetApp = (function() {
             { type: 'text', align: 'left', title: columnLabel, width: 260, readOnly: !editable },
             ...monthColumns,
             { type: 'numeric', title: 'รวม', width: 110, readOnly: true, mask: '#,##0' },
+            { type: 'hidden' },
         ];
     }
 
@@ -2262,7 +2273,7 @@ const BudgetApp = (function() {
         const glName = item.general_ledger_name && item.general_ledger_name !== '-' ? item.general_ledger_name : '';
         const itemCode = item.item_code && item.item_code !== '-' ? item.item_code : '';
         const description = item.description && item.description !== '-' ? item.description : '';
-        return [glName, itemCode, description, ...monthValues, total];
+        return [glName, itemCode, description, ...monthValues, total, item.id || ''];
     }
 
     // Converts a jspreadsheet row already on screen back into the API's item
@@ -2271,13 +2282,21 @@ const BudgetApp = (function() {
     function glEntryGridRowToItem(row) {
         const monthly_data = {};
         monthKeysShort.forEach((key, m) => { monthly_data[key] = { amount: row[2 + m] }; });
-        return { general_ledger_name: row[0], detail_note: row[1], monthly_data };
+        const idVal = row[row.length - 1];
+        const rowId = (idVal && !isNaN(parseInt(idVal, 10))) ? parseInt(idVal, 10) : null;
+        const res = { general_ledger_name: row[0], detail_note: row[1], monthly_data };
+        if (rowId) res.id = rowId;
+        return res;
     }
 
     function budgetPlanGridRowToItem(row, category) {
         const monthly_data = {};
         monthKeysShort.forEach((key, m) => { monthly_data[key] = { amount: row[3 + m] }; });
-        return { budget_category: category, general_ledger_name: row[0], item_code: row[1], description: row[2], monthly_data };
+        const idVal = row[row.length - 1];
+        const rowId = (idVal && !isNaN(parseInt(idVal, 10))) ? parseInt(idVal, 10) : null;
+        const res = { budget_category: category, general_ledger_name: row[0], item_code: row[1], description: row[2], monthly_data };
+        if (rowId) res.id = rowId;
+        return res;
     }
 
     function addGlRowButton(table) {
@@ -2582,13 +2601,17 @@ const BudgetApp = (function() {
                 if (!glName) return;
                 const monthlyData = {};
                 monthKeysShort.forEach((key, m) => { monthlyData[key] = { amount: getNum(row[2 + m]) }; });
-                dataToSave.push({
+                const idVal = row[row.length - 1];
+                const rowId = (idVal && !isNaN(parseInt(idVal, 10))) ? parseInt(idVal, 10) : null;
+                const entry = {
                     general_ledger_code: getGlCode(glName),
                     detail_note: row[1] || '',
                     cost_center_name: costCenterName,
                     branch_code: branchCode,
                     monthly_data: monthlyData,
-                });
+                };
+                if (rowId) entry.id = rowId;
+                dataToSave.push(entry);
             });
         } else {
             BUDGET_PLAN_SECTIONS.forEach((section, idx) => {
@@ -2601,7 +2624,9 @@ const BudgetApp = (function() {
                     if (!glName && !itemCode && !description) return;
                     const monthlyData = {};
                     monthKeysShort.forEach((key, m) => { monthlyData[key] = { amount: getNum(row[3 + m]) }; });
-                    dataToSave.push({
+                    const idVal = row[row.length - 1];
+                    const rowId = (idVal && !isNaN(parseInt(idVal, 10))) ? parseInt(idVal, 10) : null;
+                    const entry = {
                         budget_category: section.category,
                         item_code: itemCode || '',
                         general_ledger_code: getGlCode(glName) || '',
@@ -2609,7 +2634,9 @@ const BudgetApp = (function() {
                         cost_center_name: costCenterName,
                         branch_code: branchCode,
                         monthly_data: monthlyData,
-                    });
+                    };
+                    if (rowId) entry.id = rowId;
+                    dataToSave.push(entry);
                 });
             });
         }
@@ -2859,7 +2886,8 @@ const BudgetApp = (function() {
                         { type: 'numeric', title: 'Oct', width: 60, readOnly: true },
                         { type: 'numeric', title: 'Nov', width: 60, readOnly: true },
                         { type: 'numeric', title: 'Dec', width: 60, readOnly: true },
-                        { type: 'numeric', title: 'รวม (คน)', width: 80, readOnly: true, mask: '#,##0' }
+                        { type: 'numeric', title: 'รวม (คน)', width: 80, readOnly: true, mask: '#,##0' },
+                        { type: 'hidden' }
                     ];
 
                     const cols2 = [
@@ -2925,6 +2953,7 @@ const BudgetApp = (function() {
                         let sumHC = 0;
                         monthHeadcounts.forEach(hc => { r1.push(hc); sumHC += hc; });
                         r1.push(sumHC);
+                        r1.push(item.id || '');
 
                         // Carry-forward, same as onAdjSpreadsheetChange/budget_add_adjustment.html
                         // — a position change's cost keeps applying to every month after it
@@ -3563,7 +3592,8 @@ const BudgetApp = (function() {
                 { type: 'numeric', title: 'Oct', width: 60 },
                 { type: 'numeric', title: 'Nov', width: 60 },
                 { type: 'numeric', title: 'Dec', width: 60 },
-                { type: 'numeric', title: 'รวม (คน)', width: 80, readOnly: true, mask: '#,##0' }
+                { type: 'numeric', title: 'รวม (คน)', width: 80, readOnly: true, mask: '#,##0' },
+                { type: 'hidden' }
             ];
             
             const currentData = adjTable1.getData();
@@ -3893,7 +3923,9 @@ const BudgetApp = (function() {
                     };
                 });
 
-                dataToSave.push({
+                const idVal = row[row.length - 1];
+                const rowId = (idVal && !isNaN(parseInt(idVal, 10))) ? parseInt(idVal, 10) : null;
+                const adjEntry = {
                     'adjustment_type': adjustmentType,
                     'old_position_name': oldPos,
                     'old_description': oldDetail || '',
@@ -3906,7 +3938,9 @@ const BudgetApp = (function() {
                     'cost_center_name': costCenterName,
                     'branch_code': branchCode,
                     'monthly_data': monthlyData
-                });
+                };
+                if (rowId) adjEntry['id'] = rowId;
+                dataToSave.push(adjEntry);
             }
         }
 
@@ -4218,6 +4252,13 @@ const BudgetApp = (function() {
         });
         glatTable.setHeader(2, glatActualColumnLabel(currentGlatMonthCount));
 
+        if (items && items.length > 0) {
+            items.forEach((item, idx) => {
+                if (glatTemplateRows[idx] && item.id) {
+                    glatTemplateRows[idx].id = item.id;
+                }
+            });
+        }
         const rowsMeta = (items && items.length > 0)
             ? items.map(item => ({ row_type: item.row_type }))
             : glatTemplateRows;
@@ -4434,7 +4475,7 @@ const BudgetApp = (function() {
         const rows = glatTable ? glatTable.getData() : [];
         const dataToSave = glatTemplateRows.map((r, i) => {
             const row = rows[i] || [];
-            return {
+            const entry = {
                 template_row_id: r.template_row_id,
                 row_order: r.row_order,
                 code: r.code,
@@ -4451,6 +4492,8 @@ const BudgetApp = (function() {
                 growth_pct_2: getNum(currentGlatGrowthPct2),
                 growth_pct_3: getNum(currentGlatGrowthPct3),
             };
+            if (r.id) entry.id = r.id;
+            return entry;
         });
 
         Swal.fire({

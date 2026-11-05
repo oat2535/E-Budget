@@ -375,8 +375,6 @@ class BudgetService:
         fk_field = fk_field_map.get(doc_type)
         if not fk_field:
             return
-            
-        BudgetMonthlyDetail.objects.filter(**{fk_field: parent_obj}).delete()
 
         is_fix_asset = doc_type in (
             'Medical Equipment', 'Computer Equipment', 'Furniture',
@@ -409,6 +407,8 @@ class BudgetService:
         old_allowance = float(getattr(parent_obj, 'old_allowance', 0) or 0)
         new_salary = float(getattr(parent_obj, 'new_salary', 0) or 0)
         new_allowance = float(getattr(parent_obj, 'new_allowance', 0) or 0)
+
+        existing_details = {d.month: d for d in BudgetMonthlyDetail.objects.filter(**{fk_field: parent_obj})}
 
         for month_int, data in sorted_months:
             headcount = data.get('headcount') or data.get('count') or 0
@@ -447,81 +447,118 @@ class BudgetService:
                 m_new_salary = round(running_headcount * new_salary, 2)
                 m_new_allowance = round(running_headcount * new_allowance, 2)
 
-            BudgetMonthlyDetail.objects.create(
-                month=month_int,
-                headcount=headcount,
-                cost=cost,
-                salary=m_salary,
-                position_allowance=m_allowance,
-                new_salary=m_new_salary,
-                new_allowance=m_new_allowance,
-                cumulative_depreciation=cum_dep,
-                **{fk_field: parent_obj}
-            )
+            if month_int in existing_details:
+                detail = existing_details[month_int]
+                detail.headcount = headcount
+                detail.cost = cost
+                detail.salary = m_salary
+                detail.position_allowance = m_allowance
+                detail.new_salary = m_new_salary
+                detail.new_allowance = m_new_allowance
+                detail.cumulative_depreciation = cum_dep
+                detail.save(update_fields=[
+                    'headcount', 'cost', 'salary', 'position_allowance',
+                    'new_salary', 'new_allowance', 'cumulative_depreciation'
+                ])
+            else:
+                BudgetMonthlyDetail.objects.create(
+                    month=month_int,
+                    headcount=headcount,
+                    cost=cost,
+                    salary=m_salary,
+                    position_allowance=m_allowance,
+                    new_salary=m_new_salary,
+                    new_allowance=m_new_allowance,
+                    cumulative_depreciation=cum_dep,
+                    **{fk_field: parent_obj}
+                )
 
     @staticmethod
     @transaction.atomic
     def save_gl_entry_monthly_data(parent_obj, monthly_data_dict):
-        """Same delete-and-recreate pattern as save_monthly_data, but for
-        ebudget_gl_entry_monthly_detail's shape (detail_note/amount/
-        cumulative_amount) — GL entries have no headcount concept, so they
-        don't fit BudgetMonthlyDetail's {headcount, cost} columns."""
-        ebudget_gl_entry_monthly_detail.objects.filter(gl_entry=parent_obj).delete()
+        """In-place upsert for ebudget_gl_entry_monthly_detail — preserves
+        existing record IDs when editing to prevent sequence churn."""
+        existing_details = {d.month: d for d in ebudget_gl_entry_monthly_detail.objects.filter(gl_entry=parent_obj)}
 
         for month_str, data in monthly_data_dict.items():
             month_int = MONTH_MAP.get(month_str.lower())
             if not month_int:
                 continue
 
-            ebudget_gl_entry_monthly_detail.objects.create(
-                month=month_int,
-                detail_note=data.get('detail_note') or None,
-                amount=data.get('amount') or 0,
-                cumulative_amount=data.get('cumulative_amount') or 0,
-                gl_entry=parent_obj
-            )
+            detail_note = data.get('detail_note') or None
+            amount = data.get('amount') or 0
+            cumulative_amount = data.get('cumulative_amount') or 0
+
+            if month_int in existing_details:
+                d = existing_details[month_int]
+                d.detail_note = detail_note
+                d.amount = amount
+                d.cumulative_amount = cumulative_amount
+                d.save(update_fields=['detail_note', 'amount', 'cumulative_amount'])
+            else:
+                ebudget_gl_entry_monthly_detail.objects.create(
+                    month=month_int,
+                    detail_note=detail_note,
+                    amount=amount,
+                    cumulative_amount=cumulative_amount,
+                    gl_entry=parent_obj
+                )
 
     @staticmethod
     @transaction.atomic
     def save_revenue_monthly_data(parent_obj, monthly_data_dict):
-        """Same shape/pattern as save_gl_entry_monthly_data, for Revenue's
-        own ebudget_revenue_monthly_detail table — kept as a separate child
-        table (not reusing ebudget_gl_entry_monthly_detail) so Revenue and
-        EXPENSE documents never share rows despite having identical column
-        shapes."""
-        ebudget_revenue_monthly_detail.objects.filter(revenue_entry=parent_obj).delete()
+        """In-place upsert for ebudget_revenue_monthly_detail — preserves
+        existing record IDs when editing to prevent sequence churn."""
+        existing_details = {d.month: d for d in ebudget_revenue_monthly_detail.objects.filter(revenue_entry=parent_obj)}
 
         for month_str, data in monthly_data_dict.items():
             month_int = MONTH_MAP.get(month_str.lower())
             if not month_int:
                 continue
 
-            ebudget_revenue_monthly_detail.objects.create(
-                month=month_int,
-                detail_note=data.get('detail_note') or None,
-                amount=data.get('amount') or 0,
-                cumulative_amount=data.get('cumulative_amount') or 0,
-                revenue_entry=parent_obj
-            )
+            detail_note = data.get('detail_note') or None
+            amount = data.get('amount') or 0
+            cumulative_amount = data.get('cumulative_amount') or 0
+
+            if month_int in existing_details:
+                d = existing_details[month_int]
+                d.detail_note = detail_note
+                d.amount = amount
+                d.cumulative_amount = cumulative_amount
+                d.save(update_fields=['detail_note', 'amount', 'cumulative_amount'])
+            else:
+                ebudget_revenue_monthly_detail.objects.create(
+                    month=month_int,
+                    detail_note=detail_note,
+                    amount=amount,
+                    cumulative_amount=cumulative_amount,
+                    revenue_entry=parent_obj
+                )
 
     @staticmethod
     @transaction.atomic
     def save_budget_plan_monthly_data(parent_obj, monthly_data_dict):
-        """Same delete-and-recreate pattern as save_gl_entry_monthly_data, but
-        for ebudget_budget_plan_monthly_detail's shape: a single amount per
-        month, no detail_note/cumulative_amount."""
-        ebudget_budget_plan_monthly_detail.objects.filter(plan_item=parent_obj).delete()
+        """In-place upsert for ebudget_budget_plan_monthly_detail — preserves
+        existing record IDs when editing to prevent sequence churn."""
+        existing_details = {d.month: d for d in ebudget_budget_plan_monthly_detail.objects.filter(plan_item=parent_obj)}
 
         for month_str, data in monthly_data_dict.items():
             month_int = MONTH_MAP.get(month_str.lower())
             if not month_int:
                 continue
 
-            ebudget_budget_plan_monthly_detail.objects.create(
-                month=month_int,
-                amount=data.get('amount') or 0,
-                plan_item=parent_obj
-            )
+            amount = data.get('amount') or 0
+
+            if month_int in existing_details:
+                d = existing_details[month_int]
+                d.amount = amount
+                d.save(update_fields=['amount'])
+            else:
+                ebudget_budget_plan_monthly_detail.objects.create(
+                    month=month_int,
+                    amount=amount,
+                    plan_item=parent_obj
+                )
 
     @staticmethod
     def resolve_canonical_cost_center_name(raw_name):

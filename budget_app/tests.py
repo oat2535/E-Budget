@@ -457,7 +457,7 @@ class FixAssetStaticTextUnitTests(SimpleTestCase):
             "update_document_api must not have nested 'for item in data' re-assigning item"
         )
         # Validation must be before existing_items.delete()
-        del_pos = update_func.find('existing_items.delete()')
+        del_pos = update_func.find('.delete()')
         price_val_pos = update_func.find('for row_data in data:')
         self.assertGreater(del_pos, 0)
         self.assertGreater(price_val_pos, 0)
@@ -3526,3 +3526,79 @@ class PositionAdjustmentMonthlyDetailSalaryAllowanceTests(SimpleTestCase):
         self.assertEqual(calls[3].kwargs['position_allowance'], 10000.0)
         self.assertEqual(calls[3].kwargs['new_salary'], 80000.0)
         self.assertEqual(calls[3].kwargs['new_allowance'], 16000.0)
+
+
+class InPlaceUpsertUnitTests(SimpleTestCase):
+    """Unit tests verifying that get_document_detail_api returns item IDs,
+    update_document_api performs in-place upsert (preserving existing item IDs
+    and only deleting removed items), and save_monthly_data updates monthly
+    detail records in-place without delete-recreate."""
+
+    @patch('budget_app.models.ebudget_vet_manpower.objects.filter')
+    def test_get_document_detail_api_includes_item_id(self, mock_filter):
+        from budget_app.views import get_document_detail_api
+        from django.test import RequestFactory
+
+        mock_item = MagicMock()
+        mock_item.id = 99
+        mock_item.document_no = 'VET-202611-TEST'
+        mock_item.create_date = None
+        mock_item.create_eid = 'user1'
+        mock_item.base_branch_id = 'HO'
+        mock_item.cost_center_name = 'PH'
+        mock_item.budget_year = 2026
+        mock_item.status = 'PENDING'
+        mock_item.cancel_reason = ''
+        mock_item.position_name = 'Doctor'
+        mock_item.description = 'Test note'
+        mock_item.salary = 30000.0
+        mock_item.monthly_data_dict = {}
+
+        mock_qs = MagicMock()
+        mock_qs.exists.return_value = True
+        mock_qs.first.return_value = mock_item
+        mock_qs.__iter__.return_value = [mock_item]
+        mock_filter.return_value = mock_qs
+
+        rf = RequestFactory()
+        req = rf.get('/api/documents/VET/VET-202611-TEST/')
+        req.user = MagicMock()
+        req.user.username = 'user1'
+        req.user.is_superuser = True
+        req.session = {}
+
+        func = getattr(get_document_detail_api, '__wrapped__', get_document_detail_api)
+        resp = func(req, 'VET', 'VET-202611-TEST')
+        data = json.loads(resp.content)
+
+        self.assertEqual(data['status'], 'success')
+        self.assertEqual(len(data['manpower_list']), 1)
+        self.assertEqual(data['manpower_list'][0]['id'], 99)
+        self.assertEqual(data['manpower_list'][0]['position_name'], 'Doctor')
+
+    @patch('budget_app.models.BudgetMonthlyDetail.objects.filter')
+    def test_save_monthly_data_updates_existing_details_in_place(self, mock_filter):
+        from budget_app.services import BudgetService
+
+        parent_mock = MagicMock()
+        parent_mock.salary = 20000.0
+        parent_mock.position_allowance = 5000.0
+
+        existing_d1 = MagicMock()
+        existing_d1.month = 1
+        existing_d1.cost = 0.0
+
+        mock_filter.return_value = [existing_d1]
+
+        monthly_data = {
+            'jan': {'headcount': 1, 'cost': 25000},
+        }
+
+        func = getattr(BudgetService.save_monthly_data, '__wrapped__', BudgetService.save_monthly_data)
+        func(parent_mock, 'NON VET', monthly_data)
+
+        # existing_d1 should be updated in-place with save(update_fields=...)
+        existing_d1.save.assert_called_once()
+        self.assertEqual(existing_d1.cost, 25000)
+        self.assertEqual(existing_d1.salary, 20000.0)
+        self.assertEqual(existing_d1.position_allowance, 5000.0)
