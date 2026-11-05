@@ -41,6 +41,22 @@ const BudgetApp = (function() {
     let currentAdjCostCenterName = '';
     let currentAdjBranchCode = '';
     let isAdjUpdating = false;
+    let lastAdjVetAllowanceAlertTime = 0;
+    function showVetAllowanceAlert() {
+        const now = Date.now();
+        if (now - lastAdjVetAllowanceAlertTime < 1000) return;
+        lastAdjVetAllowanceAlertTime = now;
+        if (typeof Swal !== 'undefined') {
+            Swal.fire({
+                icon: 'warning',
+                title: 'แจ้งเตือน',
+                text: 'ตำแหน่งประเภท VET ไม่มีค่าตำแหน่ง (ค่าวัดระดับ) จึงไม่สามารถระบุค่าตำแหน่งเดิมหรือค่าตำแหน่งใหม่ได้ครับ (กรอกได้เฉพาะประเภท NON VET)',
+                confirmButtonText: 'ตกลง',
+                confirmButtonColor: '#3085d6',
+                timer: 4000
+            });
+        }
+    }
 
     let glatModalInstance = null;
     let glatTable = null;
@@ -122,9 +138,34 @@ const BudgetApp = (function() {
 
         const adjModalSheetEl = document.getElementById('adjModalSpreadsheet1');
         if (adjModalSheetEl) {
+            adjModalSheetEl.addEventListener('click', function(e) {
+                if (!isAdjEditMode || !adjTable1) return;
+                const td = e.target.closest('td');
+                if (!td) return;
+                const x = parseInt(td.getAttribute('data-x'));
+                const y = parseInt(td.getAttribute('data-y'));
+                if ((x === 6 || x === 9) && !isNaN(y)) {
+                    const rowType = (adjTable1.getValueFromCoords(0, y) || '').trim().toUpperCase();
+                    if (rowType === 'VET') {
+                        showVetAllowanceAlert();
+                    }
+                }
+            });
+
             adjModalSheetEl.addEventListener('keydown', function(e) {
                 if (adjTable1 && adjTable1.selectedCell && isAdjEditMode) {
                     const x = adjTable1.selectedCell[0];
+                    const y = adjTable1.selectedCell[1];
+                    if ((x === 6 || x === 9) && !isNaN(y)) {
+                        const rowType = (adjTable1.getValueFromCoords(0, y) || '').trim().toUpperCase();
+                        if (rowType === 'VET') {
+                            const allowedNavKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'Escape'];
+                            if (!allowedNavKeys.includes(e.key)) {
+                                e.preventDefault();
+                                showVetAllowanceAlert();
+                            }
+                        }
+                    }
                     if (x >= 13 && x <= 24) {
                         if (e.ctrlKey || e.metaKey || e.altKey) return;
                         const allowedControlKeys = ['Backspace', 'Tab', 'Enter', 'Escape', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
@@ -2897,7 +2938,25 @@ const BudgetApp = (function() {
                     adjTable1 = jspreadsheet(document.getElementById('adjModalSpreadsheet1'), {
                         data: data1, columns: cols1, allowInsertRow: false, allowDeleteRow: false,
                         allowInsertColumn: false, allowManualInsertColumn: false, allowDeleteColumn: false,
-                        tableOverflow: true, contextMenu: function() { return false; }, freezeColumns: 5
+                        tableOverflow: true, contextMenu: function() { return false; }, freezeColumns: 5,
+                        updateTable: function(el, cell, col, row, val, label, cellName) {
+                            if (col === 6 || col === 9) {
+                                const sheet = (el && el.jexcel) || adjTable1;
+                                const rowType = (sheet && typeof sheet.getValueFromCoords === 'function')
+                                    ? (sheet.getValueFromCoords(0, row) || '').trim().toUpperCase() : '';
+                                if (rowType === 'VET') {
+                                    cell.style.backgroundColor = '#f1f3f5';
+                                    cell.style.color = '#adb5bd';
+                                    cell.style.cursor = 'not-allowed';
+                                    cell.classList.add('readonly');
+                                } else {
+                                    cell.style.backgroundColor = '';
+                                    cell.style.color = '';
+                                    cell.style.cursor = '';
+                                    cell.classList.remove('readonly');
+                                }
+                            }
+                        }
                     });
                     adjTable2 = jspreadsheet(document.getElementById('adjModalSpreadsheet2'), {
                         data: data2, columns: cols2, allowInsertRow: false, allowDeleteRow: false,
@@ -2981,6 +3040,12 @@ const BudgetApp = (function() {
                         });
                     }
                 }
+                if (newType === 'VET') {
+                    adjTable1.setValueFromCoords(6, y, 0, true);
+                    adjTable1.setValueFromCoords(9, y, 0, true);
+                    oldAllow = 0;
+                    newAllow = 0;
+                }
                 const curOldPos = (adjTable1.getValueFromCoords(1, y) || '').trim();
                 const curNewPos = (adjTable1.getValueFromCoords(3, y) || '').trim();
                 const allowedList = newType === 'VET' ? vetItems : (newType === 'NON VET' ? nonVetItems : []);
@@ -3028,7 +3093,7 @@ const BudgetApp = (function() {
                     const match = allowedList.find(i => i.name === trimmedVal);
                     if (match) {
                         oldSal = match.salary || 0;
-                        oldAllow = match.position_allowance || 0;
+                        oldAllow = rowType === 'VET' ? 0 : (match.position_allowance || 0);
                         adjTable1.setValueFromCoords(5, y, oldSal, true);
                         adjTable1.setValueFromCoords(6, y, oldAllow, true);
                     } else {
@@ -3077,7 +3142,7 @@ const BudgetApp = (function() {
                     const match = allowedList.find(i => i.name === trimmedVal);
                     if (match) {
                         newSal = match.salary || 0;
-                        newAllow = match.position_allowance || 0;
+                        newAllow = rowType === 'VET' ? 0 : (match.position_allowance || 0);
                         adjTable1.setValueFromCoords(8, y, newSal, true);
                         adjTable1.setValueFromCoords(9, y, newAllow, true);
                     } else {
@@ -3102,9 +3167,27 @@ const BudgetApp = (function() {
                 }
             }
             if (x === 5) oldSal = getNum(value);
-            if (x === 6) oldAllow = getNum(value);
+            if (x === 6) {
+                const rowType = (adjTable1.getValueFromCoords(0, y) || '').trim().toUpperCase();
+                if (rowType === 'VET') {
+                    oldAllow = 0;
+                    adjTable1.setValueFromCoords(6, y, 0, true);
+                    showVetAllowanceAlert();
+                } else {
+                    oldAllow = getNum(value);
+                }
+            }
             if (x === 8) newSal = getNum(value);
-            if (x === 9) newAllow = getNum(value);
+            if (x === 9) {
+                const rowType = (adjTable1.getValueFromCoords(0, y) || '').trim().toUpperCase();
+                if (rowType === 'VET') {
+                    newAllow = 0;
+                    adjTable1.setValueFromCoords(9, y, 0, true);
+                    showVetAllowanceAlert();
+                } else {
+                    newAllow = getNum(value);
+                }
+            }
 
             if (x === 0 || x === 1 || x === 3 || x === 5 || x === 6 || x === 8 || x === 9) {
                 let oldTotal = oldSal + oldAllow;
@@ -3490,6 +3573,41 @@ const BudgetApp = (function() {
                 tableOverflow: true,
                 freezeColumns: 5,
                 onchange: onAdjSpreadsheetChange,
+                updateTable: function(el, cell, col, row, val, label, cellName) {
+                    if (col === 6 || col === 9) {
+                        const sheet = (el && el.jexcel) || adjTable1;
+                        const rowType = (sheet && typeof sheet.getValueFromCoords === 'function')
+                            ? (sheet.getValueFromCoords(0, row) || '').trim().toUpperCase() : '';
+                        if (rowType === 'VET') {
+                            cell.style.backgroundColor = '#f1f3f5';
+                            cell.style.color = '#adb5bd';
+                            cell.style.cursor = 'not-allowed';
+                            cell.classList.add('readonly');
+                        } else {
+                            cell.style.backgroundColor = '';
+                            cell.style.color = '';
+                            cell.style.cursor = '';
+                            cell.classList.remove('readonly');
+                        }
+                    }
+                },
+                oneditionstart: function(el, cell, x, y) {
+                    x = parseInt(x);
+                    y = parseInt(y);
+                    if (x === 6 || x === 9) {
+                        const sheet = (el && el.jexcel) || adjTable1;
+                        const rowType = (sheet && typeof sheet.getValueFromCoords === 'function')
+                            ? (sheet.getValueFromCoords(0, y) || '').trim().toUpperCase() : '';
+                        if (rowType === 'VET') {
+                            setTimeout(function() {
+                                if (sheet && sheet.edition) {
+                                    sheet.closeEditor(cell, false);
+                                }
+                            }, 0);
+                            showVetAllowanceAlert();
+                        }
+                    }
+                },
                 contextMenu: function() { return true; },
                 // adjTable1 can gain or lose rows through the "เพิ่มรายการ" button,
                 // pressing Enter on the last row, or right-click context menu delete row.
@@ -3701,6 +3819,10 @@ const BudgetApp = (function() {
                     return;
                 }
 
+                if (adjustmentType === 'VET') {
+                    oldAllow = 0;
+                    newAllow = 0;
+                }
                 let diffSal = newSal - oldSal;
                 let diffAllow = newAllow - oldAllow;
                 const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];

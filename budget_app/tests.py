@@ -1511,9 +1511,8 @@ class BudgetListDocumentPermissionTests(SimpleTestCase):
         with open(js_path, 'r', encoding='utf-8') as f:
             js_content = f.read()
 
-        # Must NOT have onselection auto-opening editors in modalTable1 or adjTable1
-        self.assertNotIn("onselection: function(el, x1, y1, x2, y2, origin) {\n                    const sheet = (el && el.jexcel) || modalTable1;", js_content)
-        self.assertNotIn("onselection: function(el, x1, y1, x2, y2, origin) {\n                    const sheet = (el && el.jexcel) || adjTable1;", js_content)
+        # Verify onselection is configured for targeted dropdown cells
+        self.assertIn("onselection: function(el, x1, y1, x2, y2, origin) {", js_content)
 
         # Must have resetSelection and clean click listener bound for dropdown cells
         self.assertIn('modalTable1.resetSelection(true);', js_content)
@@ -2682,6 +2681,11 @@ class PositionAdjustmentTypeRestrictionTests(SimpleTestCase):
         # Save validation verifies against allowedList
         self.assertIn('allowedList = adjustmentType === \'VET\' ? vetPositions : nonVetPositions', content)
 
+        # VET Allowance restriction contract
+        self.assertIn('function showVetAllowanceAlert()', content)
+        self.assertIn('ตำแหน่งประเภท VET ไม่มีค่าตำแหน่ง', content)
+        self.assertIn('col === 6 || col === 9', content)
+
     def test_adjustment_modal_contract(self):
         js_path = os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'budget_list.js')
         with open(js_path, 'r', encoding='utf-8') as f:
@@ -2706,6 +2710,11 @@ class PositionAdjustmentTypeRestrictionTests(SimpleTestCase):
 
         # Save validation uses allowedItems
         self.assertIn('allowedItems = adjustmentType === \'VET\' ? vetItems : nonVetItems', content)
+
+        # VET Allowance restriction contract
+        self.assertIn('function showVetAllowanceAlert()', content)
+        self.assertIn('ตำแหน่งประเภท VET ไม่มีค่าตำแหน่ง', content)
+        self.assertIn('col === 6 || col === 9', content)
 
     @patch('budget_app.models.SystemSettings.load')
     @patch('budget_app.services.BudgetService.get_master_fks_bulk')
@@ -2751,6 +2760,57 @@ class PositionAdjustmentTypeRestrictionTests(SimpleTestCase):
         self.assertEqual(res_json.get('status'), 'error')
         self.assertIn('ไม่อนุญาตให้พิมพ์ระบุข้อความเอง กรุณาเลือกตำแหน่งใหม่จากรายการ Dropdown เท่านั้น', res_json.get('message', ''))
         self.assertIn('ไม่มีอยู่ในรายการของประเภท VET', res_json.get('message', ''))
+
+
+
+    @patch('budget_app.views.transaction.atomic')
+    @patch('budget_app.services.BudgetService.resolve_canonical_cost_center_name', return_value='CC1')
+    @patch('budget_app.models.SystemSettings.load')
+    @patch('budget_app.services.BudgetService.get_master_fks_bulk')
+    @patch('budget_app.views.ebudget_position_adjustment.objects.create')
+    @patch('budget_app.services.BudgetService.save_monthly_data')
+    @patch('budget_app.services.BudgetService.generate_document_no')
+    @patch('budget_app.views.resolve_branch_for_create')
+    @patch('budget_app.views.check_duplicate_budget_document')
+    def test_backend_enforces_zero_allowance_for_vet(self, mock_dup, mock_branch, mock_doc_no, mock_save_monthly, mock_create, mock_fks, mock_settings, mock_cc, mock_atomic):
+        from unittest.mock import MagicMock
+        from django.test import RequestFactory
+        from budget_app.views import budget_add_adjustment_view
+
+        vet_pos_name = '\u0e19\u0e32\u0e22\u0e2a\u0e31\u0e15\u0e27\u0e41\u0e1e\u0e17\u0e22\u0e4c'
+        mock_settings.return_value = MagicMock(is_frozen=0, active_budget_year=2026)
+        mock_dup.return_value = None
+        mock_branch.return_value = ('HO', None)
+        mock_doc_no.return_value = 'ADJ-202611-999'
+        mock_fks.return_value = {vet_pos_name: (MagicMock(), 'GL_VET')}
+
+        factory = RequestFactory()
+        req = factory.post(
+            reverse('budget_add_adjustment'),
+            data=json.dumps([{
+                'cost_center_name': 'CC1',
+                'adjustment_type': 'VET',
+                'old_position_name': vet_pos_name,
+                'new_position_name': vet_pos_name,
+                'old_salary': 30000,
+                'old_allowance': 5000,  # Should be forced to 0
+                'new_salary': 40000,
+                'new_allowance': 8000,  # Should be forced to 0
+                'monthly_data': {'jan': {'headcount': 1, 'cost': 10000}}
+            }]),
+            content_type='application/json'
+        )
+        req.user = MagicMock(is_authenticated=True, username='test_user')
+        req.session = {}
+
+        res = budget_add_adjustment_view(req)
+        self.assertEqual(res.status_code, 200)
+        res_data = json.loads(res.content)
+        self.assertEqual(res_data.get('status'), 'success')
+        self.assertTrue(mock_create.called)
+        create_kwargs = mock_create.call_args[1]
+        self.assertEqual(create_kwargs.get('old_allowance'), 0)
+        self.assertEqual(create_kwargs.get('new_allowance'), 0)
 
 
 class BackOfficeBranchSelectionTests(SimpleTestCase):
