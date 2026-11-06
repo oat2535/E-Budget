@@ -43,10 +43,32 @@ DEBUG = os.environ.get('DEBUG', 'False').lower() in ['true', '1', 't']
 # 192.168.1.36 is kept as a fallback for environments that haven't set
 # ALLOWED_HOSTS yet; new/updated deployments should rely on the ALLOWED_HOSTS
 # env var instead of adding more environment-specific hosts here.
-ALLOWED_HOSTS = ['192.168.1.40', '127.0.0.1', 'localhost', 'testserver']
+ALLOWED_HOSTS = ['192.168.1.40', '127.0.0.1', 'localhost', 'testserver', '192.168.98.252', 'uat-e-budget.thonglorpet.com']
 extra_allowed_hosts = os.environ.get('ALLOWED_HOSTS', '')
 if extra_allowed_hosts:
     ALLOWED_HOSTS += [h.strip() for h in extra_allowed_hosts.split(',') if h.strip()]
+ALLOWED_HOSTS = list(dict.fromkeys(ALLOWED_HOSTS))
+
+# CSRF Trusted Origins for cross-origin / reverse proxy HTTPS access
+CSRF_TRUSTED_ORIGINS = [
+    'https://uat-e-budget.thonglorpet.com',
+    'http://uat-e-budget.thonglorpet.com',
+    'http://192.168.98.252:5890',
+    'http://192.168.98.252',
+    'http://127.0.0.1:5890',
+    'http://localhost:5890',
+]
+extra_csrf = os.environ.get('CSRF_TRUSTED_ORIGINS', '')
+if extra_csrf:
+    for origin in extra_csrf.split(','):
+        origin = origin.strip()
+        if not origin:
+            continue
+        if not origin.startswith(('http://', 'https://')):
+            CSRF_TRUSTED_ORIGINS.extend([f'http://{origin}', f'https://{origin}'])
+        else:
+            CSRF_TRUSTED_ORIGINS.append(origin)
+CSRF_TRUSTED_ORIGINS = list(dict.fromkeys(CSRF_TRUSTED_ORIGINS))
 
 
 # Application definition
@@ -198,19 +220,26 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 SESSION_COOKIE_AGE = 1800  # 30 minutes in seconds
 SESSION_SAVE_EVERY_REQUEST = True
 
+# Reverse proxy header settings (always safe behind proxy like Nginx / Portainer)
+# Allows Django to detect HTTPS requests correctly via X-Forwarded-Proto
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+USE_X_FORWARDED_PORT = True
+
 # Optional production hardening — only takes effect once a reverse proxy
 # terminates TLS in front of this app. Off by default so it can't break the
 # current plain-HTTP deployment; set ENABLE_SECURE_SSL=True once HTTPS is
 # actually in place in front of gunicorn.
 ENABLE_SECURE_SSL = os.environ.get('ENABLE_SECURE_SSL', 'False').lower() in ['true', '1', 't']
 if ENABLE_SECURE_SSL:
-    SECURE_SSL_REDIRECT = True
+    # Reverse proxy (Nginx) usually handles HTTP->HTTPS redirection.
+    # Keep SECURE_SSL_REDIRECT configurable (default False) to avoid infinite redirect loops.
+    SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'False').lower() in ['true', '1', 't']
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
-    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # Without this, errors are only visible via print()/stdout with no levels,
 # timestamps, or rotation. Logs to console (captured by Docker/gunicorn)
