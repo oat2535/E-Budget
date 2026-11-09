@@ -1662,11 +1662,8 @@ class ImedxAuthBackendTests(SimpleTestCase):
 
     @patch('budget_app.backends.connections')
     @patch('budget_app.backends.User.objects.filter')
-    @patch('budget_app.backends.User.objects.get_or_create')
-    def test_superuser_bypasses_profile_check(self, mock_get_or_create, mock_user_filter, mock_connections):
+    def test_superuser_with_missing_profile_is_blocked(self, mock_user_filter, mock_connections):
         mock_user_filter.return_value.exists.return_value = True
-        mock_user = type('User', (), {'first_name': '', 'last_name': '', 'save': lambda self: None, 'set_unusable_password': lambda self: None})()
-        mock_get_or_create.return_value = (mock_user, False)
         mock_cursor = mock_connections['imedx'].cursor.return_value.__enter__.return_value
         pw_hash = hashlib.md5(b'mypassword').hexdigest()
         mock_cursor.fetchone.return_value = ('superadmin', pw_hash, 'นาย', 'แอด', 'มิน', '', '', '1')
@@ -1675,7 +1672,9 @@ class ImedxAuthBackendTests(SimpleTestCase):
         request = type('Request', (), {})()
         result = backend.authenticate(request, username='superadmin', password='mypassword')
 
-        self.assertIsNotNone(result)
+        self.assertIsNone(result)
+        self.assertEqual(getattr(request, 'auth_failure_reason', None), 'missing_imedx_profile')
+        self.assertEqual(getattr(request, 'auth_missing_fields', []), ['bank_sub_name', 'bank_account_note'])
 
     @patch('budget_app.backends.connections')
     @patch('budget_app.backends.User.objects.filter')
@@ -1813,6 +1812,78 @@ class LoginViewAuthWarningTests(SimpleTestCase):
         self.assertIn('warning', content)
         self.assertIn('width: 520', content)
         self.assertIn('message|safe|escapejs', content)
+
+
+class ImedxProfileValidationMiddlewareTests(SimpleTestCase):
+    """Verifies that ImedxProfileValidationMiddleware intercepts active sessions
+    and logs out users whose bank_sub_name or bank_account_note was deleted in iMedX,
+    redirecting them to login with a warning popup message."""
+
+    @patch('budget_app.middleware.connections')
+    def test_anonymous_user_is_not_checked(self, mock_connections):
+        from django.contrib.auth.models import AnonymousUser
+        from django.http import HttpResponse
+        from budget_app.middleware import ImedxProfileValidationMiddleware
+        middleware = ImedxProfileValidationMiddleware(lambda r: HttpResponse('ok'))
+        factory = RequestFactory()
+        request = factory.get('/budget_list/')
+        request.user = AnonymousUser()
+        response = middleware(request)
+        self.assertEqual(response.status_code, 200)
+        mock_connections['imedx'].cursor.assert_not_called()
+
+    @patch('budget_app.middleware.connections')
+    def test_local_admin_bypasses_imedx_check(self, mock_connections):
+        from django.http import HttpResponse
+        from budget_app.middleware import ImedxProfileValidationMiddleware
+        middleware = ImedxProfileValidationMiddleware(lambda r: HttpResponse('ok'))
+        factory = RequestFactory()
+        request = factory.get('/budget_list/')
+        request.user = type('User', (), {'is_authenticated': True, 'username': 'admin'})()
+        response = middleware(request)
+        self.assertEqual(response.status_code, 200)
+        mock_connections['imedx'].cursor.assert_not_called()
+
+    @patch('budget_app.middleware.connections')
+    @patch('budget_app.middleware.auth.logout')
+    @patch('budget_app.middleware.messages.error')
+    def test_user_with_deleted_bank_sub_name_is_logged_out_and_redirected(self, mock_msg, mock_logout, mock_connections):
+        from django.http import HttpResponse
+        from budget_app.middleware import ImedxProfileValidationMiddleware
+        mock_cursor = mock_connections['imedx'].cursor.return_value.__enter__.return_value
+        # bank_sub_name is empty ''
+        mock_cursor.fetchone.return_value = ('1', '', 'MANAGER')
+
+        middleware = ImedxProfileValidationMiddleware(lambda r: HttpResponse('ok'))
+        factory = RequestFactory()
+        request = factory.get('/budget_list/')
+        request.user = type('User', (), {'is_authenticated': True, 'username': 'nattchai_u'})()
+        request.session = {}
+
+        response = middleware(request)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse('login'))
+        mock_logout.assert_called_once_with(request)
+        mock_msg.assert_called_once()
+        self.assertIn('bank_sub_name', mock_msg.call_args[0][1])
+
+    @patch('budget_app.middleware.connections')
+    @patch('budget_app.middleware.auth.logout')
+    def test_api_call_returns_403_json_when_profile_missing(self, mock_logout, mock_connections):
+        from budget_app.middleware import ImedxProfileValidationMiddleware
+        mock_cursor = mock_connections['imedx'].cursor.return_value.__enter__.return_value
+        mock_cursor.fetchone.return_value = ('1', '', '')
+
+        middleware = ImedxProfileValidationMiddleware(lambda r: HttpResponse('ok'))
+        factory = RequestFactory()
+        request = factory.get('/api/get_documents/C01/')
+        request.user = type('User', (), {'is_authenticated': True, 'username': 'emp01'})()
+        request.session = {}
+
+        response = middleware(request)
+        self.assertEqual(response.status_code, 403)
+        self.assertIn('application/json', response['content-type'])
+        mock_logout.assert_called_once_with(request)
 
 
 class ExecutiveViewOnlyRoleTests(SimpleTestCase):
