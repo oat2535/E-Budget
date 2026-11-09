@@ -85,3 +85,4 @@ class ImedxProfileValidationMiddleware:
                         logger.error(f"ImedxProfileValidationMiddleware: Error validating profile for '{request.user.username}': {e}")
 
         return self.get_response(request)
+
