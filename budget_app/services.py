@@ -92,8 +92,14 @@ class BudgetService:
         if not row:
             return empty
         bank_sub_name, bank_account_note, fallback_branch_id = row
-        sub_name_upper = (bank_sub_name or '').upper()
+        sub_name_clean = (bank_sub_name or '').strip()
         note_clean = (bank_account_note or '').strip()
+
+        # If either bank_sub_name or bank_account_note is missing/deleted, return empty (no branch permission)
+        if not sub_name_clean or not note_clean:
+            return empty
+
+        sub_name_upper = sub_name_clean.upper()
         is_manager = 'MANAGER' in note_clean.upper()
         is_executive = BudgetService.is_executive_role(note_clean)
 

@@ -40,9 +40,9 @@ class ImedxAuthBackend(BaseBackend):
                         sub_name_clean = (bank_sub_name or '').strip()
                         account_note_clean = (bank_account_note or '').strip()
 
-                        # Existing local superusers bypass profile check to avoid lockout
-                        is_superuser = User.objects.filter(username=username, is_superuser=True).exists()
-                        if not is_superuser and (not sub_name_clean or not account_note_clean):
+                        # All iMedX employee accounts must have both bank_sub_name and bank_account_note set.
+                        # If either column is deleted/empty in iMedX, access to E-Budget is strictly denied.
+                        if not sub_name_clean or not account_note_clean:
                             missing_fields = []
                             if not sub_name_clean:
                                 missing_fields.append('bank_sub_name')
