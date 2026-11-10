@@ -6,8 +6,10 @@ from django.shortcuts import render, redirect
 from django.http import JsonResponse
 import json
 from django.db import transaction
+from django.conf import settings
 from django.contrib.auth import authenticate, login
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.views import redirect_to_login
 from django.contrib import messages
 from django.db.models import Count, Max, Sum
 from master_data.models import ebudget_budget_item_master, ebudget_budget_category_master, ebudget_cost_center_master, ebudget_general_ledger_master, ebudget_gl_actual_template_row
@@ -215,6 +217,28 @@ def login_required_json(view_func):
                 {'status': 'error', 'code': 'session_expired', 'message': 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่'},
                 status=401,
             )
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
+def login_required_hybrid(view_func):
+    """Like login_required, but for views handling both HTML GET and JSON/AJAX POST.
+    An unauthenticated GET redirects to login page HTML with next parameter.
+    An unauthenticated JSON/AJAX or POST returns 401 JSON instead of redirecting to HTML."""
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            is_ajax = (
+                request.headers.get('x-requested-with') == 'XMLHttpRequest'
+                or request.content_type == 'application/json'
+                or request.method == 'POST'
+                or request.path.startswith('/api/')
+            )
+            if is_ajax:
+                return JsonResponse(
+                    {'status': 'error', 'code': 'session_expired', 'message': 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่'},
+                    status=401,
+                )
+            return redirect_to_login(request.get_full_path(), settings.LOGIN_URL)
         return view_func(request, *args, **kwargs)
     return wrapper
 
@@ -551,7 +575,7 @@ DOC_TYPE_MODEL_MAP = {
     'GL ACTUAL TEMPLATE': (ebudget_gl_actual_template, 'GL Actual Template'),
 }
 
-@login_required
+@login_required_json
 def check_duplicate_document_api(request):
     """API endpoint to pre-check if a budget document already exists before save.
     Called by front-end Add Budget forms to warn users immediately upon clicking Save."""
@@ -589,7 +613,7 @@ def check_duplicate_document_api(request):
         return duplicate_resp
     return JsonResponse({'status': 'ok', 'is_duplicate': False})
 
-@login_required
+@login_required_hybrid
 @require_not_executive_view_only
 @require_not_frozen
 def budget_add_view(request):
@@ -679,7 +703,7 @@ def budget_add_view(request):
         **get_branch_selection_context(request),
     })
 
-@login_required
+@login_required_hybrid
 @require_not_executive_view_only
 @require_not_frozen
 def budget_add_non_vet_view(request):
@@ -1864,7 +1888,7 @@ def cancel_document_api(request, doc_type, doc_no):
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})
 
-@login_required
+@login_required_hybrid
 @require_not_executive_view_only
 @require_not_frozen
 def budget_add_adjustment_view(request):
@@ -2097,49 +2121,49 @@ def _budget_add_equipment_view(request, model_class, doc_type, template_name, su
         **get_branch_selection_context(request),
     })
 
-@login_required
+@login_required_hybrid
 @require_not_executive_view_only
 @require_not_frozen
 def budget_add_medical_equipment_view(request):
     return _budget_add_equipment_view(request, ebudget_medical_equipment, 'Medical Equipment', 'budget_app/budget_add_medical_equipment.html', 4)
 
-@login_required
+@login_required_hybrid
 @require_not_executive_view_only
 @require_not_frozen
 def budget_add_computer_equipment_view(request):
     return _budget_add_equipment_view(request, ebudget_computer_equipment, 'Computer Equipment', 'budget_app/budget_add_computer_equipment.html', 5)
 
-@login_required
+@login_required_hybrid
 @require_not_executive_view_only
 @require_not_frozen
 def budget_add_furniture_view(request):
     return _budget_add_equipment_view(request, ebudget_furniture, 'Furniture', 'budget_app/budget_add_furniture.html', 6)
 
-@login_required
+@login_required_hybrid
 @require_not_executive_view_only
 @require_not_frozen
 def budget_add_tools_equipment_view(request):
     return _budget_add_equipment_view(request, ebudget_tools_equipment, 'Tools & Equipment', 'budget_app/budget_add_tools_equipment.html', 7)
 
-@login_required
+@login_required_hybrid
 @require_not_executive_view_only
 @require_not_frozen
 def budget_add_car_view(request):
     return _budget_add_equipment_view(request, ebudget_car, 'CAR', 'budget_app/budget_add_car.html', 8)
 
-@login_required
+@login_required_hybrid
 @require_not_executive_view_only
 @require_not_frozen
 def budget_add_renovate_view(request):
     return _budget_add_equipment_view(request, ebudget_renovate, 'Renovate', 'budget_app/budget_add_renovate.html', 9)
 
-@login_required
+@login_required_hybrid
 @require_not_executive_view_only
 @require_not_frozen
 def budget_add_software_view(request):
     return _budget_add_equipment_view(request, ebudget_software, 'Software', 'budget_app/budget_add_software.html', 10)
 
-@login_required
+@login_required_hybrid
 @require_not_executive_view_only
 @require_not_frozen
 def budget_add_gl_entry_view(request):
@@ -2197,7 +2221,7 @@ def budget_add_gl_entry_view(request):
         **get_branch_selection_context(request),
     })
 
-@login_required
+@login_required_hybrid
 @require_not_executive_view_only
 @require_not_frozen
 def budget_add_revenue_view(request):
@@ -2255,7 +2279,7 @@ def budget_add_revenue_view(request):
         **get_branch_selection_context(request),
     })
 
-@login_required
+@login_required_hybrid
 @require_not_executive_view_only
 @require_not_frozen
 def budget_add_budget_plan_view(request):
@@ -2311,7 +2335,7 @@ def budget_add_budget_plan_view(request):
         **get_branch_selection_context(request),
     })
 
-@login_required
+@login_required_hybrid
 @require_not_executive_view_only
 @require_not_frozen
 def budget_add_gl_actual_template_view(request):

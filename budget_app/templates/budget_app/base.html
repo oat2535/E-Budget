@@ -445,15 +445,15 @@
                         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
                         body: JSON.stringify({ message: message || '' })
                     })
-                    .then(r => r.json())
+                    .then(r => window.handleFetchApiResponse(r))
                     .then(data => {
-                        if (data.status === 'success') {
+                        if (data && data.status === 'success') {
                             window.location.reload();
-                        } else {
+                        } else if (data) {
                             Swal.fire('ข้อผิดพลาด', data.message || 'ไม่สามารถดำเนินการได้', 'error');
                         }
                     })
-                    .catch(() => Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย', 'error'));
+                    .catch(window.handleFetchApiError);
                 }
 
                 window.handleFreezeToggle = function() {
@@ -494,15 +494,15 @@
                         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
                         body: JSON.stringify({ year: year })
                     })
-                    .then(r => r.json())
+                    .then(r => window.handleFetchApiResponse(r))
                     .then(data => {
-                        if (data.status === 'success') {
+                        if (data && data.status === 'success') {
                             window.location.reload();
-                        } else {
+                        } else if (data) {
                             Swal.fire('ข้อผิดพลาด', data.message || 'ไม่สามารถเปลี่ยนปีได้', 'error');
                         }
                     })
-                    .catch(() => Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย', 'error'));
+                    .catch(window.handleFetchApiError);
                 }
 
                 document.addEventListener('DOMContentLoaded', () => {
@@ -529,6 +529,80 @@
             })();
         </script>
                 <script>
+            window.handleFetchApiResponse = function(response) {
+                // Case 1: Browser followed 302 redirect to login HTML
+                if (response.redirected && response.url && response.url.includes('/login')) {
+                    Swal.fire({
+                        icon: 'warning',
+                        title: 'เซสชันหมดอายุ',
+                        text: 'เซสชันการเข้าใช้งานหมดอายุ กรุณาเข้าสู่ระบบใหม่อีกครั้ง',
+                        confirmButtonText: 'เข้าสู่ระบบ',
+                        allowOutsideClick: false,
+                        allowEscapeKey: false
+                    }).then(() => {
+                        window.location.href = '/login/?next=' + encodeURIComponent(window.location.pathname);
+                    });
+                    const err = new Error('SESSION_EXPIRED');
+                    err.handled = true;
+                    return Promise.reject(err);
+                }
+
+                // Case 2: Server returned 401 Unauthorized JSON
+                if (response.status === 401) {
+                    return response.json().catch(() => ({})).then(data => {
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'เซสชันหมดอายุ',
+                            text: (data && data.message) ? data.message : 'เซสชันการเข้าใช้งานหมดอายุ กรุณาเข้าสู่ระบบใหม่อีกครั้ง',
+                            confirmButtonText: 'เข้าสู่ระบบ',
+                            allowOutsideClick: false,
+                            allowEscapeKey: false
+                        }).then(() => {
+                            window.location.href = '/login/?next=' + encodeURIComponent(window.location.pathname);
+                        });
+                        const err = new Error('SESSION_EXPIRED');
+                        err.handled = true;
+                        return Promise.reject(err);
+                    });
+                }
+
+                // Case 3: 403 Forbidden (e.g. view-only executive, revoked iMedX profile, CSRF)
+                if (response.status === 403) {
+                    return response.json().catch(() => null).then(data => {
+                        const msg = (data && data.message) ? data.message : 'ท่านไม่มีสิทธิ์ดำเนินการในส่วนนี้ หรือเซสชันหมดอายุ';
+                        Swal.fire('ข้อผิดพลาด', msg, 'error');
+                        const err = new Error(msg);
+                        err.handled = true;
+                        return Promise.reject(err);
+                    });
+                }
+
+                // Case 4: Server error (HTTP 500, 502, 504, etc.)
+                if (!response.ok) {
+                    return response.json().catch(() => null).then(data => {
+                        const msg = (data && data.message) ? data.message : `เซิร์ฟเวอร์ตอบกลับด้วยรหัสข้อผิดพลาด (HTTP ${response.status})`;
+                        Swal.fire('ข้อผิดพลาด', 'ไม่สามารถบันทึกได้: ' + msg, 'error');
+                        const err = new Error(msg);
+                        err.handled = true;
+                        return Promise.reject(err);
+                    });
+                }
+
+                // Case 5: 200 OK -> parse JSON
+                return response.json();
+            };
+
+            window.handleFetchApiError = function(error) {
+                if (error && (error.handled || error.message === 'SESSION_EXPIRED')) {
+                    return;
+                }
+                console.error('Fetch API error:', error);
+                const msg = (error && error.message && error.message !== 'Failed to fetch') 
+                    ? error.message 
+                    : 'เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย หรือเซิร์ฟเวอร์ไม่ตอบสนอง';
+                Swal.fire('ข้อผิดพลาด', msg, 'error');
+            };
+
             window.handleBudgetSaveDuplicateResponse = function(data, budgetListUrl) {
                 const escapeHtml = function(str) {
                     if (!str) return '';
@@ -619,7 +693,24 @@
                     '&cost_center=' + encodeURIComponent(costCenterName);
 
                 fetch(url)
-                    .then(function(res) { return res.json(); })
+                    .then(function(res) {
+                        if (res.status === 401 || (res.redirected && res.url && res.url.includes('/login'))) {
+                            Swal.fire({
+                                icon: 'warning',
+                                title: 'เซสชันหมดอายุ',
+                                text: 'เซสชันการเข้าใช้งานหมดอายุ กรุณาเข้าสู่ระบบใหม่อีกครั้ง',
+                                confirmButtonText: 'เข้าสู่ระบบ',
+                                allowOutsideClick: false,
+                                allowEscapeKey: false
+                            }).then(() => {
+                                window.location.href = '/login/?next=' + encodeURIComponent(window.location.pathname);
+                            });
+                            const err = new Error('SESSION_EXPIRED');
+                            err.handled = true;
+                            throw err;
+                        }
+                        return res.json();
+                    })
                     .then(function(data) {
                         if (data && data.status === 'duplicate') {
                             window.handleBudgetSaveDuplicateResponse(data, budgetListUrl);
@@ -628,6 +719,7 @@
                         }
                     })
                     .catch(function(err) {
+                        if (err && (err.handled || err.message === 'SESSION_EXPIRED')) return;
                         console.error('Error pre-checking duplicate budget document:', err);
                         if (typeof onProceed === 'function') onProceed();
                     });

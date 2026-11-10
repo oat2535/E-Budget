@@ -218,7 +218,7 @@ LOGOUT_REDIRECT_URL = 'login'
 
 # Session settings
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
-SESSION_COOKIE_AGE = 1800  # 30 minutes in seconds
+SESSION_COOKIE_AGE = 7200  # 2 hours in seconds (previously 30 minutes / 1800s)
 SESSION_SAVE_EVERY_REQUEST = True
 
 # Reverse proxy header settings (always safe behind proxy like Nginx / Portainer)

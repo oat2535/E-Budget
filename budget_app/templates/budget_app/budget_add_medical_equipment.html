@@ -686,7 +686,7 @@
                         },
                         body: JSON.stringify(dataToSave)
                     })
-                    .then(response => response.json())
+                                        .then(response => window.handleFetchApiResponse(response))
                     .then(data => {
                         if (data.status === 'success') {
                             Swal.fire('สำเร็จ!', 'บันทึกข้อมูลเรียบร้อยแล้ว', 'success').then(() => {
@@ -698,10 +698,7 @@
                             Swal.fire('ข้อผิดพลาด', 'ไม่สามารถบันทึกได้: ' + data.message, 'error');
                         }
                     })
-                    .catch(error => {
-                        console.error(error);
-                        Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย', 'error');
-                    });
+                    .catch(window.handleFetchApiError);
                 }
             });
             };

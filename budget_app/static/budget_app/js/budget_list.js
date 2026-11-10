@@ -460,7 +460,7 @@ const BudgetApp = (function() {
                 Swal.fire({
                     icon: 'warning',
                     title: 'เซสชันหมดอายุ',
-                    text: 'คุณไม่ได้ใช้งานระบบเกิน 30 นาที กรุณาเข้าสู่ระบบใหม่อีกครั้ง',
+                    text: 'เซสชันการเข้าใช้งานหมดอายุ กรุณาเข้าสู่ระบบใหม่อีกครั้ง',
                     confirmButtonText: 'เข้าสู่ระบบ',
                     allowOutsideClick: false,
                     allowEscapeKey: false
