@@ -11,7 +11,13 @@ from budget_app.models import (
     ebudget_gl_actual_template
 )
 from master_data.models import ebudget_budget_item_master, ebudget_general_ledger_master, ebudget_cost_center_master
-from budget_app.constants import EXECUTIVE_VIEW_ONLY_ROLES, STATUS_CANCELLED, GL_ACTUAL_TEMPLATE_BRANCHES
+from budget_app.constants import (
+    EXECUTIVE_VIEW_ONLY_ROLES,
+    DISTRICT_VIEW_ONLY_ROLES,
+    VIEW_ONLY_ROLES,
+    STATUS_CANCELLED,
+    GL_ACTUAL_TEMPLATE_BRANCHES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +34,22 @@ class BudgetService:
         if not bank_account_note:
             return False
         return (bank_account_note or '').strip().upper() in EXECUTIVE_VIEW_ONLY_ROLES
+
+    @staticmethod
+    def is_district_role(bank_account_note):
+        """Checks if a bank_account_note matches any district/director view-only roles
+        (DISTRICT MANAGER, DIRECTOR)."""
+        if not bank_account_note:
+            return False
+        note = (bank_account_note or '').strip().upper()
+        return note in DISTRICT_VIEW_ONLY_ROLES or note.startswith('DISTRICT MANAGER') or note.startswith('DIRECTOR')
+
+    @staticmethod
+    def is_view_only_role(bank_account_note):
+        """Checks if a bank_account_note matches any view-only roles (Executive or District/Director)."""
+        if not bank_account_note:
+            return False
+        return BudgetService.is_executive_role(bank_account_note) or BudgetService.is_district_role(bank_account_note)
 
     @staticmethod
     def get_branch_info_from_imedx(username):
@@ -56,15 +78,18 @@ class BudgetService:
            keep behaving exactly as it did before this feature existed,
            or budget creation breaks for almost everyone.
 
-        Also resolves 'is_manager' and 'is_executive_view_only':
+        Also resolves 'is_manager', 'is_executive_view_only', 'is_district_view_only', and 'is_view_only':
         - 'is_manager': whether bank_account_note contains "MANAGER"
         - 'is_executive_view_only': whether bank_account_note matches
-          CHRO, CFO, or COO (sees all documents, can view details, but
-          cannot edit or cancel).
+          CHRO, CFO, or COO (sees all documents across all branches, view details only).
+        - 'is_district_view_only': whether bank_account_note matches
+          DISTRICT MANAGER or DIRECTOR (sees all documents across their bank_sub_name branches, view details only).
+        - 'is_view_only': True if either executive or district view-only role.
 
         Returns {'branches': [...], 'needs_selection': bool,
         'department_id': str|None, 'is_manager': bool,
-        'bank_account_note': str|None, 'is_executive_view_only': bool}.
+        'bank_account_note': str|None, 'is_executive_view_only': bool,
+        'is_district_view_only': bool, 'is_view_only': bool}.
         An employee not found in imedx, or any DB error, returns branches=[] -
         matching the previous get_branch_id_from_imedx's fail-closed (None) behavior.
         """
@@ -75,6 +100,8 @@ class BudgetService:
             'is_manager': False,
             'bank_account_note': None,
             'is_executive_view_only': False,
+            'is_district_view_only': False,
+            'is_view_only': False,
         }
         try:
             with connections['imedx'].cursor() as cursor:
@@ -102,6 +129,8 @@ class BudgetService:
         sub_name_upper = sub_name_clean.upper()
         is_manager = 'MANAGER' in note_clean.upper()
         is_executive = BudgetService.is_executive_role(note_clean)
+        is_district = BudgetService.is_district_role(note_clean)
+        is_view_only = is_executive or is_district
 
         if bank_sub_name and 'BACK' in sub_name_upper:
             valid_branch_ids = {code for code, _ in GL_ACTUAL_TEMPLATE_BRANCHES if code != 'HO'}
@@ -154,6 +183,8 @@ class BudgetService:
                     'is_manager': is_manager,
                     'bank_account_note': note_clean,
                     'is_executive_view_only': is_executive,
+                    'is_district_view_only': is_district,
+                    'is_view_only': is_view_only,
                 }
             else:
                 return {
@@ -163,10 +194,12 @@ class BudgetService:
                     'is_manager': is_manager,
                     'bank_account_note': note_clean,
                     'is_executive_view_only': is_executive,
+                    'is_district_view_only': is_district,
+                    'is_view_only': is_view_only,
                 }
 
         if bank_sub_name and bank_sub_name.strip():
-            branches = [b.strip() for b in bank_sub_name.split(',') if b.strip()]
+            branches = [b.strip().upper() for b in bank_sub_name.split(',') if b.strip()]
             if branches:
                 return {
                     'branches': branches,
@@ -175,6 +208,8 @@ class BudgetService:
                     'is_manager': is_manager,
                     'bank_account_note': note_clean,
                     'is_executive_view_only': is_executive,
+                    'is_district_view_only': is_district,
+                    'is_view_only': is_view_only,
                 }
 
         if fallback_branch_id:
@@ -185,6 +220,8 @@ class BudgetService:
                 'is_manager': is_manager,
                 'bank_account_note': note_clean,
                 'is_executive_view_only': is_executive,
+                'is_district_view_only': is_district,
+                'is_view_only': is_view_only,
             }
         return {
             'branches': [],
@@ -193,6 +230,8 @@ class BudgetService:
             'is_manager': is_manager,
             'bank_account_note': note_clean,
             'is_executive_view_only': is_executive,
+            'is_district_view_only': is_district,
+            'is_view_only': is_view_only,
         }
 
     @staticmethod
@@ -680,10 +719,56 @@ def is_executive_view_only_user(request):
     session = getattr(request, 'session', None)
     if session is not None:
         info = session.get('branch_info')
-        if info is None or 'is_executive_view_only' not in info:
+        if info is None or ('is_executive_view_only' not in info and 'bank_account_note' not in info):
             info = BudgetService.get_branch_info_from_imedx(request.user.username)
             session['branch_info'] = info
-        return bool(info.get('is_executive_view_only', False))
+        if 'is_executive_view_only' in info:
+            return bool(info.get('is_executive_view_only', False))
+        return BudgetService.is_executive_role(info.get('bank_account_note'))
     info = BudgetService.get_branch_info_from_imedx(request.user.username)
     return bool(info.get('is_executive_view_only', False))
+
+
+def is_district_view_only_user(request):
+    """Returns True if the authenticated user has a district/director view-only role
+    (DISTRICT MANAGER, DIRECTOR) based on their iMedX bank_account_note. Local superusers
+    and ALL_BRANCH_USERNAMES bypass this to preserve admin/privileged capabilities."""
+    if not request or not getattr(request, 'user', None) or not request.user.is_authenticated:
+        return False
+    from budget_app.constants import ALL_BRANCH_USERNAMES
+    if request.user.is_superuser or request.user.username in ALL_BRANCH_USERNAMES:
+        return False
+    session = getattr(request, 'session', None)
+    if session is not None:
+        info = session.get('branch_info')
+        if info is None or ('is_district_view_only' not in info and 'bank_account_note' not in info):
+            info = BudgetService.get_branch_info_from_imedx(request.user.username)
+            session['branch_info'] = info
+        if 'is_district_view_only' in info:
+            return bool(info.get('is_district_view_only', False))
+        return BudgetService.is_district_role(info.get('bank_account_note'))
+    info = BudgetService.get_branch_info_from_imedx(request.user.username)
+    return bool(info.get('is_district_view_only', False))
+
+
+def is_view_only_user(request):
+    """Returns True if the authenticated user has any view-only role
+    (Executive: CHRO, CFO, COO or District/Director: DISTRICT MANAGER, DIRECTOR).
+    Local superusers and ALL_BRANCH_USERNAMES bypass this to preserve admin capabilities."""
+    if not request or not getattr(request, 'user', None) or not request.user.is_authenticated:
+        return False
+    from budget_app.constants import ALL_BRANCH_USERNAMES
+    if request.user.is_superuser or request.user.username in ALL_BRANCH_USERNAMES:
+        return False
+    session = getattr(request, 'session', None)
+    if session is not None:
+        info = session.get('branch_info')
+        if info is None or ('is_view_only' not in info and 'is_executive_view_only' not in info and 'is_district_view_only' not in info and 'bank_account_note' not in info):
+            info = BudgetService.get_branch_info_from_imedx(request.user.username)
+            session['branch_info'] = info
+        if 'is_view_only' in info:
+            return bool(info.get('is_view_only', False))
+        return bool(info.get('is_executive_view_only', False) or info.get('is_district_view_only', False) or BudgetService.is_view_only_role(info.get('bank_account_note')))
+    info = BudgetService.get_branch_info_from_imedx(request.user.username)
+    return bool(info.get('is_view_only', False))
 

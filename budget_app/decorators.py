@@ -21,16 +21,16 @@ def require_not_frozen(view_func):
 
 
 def require_not_executive_view_only(view_func):
-    """Blocks executive view-only users (CHRO, CFO, COO) from accessing
-    budget creation views:
+    """Blocks view-only users (Executive: CHRO, CFO, COO and District/Director:
+    DISTRICT MANAGER, DIRECTOR) from accessing budget creation views:
     - GET: redirects to budget_list
     - POST: returns 403 Forbidden JsonResponse
     Enforced server-side as defense-in-depth, matching the hidden 'Add Budget'
     sidebar menu in base.html."""
     @wraps(view_func)
     def wrapper(request, *args, **kwargs):
-        from budget_app.services import is_executive_view_only_user
-        if is_executive_view_only_user(request):
+        from budget_app.services import is_view_only_user
+        if is_view_only_user(request):
             if request.method == 'POST':
                 return JsonResponse({
                     'status': 'error',
@@ -40,3 +40,6 @@ def require_not_executive_view_only(view_func):
             return redirect('budget_list')
         return view_func(request, *args, **kwargs)
     return wrapper
+
+
+require_not_view_only = require_not_executive_view_only

@@ -15,7 +15,7 @@ from django.db.models import Count, Max, Sum
 from master_data.models import ebudget_budget_item_master, ebudget_budget_category_master, ebudget_cost_center_master, ebudget_general_ledger_master, ebudget_gl_actual_template_row
 from django.core.cache import cache
 from budget_app.models import ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment, ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_car, ebudget_renovate, ebudget_software, ebudget_gl_entry, ebudget_revenue, ebudget_budget_plan_item, ebudget_gl_actual_template, SystemSettings, SYSTEM_SETTINGS_CACHE_KEY
-from budget_app.services import BudgetService, is_executive_view_only_user
+from budget_app.services import BudgetService, is_executive_view_only_user, is_district_view_only_user, is_view_only_user
 from budget_app.constants import (
     ALL_BRANCH_USERNAMES, STATUS_PENDING, STATUS_APPROVED, STATUS_CANCELLED,
     EXPENSE_PAGE_EXCLUDED_GL_CODES, VET_CUSTOM_POSITION_GL_CODE,
@@ -255,15 +255,22 @@ def get_branch_info(request):
 def get_document_visibility_filter_kwargs(request):
     """Filter kwargs scoping which budget documents a user can see (list +
     detail). ALL_BRANCH_USERNAMES, superusers, and executive view-only users
-    (CHRO, CFO, COO) see everything (empty dict). Everyone else sees only
-    documents they personally created — matched by create_eid, the same
-    field/comparison cancel_document_api's ownership check already uses
+    (CHRO, CFO, COO) see everything (empty dict).
+    District Managers and Directors (DISTRICT MANAGER, DIRECTOR) see all documents
+    across branches listed in their bank_sub_name.
+    Everyone else sees only documents they personally created — matched by create_eid,
+    the same field/comparison cancel_document_api's ownership check already uses
     (request.user.username), so a document keeps showing to its creator even if
     its branch is later reassigned via the edit-mode branch dropdown."""
     if request.user.username in ALL_BRANCH_USERNAMES or request.user.is_superuser:
         return {}
     if is_executive_view_only_user(request):
         return {}
+    if is_district_view_only_user(request):
+        info = get_branch_info(request)
+        raw_branches = info.get('branches') or []
+        branches = [b.strip().upper() for b in raw_branches if b and b.strip()]
+        return {'base_branch_id__in': branches}
     return {'create_eid': request.user.username}
 
 def get_branch_selection_context(request):
@@ -1378,7 +1385,7 @@ def update_document_api(request, doc_type, doc_no):
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
 
-    if is_executive_view_only_user(request):
+    if is_view_only_user(request):
         return JsonResponse({
             'status': 'error',
             'message': 'ตำแหน่งของท่านมีสิทธิ์ดูข้อมูลเท่านั้น ไม่สามารถแก้ไขข้อมูลได้'
@@ -1855,7 +1862,7 @@ def cancel_document_api(request, doc_type, doc_no):
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
 
-    if is_executive_view_only_user(request):
+    if is_view_only_user(request):
         return JsonResponse({
             'status': 'error',
             'message': 'ตำแหน่งของท่านมีสิทธิ์ดูข้อมูลเท่านั้น ไม่สามารถยกเลิกเอกสารได้'
@@ -2031,7 +2038,7 @@ def _budget_add_equipment_view(request, model_class, doc_type, template_name, su
     """Shared implementation behind the four equipment add-views below, which
     were previously near-identical ~60-line copies of each other differing
     only by model/doc_type/template/sub_category_id."""
-    if is_executive_view_only_user(request):
+    if is_view_only_user(request):
         if request.method == 'POST':
             return JsonResponse({'status': 'error', 'message': 'ตำแหน่งของท่านมีสิทธิ์ดูข้อมูลเท่านั้น ไม่สามารถสร้างเอกสารได้'}, status=403)
         return redirect('budget_list')
