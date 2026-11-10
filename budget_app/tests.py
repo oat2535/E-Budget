@@ -3724,3 +3724,32 @@ class SessionTimeoutAndHybridAuthTests(SimpleTestCase):
         data = json.loads(resp.content.decode('utf-8'))
         self.assertEqual(data.get('code'), 'session_expired')
 
+    def test_unauthenticated_session_keepalive_returns_401(self):
+        from django.contrib.auth.models import AnonymousUser
+        from budget_app.views import session_keepalive_api
+        factory = RequestFactory()
+        req = factory.get('/api/session/keepalive/')
+        req.user = AnonymousUser()
+        resp = session_keepalive_api(req)
+        self.assertEqual(resp.status_code, 401)
+        data = json.loads(resp.content.decode('utf-8'))
+        self.assertEqual(data.get('code'), 'session_expired')
+
+    def test_authenticated_session_keepalive_returns_200_and_idle_timeout(self):
+        from unittest.mock import MagicMock
+        from django.contrib.auth.models import User
+        from budget_app.views import session_keepalive_api
+        factory = RequestFactory()
+        req = factory.get('/api/session/keepalive/')
+        req.user = User(username='test_user')
+        mock_session = MagicMock()
+        mock_session.modified = False
+        req.session = mock_session
+        resp = session_keepalive_api(req)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(req.session.modified)
+        data = json.loads(resp.content.decode('utf-8'))
+        self.assertEqual(data.get('status'), 'success')
+        self.assertTrue(data.get('authenticated'))
+        self.assertEqual(data.get('idle_timeout_seconds'), 7200)
+

@@ -462,10 +462,11 @@ const BudgetApp = (function() {
                     title: 'เซสชันหมดอายุ',
                     text: 'เซสชันการเข้าใช้งานหมดอายุ กรุณาเข้าสู่ระบบใหม่อีกครั้ง',
                     confirmButtonText: 'เข้าสู่ระบบ',
+                    confirmButtonColor: '#0061f2',
                     allowOutsideClick: false,
                     allowEscapeKey: false
                 }).then(() => {
-                    window.location.href = '/login/';
+                    window.location.href = '/login/?next=' + encodeURIComponent(window.location.pathname);
                 });
             }
             return Promise.reject(new Error(SESSION_EXPIRED));
