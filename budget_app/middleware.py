@@ -62,7 +62,12 @@ class ImedxProfileValidationMiddleware:
                                 f"(reason: {reason})"
                             )
 
-                            if request.path.startswith('/api/') or request.headers.get('x-requested-with') == 'XMLHttpRequest' or request.content_type == 'application/json':
+                            is_ajax_or_api = (
+                                request.path.startswith('/api/')
+                                or request.headers.get('x-requested-with') == 'XMLHttpRequest'
+                                or request.headers.get('content-type', '').startswith('application/json')
+                            )
+                            if is_ajax_or_api:
                                 return JsonResponse({
                                     'status': 'error',
                                     'message': 'สิทธิ์การเข้าใช้งานระบบ E-Budget ของท่านถูกระงับ หรือไม่พบข้อมูลสาขา/ตำแหน่งในระบบ iMedX กรุณาติดต่อฝ่ายบัญชี (ACC) / แผนก IT'
