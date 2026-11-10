@@ -613,6 +613,19 @@ def check_duplicate_document_api(request):
         return duplicate_resp
     return JsonResponse({'status': 'ok', 'is_duplicate': False})
 
+@login_required_json
+def session_keepalive_api(request):
+    """Lightweight keepalive endpoint called periodically by active front-end sessions.
+    Touches the session so SESSION_SAVE_EVERY_REQUEST updates django_session.expire_date.
+    """
+    if hasattr(request, 'session') and hasattr(request.session, 'modified'):
+        request.session.modified = True
+    return JsonResponse({
+        'status': 'success',
+        'authenticated': True,
+        'idle_timeout_seconds': settings.SESSION_COOKIE_AGE,
+    })
+
 @login_required_hybrid
 @require_not_executive_view_only
 @require_not_frozen

@@ -325,85 +325,79 @@
                 });
             }
 
-            // Idle-timeout: warn the user before SESSION_COOKIE_AGE elapses and
-            // proactively log them out, instead of waiting for a click to reveal
-            // that the session had already died server-side. Reads its config
-            // from data-* attributes on <body> (set server-side) rather than
-            // embedding Django template tags in this script, so this whole
-            // block is plain, lintable JavaScript.
+            // Inactivity timeout: If there is no user activity on the page for 2 hours (SESSION_COOKIE_AGE),
+            // display a SweetAlert popup alerting that the session expired and require re-login.
+            // When the user is active, periodically send a lightweight heartbeat ping to refresh
+            // Django's server-side session timer so active work in forms/tables is never interrupted.
             (function() {
                 if (document.body.dataset.authenticated !== 'true') return;
 
-                const IDLE_TIMEOUT_MS = parseInt(document.body.dataset.idleTimeoutSeconds, 10) * 1000;
-                const WARNING_BEFORE_MS = Math.min(60000, IDLE_TIMEOUT_MS);
-                const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'];
+                const IDLE_TIMEOUT_SECONDS = parseInt(document.body.dataset.idleTimeoutSeconds, 10) || 7200;
+                const IDLE_TIMEOUT_MS = IDLE_TIMEOUT_SECONDS * 1000;
+                const HEARTBEAT_INTERVAL_MS = 10 * 60 * 1000; // Heartbeat every 10 min of active use
+                const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
 
-                let warningTimer = null;
-                let logoutTimer = null;
-                let countdownInterval = null;
-                let warningShown = false;
+                let lastActivityTime = Date.now();
+                let lastHeartbeatTime = Date.now();
+                let sessionExpiredModalShown = false;
                 let activityThrottled = false;
 
-                function doAutoLogout() {
-                    const form = document.getElementById('logoutForm');
-                    if (form) form.submit();
-                }
-
-                function showWarning() {
-                    warningShown = true;
-                    let secondsLeft = Math.round(WARNING_BEFORE_MS / 1000);
+                function showSessionExpiredModal() {
+                    if (sessionExpiredModalShown) return;
+                    sessionExpiredModalShown = true;
                     Swal.fire({
                         icon: 'warning',
-                        title: 'เซสชันใกล้หมดอายุ',
-                        html: `คุณไม่ได้ใช้งานระบบเป็นเวลานาน ระบบจะนำคุณออกจากระบบอัตโนมัติใน <b>${secondsLeft}</b> วินาที`,
-                        confirmButtonText: 'อยู่ต่อ',
+                        title: 'เซสชันหมดอายุ',
+                        text: 'คุณไม่ได้ใช้งานระบบเป็นเวลาเกิน 2 ชั่วโมง เซสชันการเข้าใช้งานหมดอายุแล้ว กรุณาเข้าสู่ระบบใหม่อีกครั้ง',
+                        confirmButtonText: 'เข้าสู่ระบบ',
+                        confirmButtonColor: '#0061f2',
                         allowOutsideClick: false,
-                        allowEscapeKey: false,
-                        didOpen: () => {
-                            countdownInterval = setInterval(() => {
-                                secondsLeft -= 1;
-                                const counter = Swal.getHtmlContainer() && Swal.getHtmlContainer().querySelector('b');
-                                if (counter) counter.textContent = secondsLeft;
-                                if (secondsLeft <= 0) clearInterval(countdownInterval);
-                            }, 1000);
-                        },
-                        willClose: () => {
-                            clearInterval(countdownInterval);
-                        }
-                    }).then((result) => {
-                        if (result.isConfirmed) {
-                            resetIdleTimer();
-                        }
+                        allowEscapeKey: false
+                    }).then(() => {
+                        window.location.href = '/login/?next=' + encodeURIComponent(window.location.pathname);
                     });
-
-                    logoutTimer = setTimeout(doAutoLogout, WARNING_BEFORE_MS);
                 }
 
-                function resetIdleTimer() {
-                    // Only ever touches its own timers — never Swal.close(),
-                    // since SweetAlert2 is a page-wide singleton and this
-                    // fires on ordinary mouse/keyboard activity, which would
-                    // otherwise slam shut any unrelated dialog the app has
-                    // open (the logout confirm, a save-in-progress spinner...).
-                    warningShown = false;
-                    clearTimeout(warningTimer);
-                    clearTimeout(logoutTimer);
-                    clearInterval(countdownInterval);
-                    warningTimer = setTimeout(showWarning, IDLE_TIMEOUT_MS - WARNING_BEFORE_MS);
+                function checkIdleTimeout() {
+                    if (sessionExpiredModalShown) return;
+                    const idleTime = Date.now() - lastActivityTime;
+                    if (idleTime >= IDLE_TIMEOUT_MS) {
+                        showSessionExpiredModal();
+                    }
                 }
 
-                function onActivity() {
-                    // Ignore ambient activity while the warning is up: only the
-                    // "อยู่ต่อ" button counts, so a stray mouse move over the page
-                    // can't silently dismiss a warning the user hasn't acknowledged.
-                    if (warningShown || activityThrottled) return;
+                function sendKeepalivePing() {
+                    if (sessionExpiredModalShown) return;
+                    lastHeartbeatTime = Date.now();
+                    fetch('/api/session/keepalive/', {
+                        method: 'GET',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    }).then(res => {
+                        if (res.status === 401 || (res.redirected && res.url && res.url.includes('/login'))) {
+                            showSessionExpiredModal();
+                        }
+                    }).catch(() => {});
+                }
+
+                function onUserActivity() {
+                    if (sessionExpiredModalShown) return;
+                    lastActivityTime = Date.now();
+
+                    if (activityThrottled) return;
                     activityThrottled = true;
                     setTimeout(() => { activityThrottled = false; }, 1000);
-                    resetIdleTimer();
+
+                    if (Date.now() - lastHeartbeatTime >= HEARTBEAT_INTERVAL_MS) {
+                        sendKeepalivePing();
+                    }
                 }
 
-                ACTIVITY_EVENTS.forEach(evt => document.addEventListener(evt, onActivity, { passive: true }));
-                resetIdleTimer();
+                ACTIVITY_EVENTS.forEach(evt => document.addEventListener(evt, onUserActivity, { passive: true }));
+                setInterval(checkIdleTimeout, 15000);
+                document.addEventListener('visibilitychange', () => {
+                    if (!document.hidden) checkIdleTimeout();
+                });
+                window.addEventListener('focus', checkIdleTimeout);
             })();
 
             {% if messages %}

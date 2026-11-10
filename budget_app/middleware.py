@@ -17,7 +17,7 @@ class ImedxProfileValidationMiddleware:
     to the login page with a pop-up alert explaining that their permissions were removed.
     """
     EXEMPT_PATHS = ['/login/', '/logout/', '/static/']
-    VALIDATION_INTERVAL_SECONDS = 15
+    VALIDATION_INTERVAL_SECONDS = 30
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -33,12 +33,12 @@ class ImedxProfileValidationMiddleware:
                 now = time.time()
                 last_checked = request.session.get('_imedx_profile_last_checked', 0)
 
-                # Check periodically (every 15 seconds) or when not yet checked
+                # Check periodically (every 30 seconds) or when not yet checked
                 if now - last_checked > self.VALIDATION_INTERVAL_SECONDS:
                     try:
                         with connections['imedx'].cursor() as cursor:
                             cursor.execute(
-                                "SELECT active, bank_sub_name, bank_account_note FROM employee WHERE employee_id = %s",
+                                "SELECT active, bank_sub_name, bank_account_note FROM employee WHERE LOWER(TRIM(employee_id)) = LOWER(TRIM(%s))",
                                 [request.user.username]
                             )
                             row = cursor.fetchone()
