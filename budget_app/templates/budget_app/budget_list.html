@@ -364,7 +364,7 @@
                 <option value="Revenue">Revenue</option>
                 <option value="GL Actual Template">GL Actual Template</option>
             </select>
-            {% if is_privileged_user %}
+            {% if is_privileged_user or is_view_only %}
             <select id="filterCreateName" class="form-select form-select-sm w-auto ms-2" style="display: none; cursor: pointer;" onchange="applyFilters()">
                 <option value="ALL">ผู้สร้างทั้งหมด</option>
             </select>
@@ -815,5 +815,5 @@
         needsBranchSelection: {{ needs_branch_selection|yesno:'true,false' }}
     };
 </script>
-<script src="{% static 'budget_app/js/budget_list.js' %}?v=20261110_02"></script>
+<script src="{% static 'budget_app/js/budget_list.js' %}?v=20261110_03"></script>
 {% endblock %}

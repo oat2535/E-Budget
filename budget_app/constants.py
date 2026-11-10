@@ -5,8 +5,16 @@ ALL_BRANCH_USERNAMES = {'nattchai_u', 'kanchana', 'kanchana_a', 'pattida_y'}
 
 # Executive roles from iMedX (bank_account_note) that have read-only visibility
 # across all documents in the system (can see all documents in list and view details,
-# but cannot edit or cancel documents).
+# but cannot edit, create, or cancel documents).
 EXECUTIVE_VIEW_ONLY_ROLES = {'CHRO', 'CFO', 'COO'}
+
+# District / Director roles from iMedX (bank_account_note) that have read-only visibility
+# across all branches configured in their bank_sub_name (can see documents for those branches
+# in list and view details, but cannot edit, create, or cancel documents).
+DISTRICT_VIEW_ONLY_ROLES = {'DISTRICT MANAGER', 'DIRECTOR'}
+
+# Combined set of all view-only roles (cannot create, edit, or cancel documents)
+VIEW_ONLY_ROLES = EXECUTIVE_VIEW_ONLY_ROLES | DISTRICT_VIEW_ONLY_ROLES
 
 DEFAULT_FROZEN_MESSAGE = (
     "ระบบอยู่ระหว่างปิดงบประมาณชั่วคราว ไม่สามารถเพิ่มหรือแก้ไขข้อมูลได้ในขณะนี้ "

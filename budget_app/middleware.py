@@ -35,6 +35,8 @@ class ImedxProfileValidationMiddleware:
 
                 # Check periodically (every 30 seconds) or when not yet checked
                 if now - last_checked > self.VALIDATION_INTERVAL_SECONDS:
+                    is_valid = True
+                    reason = None
                     try:
                         with connections['imedx'].cursor() as cursor:
                             cursor.execute(
@@ -43,14 +45,14 @@ class ImedxProfileValidationMiddleware:
                             )
                             row = cursor.fetchone()
 
-                        is_valid = False
-                        reason = 'missing_imedx_profile'
                         if row:
                             active, bank_sub_name, bank_account_note = row
                             if str(active or '').strip() != '1':
                                 reason = 'inactive_employee'
+                                is_valid = False
                             elif not (bank_sub_name or '').strip() or not (bank_account_note or '').strip():
                                 reason = 'missing_imedx_profile'
+                                is_valid = False
                             else:
                                 is_valid = True
 

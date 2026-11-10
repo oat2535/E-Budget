@@ -16,11 +16,13 @@ from budget_app.views import (
     cancel_document_api, update_document_api,
     budget_add_view, _budget_add_equipment_view
 )
-from budget_app.services import BudgetService, is_executive_view_only_user
+from budget_app.services import BudgetService, is_executive_view_only_user, is_district_view_only_user, is_view_only_user
 from budget_app.context_processors import site_status
 from budget_app.constants import (
     ALL_BRANCH_USERNAMES,
     EXECUTIVE_VIEW_ONLY_ROLES,
+    DISTRICT_VIEW_ONLY_ROLES,
+    VIEW_ONLY_ROLES,
     VET_CUSTOM_POSITION_GL_CODE,
     NON_VET_SALARY_GL_CODE,
     NON_VET_ALLOWANCE_GL_CODE,
@@ -2102,6 +2104,191 @@ class ExecutiveViewOnlyRoleTests(SimpleTestCase):
         req_post = factory.post(reverse('budget_add_medical_equipment'), data='{}', content_type='application/json')
         req_post.user = User(username='sutep')
         req_post.session = {'branch_info': {'is_executive_view_only': True}}
+        res_post = _budget_add_equipment_view(req_post, None, 'Medical Equipment', 'budget_app/budget_add_medical_equipment.html', 4)
+        self.assertEqual(res_post.status_code, 403)
+        data = json.loads(res_post.content)
+        self.assertIn('สิทธิ์ดูข้อมูลเท่านั้น', data['message'])
+
+
+class DistrictManagerViewOnlyTests(SimpleTestCase):
+    """Verifies that employees with bank_account_note in ('DISTRICT MANAGER', 'DIRECTOR')
+    have view-only access across the branches specified in bank_sub_name:
+    1. See all documents across all branches listed in their bank_sub_name.
+    2. Cannot create documents (Add Budget pages redirected on GET, 403 on POST; menu hidden).
+    3. Cannot edit documents (403 on update_document_api, edit button hidden).
+    4. Cannot cancel documents (403 on cancel_document_api, cancel button hidden)."""
+
+    def test_is_district_and_view_only_role_matching(self):
+        self.assertTrue(BudgetService.is_district_role('DISTRICT MANAGER'))
+        self.assertTrue(BudgetService.is_district_role('DIRECTOR'))
+        self.assertTrue(BudgetService.is_district_role('district manager'))
+        self.assertTrue(BudgetService.is_district_role('  director  '))
+        self.assertFalse(BudgetService.is_district_role('MANAGER'))
+        self.assertFalse(BudgetService.is_district_role('CHRO'))
+        self.assertFalse(BudgetService.is_district_role(''))
+        self.assertFalse(BudgetService.is_district_role(None))
+
+        # View-only role matches both Executive and District/Director
+        self.assertTrue(BudgetService.is_view_only_role('DISTRICT MANAGER'))
+        self.assertTrue(BudgetService.is_view_only_role('DIRECTOR'))
+        self.assertTrue(BudgetService.is_view_only_role('CHRO'))
+        self.assertTrue(BudgetService.is_view_only_role('CFO'))
+        self.assertTrue(BudgetService.is_view_only_role('COO'))
+        self.assertFalse(BudgetService.is_view_only_role('MANAGER'))
+        self.assertFalse(BudgetService.is_view_only_role('STAFF'))
+
+    @patch('budget_app.services.connections')
+    def test_get_branch_info_from_imedx_resolves_district_flag_and_branches(self, mock_connections):
+        mock_cursor = mock_connections['imedx'].cursor.return_value.__enter__.return_value
+        # Case: khanitta with DISTRICT MANAGER and multiple branches
+        mock_cursor.fetchone.return_value = ('SR,R2,BN,TN,R8,PR,RS,R6,PK,R5', 'DISTRICT MANAGER', None)
+        info = BudgetService.get_branch_info_from_imedx('khanitta')
+        self.assertTrue(info['is_district_view_only'])
+        self.assertTrue(info['is_view_only'])
+        self.assertFalse(info['is_executive_view_only'])
+        self.assertEqual(info['branches'], ['SR', 'R2', 'BN', 'TN', 'R8', 'PR', 'RS', 'R6', 'PK', 'R5'])
+        self.assertEqual(info['bank_account_note'], 'DISTRICT MANAGER')
+
+        # Case: Director
+        mock_cursor.fetchone.return_value = ('HO,PM', 'DIRECTOR', None)
+        info_dir = BudgetService.get_branch_info_from_imedx('dir01')
+        self.assertTrue(info_dir['is_district_view_only'])
+        self.assertTrue(info_dir['is_view_only'])
+        self.assertFalse(info_dir['is_executive_view_only'])
+        self.assertEqual(info_dir['branches'], ['HO', 'PM'])
+
+    def test_is_district_view_only_user_helper(self):
+        factory = RequestFactory()
+        user_dm = User(username='khanitta')
+        user_mgr = User(username='mgr01')
+        super_user = User(username='admin', is_superuser=True)
+
+        req_dm = factory.get('/')
+        req_dm.user = user_dm
+        req_dm.session = {'branch_info': {'is_district_view_only': True, 'is_view_only': True}}
+        self.assertTrue(is_district_view_only_user(req_dm))
+        self.assertTrue(is_view_only_user(req_dm))
+
+        req_mgr = factory.get('/')
+        req_mgr.user = user_mgr
+        req_mgr.session = {'branch_info': {'is_district_view_only': False, 'is_view_only': False}}
+        self.assertFalse(is_district_view_only_user(req_mgr))
+        self.assertFalse(is_view_only_user(req_mgr))
+
+        # Superuser / ALL_BRANCH_USERNAMES always bypass
+        req_admin = factory.get('/')
+        req_admin.user = super_user
+        req_admin.session = {'branch_info': {'is_district_view_only': True, 'is_view_only': True}}
+        self.assertFalse(is_district_view_only_user(req_admin))
+        self.assertFalse(is_view_only_user(req_admin))
+
+    def test_visibility_filter_scopes_by_branches_for_district_manager(self):
+        factory = RequestFactory()
+        user_dm = User(username='khanitta')
+        req = factory.get('/')
+        req.user = user_dm
+        req.session = {
+            'branch_info': {
+                'is_district_view_only': True,
+                'is_executive_view_only': False,
+                'branches': ['SR', 'R2', 'BN', 'TN', 'R8', 'PR', 'RS', 'R6', 'PK', 'R5']
+            }
+        }
+
+        filter_kwargs = get_document_visibility_filter_kwargs(req)
+        self.assertEqual(filter_kwargs, {
+            'base_branch_id__in': ['SR', 'R2', 'BN', 'TN', 'R8', 'PR', 'RS', 'R6', 'PK', 'R5']
+        })
+
+    @patch('budget_app.models.SystemSettings.load')
+    def test_cancel_document_api_forbidden_for_district_manager(self, mock_load):
+        mock_settings = type('Settings', (), {'is_frozen': 0, 'frozen_message': '', 'active_budget_year': 2026})()
+        mock_load.return_value = mock_settings
+
+        factory = RequestFactory()
+        user_dm = User(username='khanitta')
+        req = factory.post('/api/document/cancel/VET/DOC001/', data=json.dumps({'cancel_reason': 'test'}), content_type='application/json')
+        req.user = user_dm
+        req.session = {'branch_info': {'is_district_view_only': True, 'is_view_only': True}}
+
+        response = cancel_document_api(req, 'VET', 'DOC001')
+        self.assertEqual(response.status_code, 403)
+        data = json.loads(response.content)
+        self.assertEqual(data['status'], 'error')
+        self.assertIn('สิทธิ์ดูข้อมูลเท่านั้น', data['message'])
+        self.assertIn('ไม่สามารถยกเลิกเอกสารได้', data['message'])
+
+    @patch('budget_app.models.SystemSettings.load')
+    def test_update_document_api_forbidden_for_district_manager(self, mock_load):
+        mock_settings = type('Settings', (), {'is_frozen': 0, 'frozen_message': '', 'active_budget_year': 2026})()
+        mock_load.return_value = mock_settings
+
+        factory = RequestFactory()
+        user_dm = User(username='khanitta')
+        req = factory.post('/api/document/update/VET/DOC001/', data=json.dumps([{'cost_center_name': 'CC1'}]), content_type='application/json')
+        req.user = user_dm
+        req.session = {'branch_info': {'is_district_view_only': True, 'is_view_only': True}}
+
+        response = update_document_api(req, 'VET', 'DOC001')
+        self.assertEqual(response.status_code, 403)
+        data = json.loads(response.content)
+        self.assertEqual(data['status'], 'error')
+        self.assertIn('สิทธิ์ดูข้อมูลเท่านั้น', data['message'])
+        self.assertIn('ไม่สามารถแก้ไขข้อมูลได้', data['message'])
+
+    @patch('budget_app.models.SystemSettings.load')
+    def test_site_status_context_processor_for_district_manager(self, mock_load):
+        mock_settings = type('Settings', (), {'is_frozen': 0, 'frozen_message': '', 'active_budget_year': 2026})()
+        mock_load.return_value = mock_settings
+
+        factory = RequestFactory()
+        user_dm = User(username='khanitta')
+        req = factory.get('/')
+        req.user = user_dm
+        req.session = {'branch_info': {'is_district_view_only': True, 'is_view_only': True, 'is_executive_view_only': False}}
+
+        ctx = site_status(req)
+        self.assertTrue(ctx['is_district_view_only'])
+        self.assertTrue(ctx['is_view_only'])
+        self.assertFalse(ctx['is_executive_view_only'])
+        self.assertFalse(ctx['can_edit_own_documents'])
+        self.assertFalse(ctx['is_privileged_user'])
+        self.assertFalse(ctx['can_add_budget'])
+
+    def test_budget_add_view_blocked_for_district_manager(self):
+        factory = RequestFactory()
+        # GET
+        req_get = factory.get(reverse('budget_add'))
+        req_get.user = User(username='khanitta')
+        req_get.session = {'branch_info': {'is_district_view_only': True, 'is_view_only': True}}
+        res_get = budget_add_view(req_get)
+        self.assertEqual(res_get.status_code, 302)
+        self.assertEqual(res_get.url, reverse('budget_list'))
+
+        # POST
+        req_post = factory.post(reverse('budget_add'), data='{}', content_type='application/json')
+        req_post.user = User(username='khanitta')
+        req_post.session = {'branch_info': {'is_district_view_only': True, 'is_view_only': True}}
+        res_post = budget_add_view(req_post)
+        self.assertEqual(res_post.status_code, 403)
+        data = json.loads(res_post.content)
+        self.assertEqual(data['status'], 'error')
+        self.assertIn('สิทธิ์ดูข้อมูลเท่านั้น', data['message'])
+        self.assertIn('ไม่สามารถสร้างเอกสารได้', data['message'])
+
+    def test_equipment_add_view_blocked_for_district_manager(self):
+        factory = RequestFactory()
+        # GET
+        req_get = factory.get(reverse('budget_add_medical_equipment'))
+        req_get.user = User(username='khanitta')
+        req_get.session = {'branch_info': {'is_district_view_only': True, 'is_view_only': True}}
+        res_get = _budget_add_equipment_view(req_get, None, 'Medical Equipment', 'budget_app/budget_add_medical_equipment.html', 4)
+        self.assertEqual(res_get.status_code, 302)
+
+        # POST
+        req_post = factory.post(reverse('budget_add_medical_equipment'), data='{}', content_type='application/json')
+        req_post.user = User(username='khanitta')
+        req_post.session = {'branch_info': {'is_district_view_only': True, 'is_view_only': True}}
         res_post = _budget_add_equipment_view(req_post, None, 'Medical Equipment', 'budget_app/budget_add_medical_equipment.html', 4)
         self.assertEqual(res_post.status_code, 403)
         data = json.loads(res_post.content)
