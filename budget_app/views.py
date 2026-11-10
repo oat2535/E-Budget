@@ -229,7 +229,7 @@ def login_required_hybrid(view_func):
         if not request.user.is_authenticated:
             is_ajax = (
                 request.headers.get('x-requested-with') == 'XMLHttpRequest'
-                or request.content_type == 'application/json'
+                or request.headers.get('content-type', '').startswith('application/json')
                 or request.method == 'POST'
                 or request.path.startswith('/api/')
             )
