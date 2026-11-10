@@ -3673,3 +3673,54 @@ class InPlaceUpsertUnitTests(SimpleTestCase):
         self.assertEqual(existing_d1.cost, 25000)
         self.assertEqual(existing_d1.salary, 20000.0)
         self.assertEqual(existing_d1.position_allowance, 5000.0)
+
+
+class SessionTimeoutAndHybridAuthTests(SimpleTestCase):
+    """Verifies session cookie age is 2 hours (7200s) and login_required_hybrid
+    returns 401 JSON for AJAX/POST requests and 302 redirect for browser GET."""
+
+    def test_session_cookie_age_is_two_hours(self):
+        from django.conf import settings
+        self.assertEqual(settings.SESSION_COOKIE_AGE, 7200)
+
+    def test_session_idle_timeout_context_processor(self):
+        from budget_app.context_processors import session_idle_timeout
+        factory = RequestFactory()
+        req = factory.get('/')
+        ctx = session_idle_timeout(req)
+        self.assertEqual(ctx.get('session_idle_timeout_seconds'), 7200)
+
+    def test_unauthenticated_browser_get_redirects_to_login(self):
+        from django.contrib.auth.models import AnonymousUser
+        from budget_app.views import budget_add_gl_entry_view
+        factory = RequestFactory()
+        req = factory.get('/add_gl_entry/')
+        req.user = AnonymousUser()
+        resp = budget_add_gl_entry_view(req)
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/login/', resp.url)
+
+    def test_unauthenticated_json_post_returns_401_json(self):
+        from django.contrib.auth.models import AnonymousUser
+        from budget_app.views import budget_add_gl_entry_view
+        factory = RequestFactory()
+        req = factory.post('/add_gl_entry/', data='[{"cost_center_name": "test"}]', content_type='application/json')
+        req.user = AnonymousUser()
+        resp = budget_add_gl_entry_view(req)
+        self.assertEqual(resp.status_code, 401)
+        data = json.loads(resp.content.decode('utf-8'))
+        self.assertEqual(data.get('status'), 'error')
+        self.assertEqual(data.get('code'), 'session_expired')
+        self.assertIn('เซสชันหมดอายุ', data.get('message'))
+
+    def test_unauthenticated_duplicate_api_returns_401_json(self):
+        from django.contrib.auth.models import AnonymousUser
+        from budget_app.views import check_duplicate_document_api
+        factory = RequestFactory()
+        req = factory.get('/api/check_duplicate_document/?doc_type=GL+Entry')
+        req.user = AnonymousUser()
+        resp = check_duplicate_document_api(req)
+        self.assertEqual(resp.status_code, 401)
+        data = json.loads(resp.content.decode('utf-8'))
+        self.assertEqual(data.get('code'), 'session_expired')
+
