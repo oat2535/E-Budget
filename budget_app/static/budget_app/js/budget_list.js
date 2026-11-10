@@ -1338,10 +1338,8 @@ const BudgetApp = (function() {
         else if (isCar) itemsList = carItems;
         else if (isRenovate) itemsList = renovateItems;
         else if (isSoftware) itemsList = softwareItems;
-        // Sorted once here (not inside the dropdown's per-click rebuild,
-        // which jspreadsheet/jSuites always re-sorts internally regardless —
-        // pre-sorting lets that repeated internal sort do less work).
-        const itemNames = itemsList.map(i => i.name).sort((a, b) => a.localeCompare(b, 'th'));
+        // Preserves master item order (id ASC) loaded from the database
+        const itemNames = itemsList.map(i => i.name);
         
         if (isEditMode) {
             btnEdit.innerHTML = '<i data-feather="x" class="me-1"></i> ยกเลิกการแก้ไข';
@@ -3329,10 +3327,8 @@ const BudgetApp = (function() {
         const allAdjItems = [];
         vetItems.forEach(i => allAdjItems.push({...i, group: 'VET Manpower', position_allowance: 0}));
         nonVetItems.forEach(i => allAdjItems.push({...i, group: 'NON VET Manpower'}));
-        // Sorted once here (not inside the dropdown's per-click rebuild,
-        // which jspreadsheet/jSuites always re-sorts internally regardless —
-        // pre-sorting lets that repeated internal sort do less work).
-        allAdjItems.sort((a, b) => a.name.localeCompare(b.name, 'th'));
+        // Preserves master item order (id ASC) loaded from the database
+        allAdjItems.sort((a, b) => (a.master_id || 0) - (b.master_id || 0));
 
         // ตำแหน่งเดิม/ใหม่ dropdown กรองตามคอลัมน์ "ประเภท" ของแถวตัวเอง —
         // jexcel เรียกฟังก์ชันนี้ใหม่ทุกครั้งที่ cell เข้าโหมดแก้ไข (ไม่ cache)

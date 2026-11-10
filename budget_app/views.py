@@ -430,77 +430,86 @@ def budget_list_view(request):
         c3, _ = ebudget_budget_category_master.objects.get_or_create(category_code='C03', category_name='Category 3')
         categories = [c1, c2, c3]
         
-    vet_items = list(ebudget_budget_item_master.objects.filter(category_id=1, sub_category_id=1).values('id', 'item_name', 'salary'))
+    vet_items = list(ebudget_budget_item_master.objects.filter(category_id=1, sub_category_id=1).order_by('id').values('id', 'item_name', 'salary'))
     vet_items_list = []
     for item in vet_items:
         vet_items_list.append({
             'id': item['item_name'],
+            'master_id': item['id'],
             'name': item['item_name'],
             'salary': float(item['salary'])
         })
 
-    non_vet_items = list(ebudget_budget_item_master.objects.filter(category_id=1, sub_category_id=2).values('id', 'item_name', 'salary', 'position_allowance'))
+    non_vet_items = list(ebudget_budget_item_master.objects.filter(category_id=1, sub_category_id=2).order_by('id').values('id', 'item_name', 'salary', 'position_allowance'))
     non_vet_items_list = []
     for item in non_vet_items:
         non_vet_items_list.append({
             'id': item['item_name'],
+            'master_id': item['id'],
             'name': item['item_name'],
             'salary': float(item['salary']),
             'position_allowance': float(item.get('position_allowance') or 0)
         })
 
-    med_items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=4).values('item_name', 'purchase_price'))
+    med_items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=4).order_by('id').values('id', 'item_name', 'purchase_price'))
     med_items_list = []
     for item in med_items:
         med_items_list.append({
+            'master_id': item['id'],
             'name': item['item_name'],
             'purchase_price': float(item.get('purchase_price') or 0)
         })
 
-    comp_items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=5).values('item_name', 'purchase_price'))
+    comp_items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=5).order_by('id').values('id', 'item_name', 'purchase_price'))
     comp_items_list = []
     for item in comp_items:
         comp_items_list.append({
+            'master_id': item['id'],
             'name': item['item_name'],
             'purchase_price': float(item.get('purchase_price') or 0)
         })
 
-    furniture_items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=6).values('item_name', 'purchase_price'))
+    furniture_items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=6).order_by('id').values('id', 'item_name', 'purchase_price'))
     furniture_items_list = []
     for item in furniture_items:
         furniture_items_list.append({
+            'master_id': item['id'],
             'name': item['item_name'],
             'purchase_price': float(item.get('purchase_price') or 0)
         })
 
-    tools_items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=7).values('item_name', 'purchase_price'))
+    tools_items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=7).order_by('id').values('id', 'item_name', 'purchase_price'))
     tools_items_list = []
     for item in tools_items:
         tools_items_list.append({
+            'master_id': item['id'],
             'name': item['item_name'],
             'purchase_price': float(item.get('purchase_price') or 0)
         })
 
-    car_items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=8).values('item_name', 'purchase_price'))
+    car_items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=8).order_by('id').values('id', 'item_name', 'purchase_price'))
     car_items_list = []
     for item in car_items:
         car_items_list.append({
+            'master_id': item['id'],
             'name': item['item_name'],
             'purchase_price': float(item.get('purchase_price') or 0)
         })
 
-    renovate_items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=9).values('item_name', 'purchase_price'))
+    renovate_items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=9).order_by('id').values('id', 'item_name', 'purchase_price'))
     renovate_items_list = []
     for item in renovate_items:
         renovate_items_list.append({
+            'master_id': item['id'],
             'name': item['item_name'],
             'purchase_price': float(item.get('purchase_price') or 0)
         })
 
-    software_items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=10).values('item_name', 'purchase_price'))
+    software_items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=10).order_by('id').values('id', 'item_name', 'purchase_price'))
     software_items_list = []
     for item in software_items:
         software_items_list.append({
+            'master_id': item['id'],
             'name': item['item_name'],
             'purchase_price': float(item.get('purchase_price') or 0)
         })
@@ -703,16 +712,17 @@ def budget_add_view(request):
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': str(e)})
 
-    items = list(ebudget_budget_item_master.objects.filter(category_id=1, sub_category_id=1).values('id', 'item_name', 'salary'))
+    items = list(ebudget_budget_item_master.objects.filter(category_id=1, sub_category_id=1).order_by('id').values('id', 'item_name', 'salary'))
     if not items:
         # Dummy data
         i1 = ebudget_budget_item_master.objects.create(item_name="แพทย์เฉพาะทาง", salary=50000)
         i2 = ebudget_budget_item_master.objects.create(item_name="พยาบาลวิชาชีพ", salary=25000)
-        items = list(ebudget_budget_item_master.objects.values('id', 'item_name', 'salary'))
+        items = list(ebudget_budget_item_master.objects.order_by('id').values('id', 'item_name', 'salary'))
     items_list = []
     for item in items:
         items_list.append({
             'id': item['item_name'],
+            'master_id': item['id'],
             'name': item['item_name'],
             'salary': float(item['salary'])
         })
@@ -797,11 +807,12 @@ def budget_add_non_vet_view(request):
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': str(e)})
 
-    items = list(ebudget_budget_item_master.objects.filter(category_id=1, sub_category_id=2).values('id', 'item_name', 'salary', 'position_allowance'))
+    items = list(ebudget_budget_item_master.objects.filter(category_id=1, sub_category_id=2).order_by('id').values('id', 'item_name', 'salary', 'position_allowance'))
     items_list = []
     for item in items:
         items_list.append({
             'id': item['item_name'],
+            'master_id': item['id'],
             'name': item['item_name'],
             'salary': float(item['salary']),
             'position_allowance': float(item.get('position_allowance') or 0)
@@ -2007,10 +2018,11 @@ def budget_add_adjustment_view(request):
     items_list = []
     
     # VET items
-    vet_items = list(ebudget_budget_item_master.objects.filter(category_id=1, sub_category_id=1).values('item_name', 'salary'))
+    vet_items = list(ebudget_budget_item_master.objects.filter(category_id=1, sub_category_id=1).order_by('id').values('id', 'item_name', 'salary'))
     for item in vet_items:
         items_list.append({
             'id': item['item_name'],
+            'master_id': item['id'],
             'name': item['item_name'],
             'group': 'VET Manpower',
             'salary': float(item['salary']),
@@ -2018,10 +2030,11 @@ def budget_add_adjustment_view(request):
         })
         
     # NON VET items
-    non_vet_items = list(ebudget_budget_item_master.objects.filter(category_id=1, sub_category_id=2).values('item_name', 'salary', 'position_allowance'))
+    non_vet_items = list(ebudget_budget_item_master.objects.filter(category_id=1, sub_category_id=2).order_by('id').values('id', 'item_name', 'salary', 'position_allowance'))
     for item in non_vet_items:
         items_list.append({
             'id': item['item_name'],
+            'master_id': item['id'],
             'name': item['item_name'],
             'group': 'NON VET Manpower',
             'salary': float(item['salary']),
@@ -2121,10 +2134,11 @@ def _budget_add_equipment_view(request, model_class, doc_type, template_name, su
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': str(e)})
 
-    items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=sub_category_id).values('item_name', 'purchase_price'))
+    items = list(ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=sub_category_id).order_by('id').values('id', 'item_name', 'purchase_price'))
     items_list = []
     for item in items:
         items_list.append({
+            'master_id': item['id'],
             'name': item['item_name'],
             'purchase_price': float(item.get('purchase_price') or 0)
         })

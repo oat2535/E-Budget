@@ -3940,3 +3940,69 @@ class SessionTimeoutAndHybridAuthTests(SimpleTestCase):
         self.assertTrue(data.get('authenticated'))
         self.assertEqual(data.get('idle_timeout_seconds'), 7200)
 
+
+class ItemMasterOrderByIdAscTests(SimpleTestCase):
+    """Verifies that all item master options for budget add views and
+    budget list edit modals are ordered by ID ascending, and that
+    templates/JS do not re-sort them alphabetically."""
+
+    def test_templates_do_not_alphabetically_sort_item_masters(self):
+        template_files = [
+            'budget_add.html',
+            'budget_add_non_vet.html',
+            'budget_add_medical_equipment.html',
+            'budget_add_computer_equipment.html',
+            'budget_add_furniture.html',
+            'budget_add_tools_equipment.html',
+            'budget_add_car.html',
+            'budget_add_renovate.html',
+            'budget_add_software.html',
+            'budget_add_adjustment.html',
+        ]
+        base_dir = os.path.join(settings.BASE_DIR, 'budget_app', 'templates', 'budget_app')
+        for filename in template_files:
+            file_path = os.path.join(base_dir, filename)
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            self.assertNotIn(
+                "itemNames = items.map(i => i.name).sort((a, b) => a.localeCompare(b, 'th'))",
+                content,
+                f"{filename} should not sort itemNames alphabetically"
+            )
+            self.assertNotIn(
+                ".sort((a, b) => a.name.localeCompare(b.name, 'th'))",
+                content,
+                f"{filename} should not sort items alphabetically"
+            )
+
+    def test_budget_list_js_does_not_alphabetically_sort_item_masters(self):
+        js_path = os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'budget_list.js')
+        with open(js_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        self.assertNotIn(
+            "const itemNames = itemsList.map(i => i.name).sort((a, b) => a.localeCompare(b, 'th'))",
+            content,
+            "budget_list.js should not sort itemNames alphabetically"
+        )
+        self.assertNotIn(
+            "allAdjItems.sort((a, b) => a.name.localeCompare(b.name, 'th'))",
+            content,
+            "budget_list.js should not sort allAdjItems alphabetically"
+        )
+
+    def test_views_order_by_id_in_queries(self):
+        views_path = os.path.join(settings.BASE_DIR, 'budget_app', 'views.py')
+        with open(views_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Ensure all ebudget_budget_item_master queries use order_by('id')
+        self.assertIn("ebudget_budget_item_master.objects.filter(category_id=1, sub_category_id=1).order_by('id')", content)
+        self.assertIn("ebudget_budget_item_master.objects.filter(category_id=1, sub_category_id=2).order_by('id')", content)
+        self.assertIn("ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=4).order_by('id')", content)
+        self.assertIn("ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=5).order_by('id')", content)
+        self.assertIn("ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=6).order_by('id')", content)
+        self.assertIn("ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=7).order_by('id')", content)
+        self.assertIn("ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=8).order_by('id')", content)
+        self.assertIn("ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=9).order_by('id')", content)
+        self.assertIn("ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=10).order_by('id')", content)
+        self.assertIn("ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=sub_category_id).order_by('id')", content)
+

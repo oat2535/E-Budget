@@ -129,10 +129,8 @@
     document.addEventListener("DOMContentLoaded", function() {
         const items = JSON.parse(document.getElementById('items-data').textContent);
 
-        // Sorted once here (not inside the dropdown's per-click rebuild,
-        // which jspreadsheet/jSuites always re-sorts internally regardless —
-        // pre-sorting lets that repeated internal sort do less work).
-        const itemNames = items.map(i => i.name).sort((a, b) => a.localeCompare(b, 'th'));
+        // Preserves master item order (id ASC) loaded from the database
+        const itemNames = items.map(i => i.name);
 
         const getSalary = (name) => {
             const match = items.find(i => i.name === name);
