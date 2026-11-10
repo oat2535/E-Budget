@@ -130,12 +130,8 @@
 {{ branch_options_json|json_script:"branch-options-data" }}
 <script>
     document.addEventListener("DOMContentLoaded", function() {
-        // Sorted once here (not inside the dropdown's per-click rebuild,
-        // which jspreadsheet/jSuites always re-sorts internally regardless —
-        // pre-sorting lets that repeated internal sort do less work). Order
-        // doesn't affect the .find() lookups below, which match by name.
-        const items = JSON.parse(document.getElementById('items-data').textContent)
-            .sort((a, b) => a.name.localeCompare(b.name, 'th'));
+        // Preserves master item order (id ASC) loaded from the database
+        const items = JSON.parse(document.getElementById('items-data').textContent);
 
         // ตำแหน่งเดิม/ใหม่ datalist กรองตามคอลัมน์ "ประเภท" ของแถวตัวเอง:
         // รองรับการพิมพ์ static text อิสระ และยังคงมี autocomplete จาก item master
