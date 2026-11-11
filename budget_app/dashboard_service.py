@@ -495,7 +495,7 @@ def fetch_gl_actual_template_for_branch(branch_codes, budget_year):
         per_m_sum = round2(slot['per_month_value'])
         ann_sum = round2(slot['annualized_value'])
 
-        is_calculated_header = slot['code'] in ('H6', 'H8')
+        is_calculated_header = slot['code'] in ('H6', 'H7', 'H8')
         if fh101_total_actual != ZERO and (slot['row_type'] != 'header' or is_calculated_header):
             sr = round2((act_sum * HUNDRED) / fh101_total_actual)
         else:

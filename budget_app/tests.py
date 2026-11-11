@@ -4497,3 +4497,37 @@ class DashboardAccessAndMatrixTests(SimpleTestCase):
         self.assertEqual(ws.max_column, 33)
         self.assertEqual(ws.cell(ws.max_row, 2).value, 'FH8')
         self.assertEqual(ws.cell(ws.max_row, 21).value, 1900.01)
+
+    def test_consolidated_gl_actual_computes_h6_h7_h8_sales_ratios(self):
+        from datetime import datetime
+        from unittest.mock import MagicMock
+        from budget_app.dashboard_service import fetch_gl_actual_template_for_branch
+
+        mock_cur = MagicMock()
+        mock_cur.fetchall.side_effect = [
+            [
+                ('PM', 'GLACT-PM', 'APPROVED', 9, 5.0, 3.0, 2.0),
+                ('R5', 'GLACT-R5', 'PENDING', 9, 4.0, 2.0, 1.0),
+            ],
+            [
+                ('PM', 13, 'FH101', 'subtotal', 1000.00, 111.11, 1333.33, 100.00, 0.00),
+                ('R5', 13, 'FH101', 'subtotal', 1000.00, 111.11, 1333.33, 100.00, 0.00),
+                ('PM', 169, 'H6', 'header', 200.00, 22.22, 266.67, 20.00, 0.00),
+                ('R5', 169, 'H6', 'header', 100.00, 11.11, 133.33, 10.00, 0.00),
+                ('PM', 171, 'H7', 'header', 20.00, 2.22, 26.67, 2.00, 0.00),
+                ('R5', 171, 'H7', 'header', 10.00, 1.11, 13.33, 1.00, 0.00),
+                ('PM', 179, 'H8', 'header', 180.00, 20.00, 240.00, 18.00, 0.00),
+                ('R5', 179, 'H8', 'header', 90.00, 10.00, 120.00, 9.00, 0.00),
+            ],
+        ]
+        mock_ctx = MagicMock()
+        mock_ctx.__enter__.return_value = mock_cur
+        mock_ctx.__exit__.return_value = False
+        with patch('budget_app.dashboard_service.connection') as mock_conn:
+            mock_conn.cursor.return_value = mock_ctx
+            res = fetch_gl_actual_template_for_branch(['PM', 'R5'], 2025)
+
+        self.assertEqual(float(res['by_code']['FH101']['sales_ratio']), 100.00)
+        self.assertEqual(float(res['by_code']['H6']['sales_ratio']), 15.00)
+        self.assertEqual(float(res['by_code']['H7']['sales_ratio']), 1.50)
+        self.assertEqual(float(res['by_code']['H8']['sales_ratio']), 13.50)
