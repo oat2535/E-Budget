@@ -63,3 +63,23 @@ def require_gl_actual_template_access(view_func):
             return redirect('budget_list')
         return view_func(request, *args, **kwargs)
     return wrapper
+
+
+def require_dashboard_access(view_func):
+    """Restricts access to Dashboard views and APIs strictly to authorized roles:
+    - /api/* or POST: returns 403 Forbidden JsonResponse
+    - HTML GET: redirects to budget_list"""
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        from budget_app.services import can_access_dashboard
+        if not can_access_dashboard(request):
+            is_api = request.path.startswith('/api/') or request.method != 'GET' or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+            if is_api:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': 'ท่านไม่มีสิทธิ์เข้าใช้งานหน้า Dashboard'
+                }, status=403)
+            from django.shortcuts import redirect
+            return redirect('budget_list')
+        return view_func(request, *args, **kwargs)
+    return wrapper

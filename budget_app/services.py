@@ -52,6 +52,13 @@ class BudgetService:
         return BudgetService.is_executive_role(bank_account_note) or BudgetService.is_district_role(bank_account_note)
 
     @staticmethod
+    def is_manager_role(bank_account_note):
+        """Checks if a bank_account_note contains MANAGER role."""
+        if not bank_account_note:
+            return False
+        return 'MANAGER' in (bank_account_note or '').strip().upper()
+
+    @staticmethod
     def get_branch_info_from_imedx(username):
         """Resolves which branch(es) an employee belongs to, and whether the
         add-budget UI must ask which one to stamp. Field roles, confirmed
@@ -780,4 +787,10 @@ def can_access_gl_actual_template(request):
         return False
     from budget_app.constants import GL_ACTUAL_TEMPLATE_ALLOWED_USERNAMES
     return (request.user.username or '').strip().lower() in GL_ACTUAL_TEMPLATE_ALLOWED_USERNAMES
+
+
+def can_access_dashboard(request):
+    """Returns True if the authenticated user can access the single-branch E-Budget Dashboard."""
+    from budget_app.dashboard_service import can_access_dashboard as _can_access_dashboard
+    return _can_access_dashboard(request)
 

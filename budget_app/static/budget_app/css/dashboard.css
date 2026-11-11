@@ -1,0 +1,307 @@
+/* ==========================================================================
+   E-Budget Branch Dashboard Styles (Light + Dark Mode + Sticky P&L Grid)
+   ========================================================================== */
+
+.dashboard-hero-header {
+    background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 60%, #2563eb 100%);
+    padding-bottom: 5.5rem !important;
+}
+
+body.theme-flat .dashboard-hero-header {
+    background: #1e3a8a;
+}
+
+body.theme-dark .dashboard-hero-header {
+    background: linear-gradient(135deg, #020617 0%, #0f172a 65%, #1e293b 100%);
+}
+
+.dashboard-kpi-card {
+    border-radius: 0.75rem;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    border-left: 4px solid transparent;
+}
+
+.dashboard-kpi-card:hover {
+    transform: translateY(-2px);
+}
+
+.kpi-revenue { border-left-color: #2563eb !important; }
+.kpi-expense { border-left-color: #f59e0b !important; }
+.kpi-ebitda { border-left-color: #06b6d4 !important; }
+.kpi-net { border-left-color: #10b981 !important; }
+
+.kpi-value {
+    font-variant-numeric: tabular-nums;
+    font-size: 1.35rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: #0f172a;
+}
+
+body.theme-dark .kpi-value {
+    color: #f8fafc;
+}
+
+.dashboard-loading-overlay {
+    background: rgba(255, 255, 255, 0.78);
+    z-index: 40;
+}
+
+body.theme-dark .dashboard-loading-overlay {
+    background: rgba(15, 23, 42, 0.82);
+}
+
+/* Sticky Table Wrapper & Scroll Viewport */
+.dashboard-table-scroll {
+    position: relative;
+    max-height: 70vh;
+    overflow: auto;
+    border-top: 1px solid #e2e8f0;
+    border-bottom: 1px solid #e2e8f0;
+    background: #ffffff;
+}
+
+body.theme-dark .dashboard-table-scroll {
+    background: #111827;
+    border-color: #334155;
+}
+
+.dashboard-matrix-table {
+    width: max-content;
+    min-width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin-bottom: 0;
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.dashboard-matrix-table th,
+.dashboard-matrix-table td {
+    padding: 0.42rem 0.6rem;
+    border-right: 1px solid #e2e8f0;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+body.theme-dark .dashboard-matrix-table th,
+body.theme-dark .dashboard-matrix-table td {
+    border-color: #334155;
+}
+
+/* Sticky 2-Row Grouped Table Header */
+.dashboard-matrix-table thead th {
+    position: sticky;
+    z-index: 15;
+    font-weight: 600;
+    text-align: center;
+}
+
+.dashboard-matrix-table thead tr.hdr-group th {
+    top: 0;
+    height: 31px;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #ffffff;
+}
+
+.dashboard-matrix-table thead tr.hdr-cols th {
+    top: 31px;
+    height: 34px;
+    font-size: 0.78rem;
+    background-color: #f8fafc;
+    color: #1e293b;
+    border-bottom: 2px solid #cbd5e1;
+}
+
+body.theme-dark .dashboard-matrix-table thead tr.hdr-cols th {
+    background-color: #1e293b;
+    color: #e2e8f0;
+    border-bottom-color: #475569;
+}
+
+/* Group Header Accent Colors */
+.grp-identity { background-color: #0f172a !important; }
+.grp-actual { background-color: #334155 !important; }
+.grp-budget { background-color: #1d4ed8 !important; }
+.grp-pct { background-color: #0f766e !important; }
+.grp-compare { background-color: #4338ca !important; }
+
+/* Sticky Left 3 Columns */
+.dashboard-matrix-table .sticky-col-1 {
+    position: sticky;
+    left: 0;
+    min-width: 56px;
+    max-width: 56px;
+    width: 56px;
+    text-align: center;
+    z-index: 10;
+}
+
+.dashboard-matrix-table .sticky-col-2 {
+    position: sticky;
+    left: 56px;
+    min-width: 105px;
+    max-width: 105px;
+    width: 105px;
+    text-align: left;
+    z-index: 10;
+}
+
+.dashboard-matrix-table .sticky-col-3 {
+    position: sticky;
+    left: 161px;
+    min-width: 270px;
+    max-width: 270px;
+    width: 270px;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    z-index: 10;
+    box-shadow: 3px 0 6px -2px rgba(15, 23, 42, 0.12);
+}
+
+/* Corner Intersection Header Cells Above Body Sticky Cols */
+.dashboard-matrix-table thead th.sticky-col-1,
+.dashboard-matrix-table thead th.sticky-col-2,
+.dashboard-matrix-table thead th.sticky-col-3 {
+    z-index: 25;
+}
+
+.dashboard-matrix-table thead th.sticky-col-span-3 {
+    position: sticky;
+    left: 0;
+    z-index: 26;
+    box-shadow: 3px 0 6px -2px rgba(15, 23, 42, 0.16);
+}
+
+/* Row Types Matching GL Actual Template */
+.dashboard-matrix-table tbody tr.row-gl td {
+    background-color: #ffffff;
+    color: #0f172a;
+}
+
+.dashboard-matrix-table tbody tr.row-gl:hover td {
+    background-color: #f8fafc;
+}
+
+.dashboard-matrix-table tbody tr.row-header td {
+    background-color: #eef2f7;
+    color: #0f172a;
+    font-weight: 700;
+}
+
+.dashboard-matrix-table tbody tr.row-subtotal td {
+    background-color: #f7f3e8;
+    color: #0f172a;
+    font-weight: 700;
+}
+
+.dashboard-matrix-table tbody tr.row-pnl-major td {
+    background-color: #e0f2fe;
+    color: #0c4a6e;
+    font-weight: 700;
+}
+
+.dashboard-matrix-table tbody tr.row-net-profit td {
+    background-color: #fef3c7;
+    color: #78350f;
+    font-weight: 700;
+    border-top: 2px solid #f59e0b;
+    border-bottom: 2px solid #f59e0b;
+}
+
+/* Dark Mode Row Backgrounds */
+body.theme-dark .dashboard-matrix-table tbody tr.row-gl td {
+    background-color: #111827;
+    color: #e5e7eb;
+}
+
+body.theme-dark .dashboard-matrix-table tbody tr.row-gl:hover td {
+    background-color: #1f2937;
+}
+
+body.theme-dark .dashboard-matrix-table tbody tr.row-header td {
+    background-color: #1e293b;
+    color: #f1f5f9;
+}
+
+body.theme-dark .dashboard-matrix-table tbody tr.row-subtotal td {
+    background-color: #2d2618;
+    color: #fef3c7;
+}
+
+body.theme-dark .dashboard-matrix-table tbody tr.row-pnl-major td {
+    background-color: #172554;
+    color: #bae6fd;
+}
+
+body.theme-dark .dashboard-matrix-table tbody tr.row-net-profit td {
+    background-color: #422006;
+    color: #fde68a;
+    border-top-color: #d97706;
+    border-bottom-color: #d97706;
+}
+
+/* Numeric Cell Helpers */
+.num-cell {
+    text-align: right;
+    min-width: 108px;
+}
+
+.pct-cell {
+    text-align: right;
+    min-width: 82px;
+}
+
+.val-zero {
+    color: #94a3b8 !important;
+}
+
+.row-subtotal .val-zero,
+.row-pnl-major .val-zero,
+.row-net-profit .val-zero {
+    color: #64748b !important;
+}
+
+.val-negative {
+    color: #dc2626 !important;
+    font-weight: 600;
+}
+
+body.theme-dark .val-negative {
+    color: #f87171 !important;
+}
+
+/* Column Visibility Modes via Wrapper Classes */
+.dashboard-table-scroll.preset-no-pct .col-pct,
+.dashboard-table-scroll.preset-compare .col-pct,
+.dashboard-table-scroll.preset-compare .col-monthly {
+    display: none;
+}
+
+.dashboard-table-scroll.preset-full .col-compare-only,
+.dashboard-table-scroll.preset-no-pct .col-compare-only {
+    display: none;
+}
+
+.single-branch-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.48rem 0.85rem;
+    border-radius: 0.375rem;
+    background-color: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    font-weight: 600;
+    color: #0f172a;
+    min-height: 38px;
+}
+
+body.theme-dark .single-branch-badge {
+    background-color: #1e293b;
+    border-color: #475569;
+    color: #f8fafc;
+}

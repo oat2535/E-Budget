@@ -20,6 +20,7 @@ def site_status(request):
         is_view_only_user,
         is_executive_view_only_user,
         is_district_view_only_user,
+        can_access_dashboard,
         can_access_gl_actual_template,
     )
 
@@ -50,6 +51,7 @@ def site_status(request):
         'is_view_only': is_view_only,
         'can_edit_own_documents': can_edit_own_documents,
         'can_add_budget': can_add_budget,
+        'can_access_dashboard': can_access_dashboard(request),
         'can_access_gl_actual_template': can_access_gl_actual_template(request),
         'budget_year_options': range(current_year - 1, current_year + 4),
     }

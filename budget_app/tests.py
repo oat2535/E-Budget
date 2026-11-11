@@ -4092,3 +4092,284 @@ class GlActualTemplateAccessControlTests(SimpleTestCase):
             self.assertEqual(data['status'], 'error')
             self.assertIn('ไม่มีสิทธิ์', data['message'])
 
+
+
+class DashboardAccessAndMatrixTests(SimpleTestCase):
+    """Comprehensive tests for single-branch E-Budget Dashboard access control,
+    P&L calculation accuracy, 2-decimal rounding, and Excel (.xlsx) export."""
+
+    def _mock_user(self, username, is_superuser=False):
+        return User(username=username, is_superuser=is_superuser)
+
+    @patch('budget_app.services.BudgetService.get_branch_names_from_imedx', return_value={'SR': 'สาขาศรีนครินทร์', 'PM': 'สาขาประดิษฐ์มนูธรรม', 'CA': 'สาขาเชียงใหม่แอร์พอร์ต'})
+    @patch('budget_app.services.BudgetService.get_all_branches', return_value=[
+        {'code': 'AP', 'name': 'สาขาอโศกประสานมิตร'},
+        {'code': 'CA', 'name': 'สาขาเชียงใหม่แอร์พอร์ต'},
+        {'code': 'PM', 'name': 'สาขาประดิษฐ์มนูธรรม'},
+        {'code': 'R5', 'name': 'สาขาพระราม5'},
+        {'code': 'SR', 'name': 'สาขาศรีนครินทร์'},
+    ])
+    def test_role_based_dashboard_access_and_branch_scopes(self, mock_all, mock_names):
+        from budget_app.dashboard_service import can_access_dashboard, get_allowed_branches_for_dashboard
+        factory = RequestFactory()
+
+        # 1. Special all-branch users (nattchai_u, pattida_y, kanchana_a)
+        for uname in ('nattchai_u', 'pattida_y', 'kanchana_a'):
+            req = factory.get('/dashboard/')
+            req.user = self._mock_user(uname)
+            req.session = {'branch_info': {'branches': ['HO'], 'is_manager': False, 'is_executive_view_only': False, 'is_district_view_only': False, 'bank_account_note': 'IT'}}
+            self.assertTrue(can_access_dashboard(req), msg=f'{uname} must have dashboard access')
+            self.assertEqual([b['code'] for b in get_allowed_branches_for_dashboard(req)], ['AP', 'CA', 'PM', 'R5', 'SR'])
+
+        # 2. Executives (CHRO, CFO, COO) -> all branches
+        for role in ('CHRO', 'CFO', 'COO'):
+            req = factory.get('/dashboard/')
+            req.user = self._mock_user('exec_u')
+            req.session = {'branch_info': {'branches': ['HO'], 'is_manager': False, 'is_executive_view_only': True, 'is_district_view_only': False, 'bank_account_note': role}}
+            self.assertTrue(can_access_dashboard(req), msg=f'{role} must have dashboard access')
+            self.assertEqual([b['code'] for b in get_allowed_branches_for_dashboard(req)], ['AP', 'CA', 'PM', 'R5', 'SR'])
+
+        # 3. DISTRICT MANAGER / DIRECTOR -> only configured bank_sub_name branches
+        for role in ('DISTRICT MANAGER', 'DIRECTOR'):
+            req = factory.get('/dashboard/')
+            req.user = self._mock_user('khanitta')
+            req.session = {'branch_info': {'branches': ['SR', 'PM'], 'is_manager': role == 'DISTRICT MANAGER', 'is_executive_view_only': False, 'is_district_view_only': True, 'bank_account_note': role}}
+            self.assertTrue(can_access_dashboard(req))
+            self.assertEqual([b['code'] for b in get_allowed_branches_for_dashboard(req)], ['PM', 'SR'])
+
+        # 4. MANAGER -> only configured bank_sub_name / own branches
+        req_mgr = factory.get('/dashboard/')
+        req_mgr.user = self._mock_user('adjima_b')
+        req_mgr.session = {'branch_info': {'branches': ['CA'], 'is_manager': True, 'is_executive_view_only': False, 'is_district_view_only': False, 'bank_account_note': 'MANAGER'}}
+        self.assertTrue(can_access_dashboard(req_mgr))
+        self.assertEqual([b['code'] for b in get_allowed_branches_for_dashboard(req_mgr)], ['CA'])
+
+        # 5. Regular non-manager staff -> denied
+        for role in ('FRONT', 'OPD', 'BOM', 'ช่างกอล์ฟ', ''):
+            req_staff = factory.get('/dashboard/')
+            req_staff.user = self._mock_user('staff01')
+            req_staff.session = {'branch_info': {'branches': ['PM'], 'is_manager': False, 'is_executive_view_only': False, 'is_district_view_only': False, 'bank_account_note': role}}
+            self.assertFalse(can_access_dashboard(req_staff), msg=f'{role} must not access dashboard')
+            self.assertEqual(get_allowed_branches_for_dashboard(req_staff), [])
+
+    @patch('budget_app.models.SystemSettings.load')
+    def test_sidebar_menu_shows_dashboard_only_to_authorized_roles(self, mock_load):
+        from django.template.loader import render_to_string
+        mock_load.return_value = type('S', (), {'is_frozen': 0, 'frozen_message': '', 'active_budget_year': 2025})()
+        factory = RequestFactory()
+
+        for allowed_session in (
+            {'is_view_only': False, 'is_executive_view_only': False, 'is_district_view_only': False, 'is_manager': True},
+            {'is_view_only': True, 'is_executive_view_only': True, 'is_district_view_only': False, 'is_manager': False},
+            {'is_view_only': True, 'is_executive_view_only': False, 'is_district_view_only': True, 'is_manager': False},
+        ):
+            req = factory.get('/list/')
+            req.user = self._mock_user('role_user')
+            req.session = {'branch_info': allowed_session}
+            html = render_to_string('budget_app/base.html', {}, request=req)
+            self.assertIn('href="/dashboard/"', html)
+
+        # Staff member with partial or non-manager session must NOT see Dashboard menu
+        req_staff = factory.get('/list/')
+        req_staff.user = self._mock_user('staff01')
+        req_staff.session = {'branch_info': {'is_view_only': False, 'is_executive_view_only': False, 'is_district_view_only': False, 'is_manager': False}}
+        html_staff = render_to_string('budget_app/base.html', {}, request=req_staff)
+        self.assertNotIn('href="/dashboard/"', html_staff)
+
+    @patch('budget_app.models.SystemSettings.load')
+    @patch('budget_app.services.BudgetService.get_branch_names_from_imedx', return_value={'CA': 'สาขาเชียงใหม่แอร์พอร์ต'})
+    @patch('budget_app.services.BudgetService.get_all_branches', return_value=[
+        {'code': 'CA', 'name': 'สาขาเชียงใหม่แอร์พอร์ต'},
+        {'code': 'PM', 'name': 'สาขาประดิษฐ์มนูธรรม'},
+    ])
+    def test_api_enforces_single_branch_and_role_permissions(self, mock_all, mock_names, mock_load):
+        import json
+        from budget_app.views import dashboard_data_api, dashboard_export_excel_api, dashboard_view
+        mock_load.return_value = type('S', (), {'is_frozen': 0, 'frozen_message': '', 'active_budget_year': 2025})()
+        factory = RequestFactory()
+
+        # Unauthenticated -> 401 JSON
+        req_anon = factory.get('/api/dashboard/data/?branch=PM&year=2025')
+        req_anon.user = type('Anon', (), {'is_authenticated': False})()
+        res_anon = dashboard_data_api(req_anon)
+        self.assertEqual(res_anon.status_code, 401)
+
+        # Regular staff -> 302 redirect on HTML view, 403 JSON on APIs
+        staff_session = {'branch_info': {'branches': ['PM'], 'is_manager': False, 'is_executive_view_only': False, 'is_district_view_only': False, 'bank_account_note': 'FRONT'}}
+        req_view = factory.get('/dashboard/')
+        req_view.user = self._mock_user('front01')
+        req_view.session = staff_session
+        res_view = dashboard_view(req_view)
+        self.assertEqual(res_view.status_code, 302)
+
+        for view_fn, path in ((dashboard_data_api, '/api/dashboard/data/'), (dashboard_export_excel_api, '/api/dashboard/export/')):
+            req_s = factory.get(f'{path}?branch=PM&year=2025')
+            req_s.user = self._mock_user('front01')
+            req_s.session = staff_session
+            res_s = view_fn(req_s)
+            self.assertEqual(res_s.status_code, 403)
+
+        # Manager of CA cannot query ALL, comma list, blank, or unauthorized branch PM
+        mgr_session = {'branch_info': {'branches': ['CA'], 'is_manager': True, 'is_executive_view_only': False, 'is_district_view_only': False, 'bank_account_note': 'MANAGER'}}
+        for bad_q, expected_code in (
+            ('', 400),
+            ('?branch=', 400),
+            ('?branch=ALL', 400),
+            ('?branch=CA,PM', 400),
+            ('?branch=CA;PM', 400),
+            ('?branch=PM', 403),
+        ):
+            req_bad = factory.get(f'/api/dashboard/data/{bad_q}')
+            req_bad.user = self._mock_user('mgr_ca')
+            req_bad.session = mgr_session
+            res_bad = dashboard_data_api(req_bad)
+            self.assertEqual(res_bad.status_code, expected_code, msg=f'query={bad_q} body={res_bad.content}')
+            self.assertEqual(json.loads(res_bad.content)['status'], 'error')
+
+    @patch('budget_app.models.SystemSettings.load')
+    @patch('budget_app.services.BudgetService.get_branch_names_from_imedx', return_value={'CA': 'สาขาเชียงใหม่แอร์พอร์ต'})
+    @patch('budget_app.services.BudgetService.get_all_branches', return_value=[{'code': 'CA', 'name': 'สาขาเชียงใหม่แอร์พอร์ต'}])
+    @patch('budget_app.dashboard_service.get_dashboard_budget_years', return_value=[2025, 2026])
+    def test_dashboard_html_has_no_status_filter_and_locks_single_branch(self, mock_yrs, mock_all, mock_names, mock_load):
+        from budget_app.views import dashboard_view
+        mock_load.return_value = type('S', (), {'is_frozen': 0, 'frozen_message': '', 'active_budget_year': 2025})()
+        factory = RequestFactory()
+        req = factory.get('/dashboard/')
+        req.user = self._mock_user('mgr_ca')
+        req.session = {'branch_info': {'branches': ['CA'], 'is_manager': True, 'is_executive_view_only': False, 'is_district_view_only': False, 'bank_account_note': 'MANAGER'}}
+        res = dashboard_view(req)
+        self.assertEqual(res.status_code, 200)
+        body = res.content.decode('utf-8')
+        self.assertIn('id="dashboard-branch-locked" value="CA"', body)
+        self.assertNotIn('ALL_ACTIVE', body)
+        self.assertNotIn('ทุกสาขา', body)
+
+    def test_sql_filters_branch_year_and_excludes_cancelled(self):
+        from budget_app.dashboard_service import _build_monthly_budget_sql_and_params
+        sql, params = _build_monthly_budget_sql_and_params('PM', 2025)
+        # Expect 15 UNION ALL branches (vet, nonvet sal, nonvet allow, posadj sal, posadj allow, 7 fix assets, gle, rev, bp)
+        self.assertEqual(sql.count('UNION ALL'), 14)
+        self.assertEqual(sql.count("COALESCE(v.status, '') <> %s"), 15)
+        self.assertEqual(params.count('PM'), 15)
+        self.assertEqual(params.count(2025), 15)
+        self.assertEqual(params.count('CANCELLED'), 15)
+
+    def _canonical_sample_outline(self):
+        return [
+            {'id': 1, 'row_order': 1, 'code': 'H1', 'label': 'รายได้', 'row_type': 'header'},
+            {'id': 2, 'row_order': 2, 'code': 'H101', 'label': 'รายได้จากการขายและอื่นๆ', 'row_type': 'header'},
+            {'id': 3, 'row_order': 3, 'code': '41100001', 'label': 'OPD/IPD', 'row_type': 'gl'},
+            {'id': 4, 'row_order': 9, 'code': '41300001', 'label': 'หัก รับคืน', 'row_type': 'gl'},
+            {'id': 5, 'row_order': 13, 'code': 'FH101', 'label': 'รวมรายได้', 'row_type': 'subtotal'},
+            {'id': 6, 'row_order': 14, 'code': 'H2', 'label': 'ต้นทุนและค่าใช้จ่ายขาย', 'row_type': 'header'},
+            {'id': 7, 'row_order': 15, 'code': 'H201', 'label': 'ต้นทุนขาย', 'row_type': 'header'},
+            {'id': 8, 'row_order': 16, 'code': '51000002', 'label': 'ต้นทุนสินค้า', 'row_type': 'gl'},
+            {'id': 9, 'row_order': 19, 'code': 'FH201', 'label': 'รวมต้นทุนขาย', 'row_type': 'subtotal'},
+            {'id': 10, 'row_order': 20, 'code': 'H202', 'label': 'ค่าใช้จ่ายในการขาย', 'row_type': 'header'},
+            {'id': 11, 'row_order': 28, 'code': '52000008', 'label': 'ค่าบริการวิชาชีพแพทย์', 'row_type': 'gl'},
+            {'id': 12, 'row_order': 33, 'code': 'FH202', 'label': 'รวมค่าใช้จ่ายในการขาย', 'row_type': 'subtotal'},
+            {'id': 13, 'row_order': 36, 'code': 'FH203', 'label': 'รวมค่ายานพาหนะ', 'row_type': 'subtotal'},
+            {'id': 14, 'row_order': 37, 'code': 'FH2', 'label': 'รวมต้นทุนและค่าใช้จ่ายในการขาย', 'row_type': 'subtotal'},
+            {'id': 15, 'row_order': 38, 'code': 'H3', 'label': 'ค่าใช้จ่ายบริหาร', 'row_type': 'header'},
+            {'id': 16, 'row_order': 39, 'code': 'H301', 'label': 'เงินเดือน', 'row_type': 'header'},
+            {'id': 17, 'row_order': 40, 'code': '60100001', 'label': 'เงินเดือน', 'row_type': 'gl'},
+            {'id': 18, 'row_order': 58, 'code': 'FH301', 'label': 'รวมเงินเดือน', 'row_type': 'subtotal'},
+            {'id': 19, 'row_order': 142, 'code': 'FH3', 'label': 'รวมค่าใช้จ่ายในการบริหาร', 'row_type': 'subtotal'},
+            {'id': 20, 'row_order': 143, 'code': 'FH1-H3', 'label': 'EBITDA', 'row_type': 'subtotal'},
+            {'id': 21, 'row_order': 144, 'code': 'H4', 'label': 'ค่าเสื่อมราคา', 'row_type': 'header'},
+            {'id': 22, 'row_order': 147, 'code': '61300004', 'label': 'ค่าเสื่อมคอม', 'row_type': 'gl'},
+            {'id': 23, 'row_order': 159, 'code': 'FH410', 'label': 'รวมค่าเสื่อม', 'row_type': 'subtotal'},
+            {'id': 24, 'row_order': 163, 'code': 'FH401', 'label': 'รวม Asset Movement', 'row_type': 'subtotal'},
+            {'id': 25, 'row_order': 164, 'code': 'SP-B', 'label': 'SP-B', 'row_type': 'subtotal'},
+            {'id': 26, 'row_order': 166, 'code': '61400001', 'label': 'Back Office', 'row_type': 'gl'},
+            {'id': 27, 'row_order': 168, 'code': 'FH5', 'label': 'รวมค่าใช้จ่ายระหว่างกัน', 'row_type': 'subtotal'},
+            {'id': 28, 'row_order': 169, 'code': 'H6', 'label': 'EBIT', 'row_type': 'header'},
+            {'id': 29, 'row_order': 170, 'code': '42000005', 'label': 'รายได้ค่าเช่า', 'row_type': 'gl'},
+            {'id': 30, 'row_order': 172, 'code': '61500002', 'label': 'ดอกเบี้ย', 'row_type': 'gl'},
+            {'id': 31, 'row_order': 178, 'code': 'FH7', 'label': 'รวมดอกเบี้ย', 'row_type': 'subtotal'},
+            {'id': 32, 'row_order': 179, 'code': 'H8', 'label': 'EBT', 'row_type': 'header'},
+            {'id': 33, 'row_order': 180, 'code': '61700001', 'label': 'ภาษีเงินได้', 'row_type': 'gl'},
+            {'id': 34, 'row_order': 181, 'code': 'FH8', 'label': 'กำไรสุทธิ', 'row_type': 'subtotal'},
+        ]
+
+    @patch('budget_app.dashboard_service.fetch_branch_budget_by_gl')
+    @patch('budget_app.dashboard_service.fetch_gl_actual_template_for_branch')
+    @patch('budget_app.dashboard_service._get_template_outline')
+    def test_pnl_math_rounding_actual_separation_and_xlsx_export(self, mock_outline, mock_actual, mock_budget):
+        import io
+        import warnings
+        from decimal import Decimal
+        import openpyxl
+        from budget_app.dashboard_service import build_dashboard_data
+        from budget_app.xlsx_export import build_dashboard_xlsx
+
+        mock_outline.return_value = self._canonical_sample_outline()
+        mock_actual.return_value = {
+            'document': {'document_no': 'GLACT-202611-001', 'status': 'PENDING', 'actual_month_count': 9, 'growth_pct_1': 10.0, 'growth_pct_2': 5.0, 'growth_pct_3': 2.0},
+            'by_code': {
+                '41100001': {'actual_value': Decimal('1000.335'), 'per_month_value': Decimal('111.148'), 'annualized_value': Decimal('1333.784'), 'sales_ratio': Decimal('100.00'), 'growth_rate': Decimal('0.00')},
+                'FH101': {'actual_value': Decimal('1000.34'), 'per_month_value': Decimal('111.15'), 'annualized_value': Decimal('1333.78'), 'sales_ratio': Decimal('100.00'), 'growth_rate': Decimal('0.00')},
+                'FH8': {'actual_value': Decimal('200.555'), 'per_month_value': Decimal('22.284'), 'annualized_value': Decimal('267.405'), 'sales_ratio': Decimal('20.05'), 'growth_rate': Decimal('0.00')},
+            },
+            'by_row_order': {},
+        }
+        # Jan values + 0 for rest, testing P&L cascade, fractional rounding, and standalone 42000005 / 61700001
+        zeros = [Decimal('0.00')] * 11
+        mock_budget.return_value = {
+            '41100001': [Decimal('1000.335')] + zeros,   # -> 1000.34
+            '41300001': [Decimal('-100.114')] + zeros,   # -> -100.11  => FH101 = 900.23
+            '51000002': [Decimal('200.00')] + zeros,     # => FH201 = 200.00
+            '52000008': [Decimal('100.00')] + zeros,     # => FH202 = 100.00 => FH2 = 300.00
+            '60100001': [Decimal('150.00')] + zeros,     # => FH301 = FH3 = 150.00 => FH1-H3 = 450.23
+            '61300004': [Decimal('50.00')] + zeros,      # => FH410 = 50.00 => SP-B = 400.23
+            '61400001': [Decimal('40.00')] + zeros,      # => FH5 = 40.00 => H6 = 360.23
+            '42000005': [Decimal('25.00')] + zeros,      # Rental income (must NOT go into FH7!)
+            '61500002': [Decimal('10.23')] + zeros,      # => FH7 = 10.23 => H8 = 360.23 + 25.00 - 10.23 = 375.00
+            '61700001': [Decimal('75.00')] + zeros,      # => FH8 = 375.00 - 75.00 = 300.00
+        }
+
+        payload = build_dashboard_data({'code': 'PM', 'name': 'สาขาประดิษฐ์มนูธรรม'}, 2025)
+        rows_by_code = {r['general_ledger_code']: r for r in payload['rows']}
+
+        # No double counting on Actual snapshot
+        self.assertEqual(rows_by_code['FH101']['actual_value'], 1000.34)
+        self.assertEqual(rows_by_code['FH8']['actual_value'], 200.56)
+
+        # P&L chain & HALF_UP 2dp rounding
+        self.assertEqual(rows_by_code['41100001']['january'], 1000.34)
+        self.assertEqual(rows_by_code['41300001']['january'], -100.11)
+        self.assertEqual(rows_by_code['FH101']['january'], 900.23)
+        self.assertEqual(rows_by_code['FH2']['january'], 300.0)
+        self.assertEqual(rows_by_code['FH3']['january'], 150.0)
+        self.assertEqual(rows_by_code['FH1-H3']['january'], 450.23)
+        self.assertEqual(rows_by_code['SP-B']['january'], 400.23)
+        self.assertEqual(rows_by_code['H6']['january'], 360.23)
+        self.assertEqual(rows_by_code['FH7']['january'], 10.23)
+        self.assertEqual(rows_by_code['H8']['january'], 375.0)
+        self.assertEqual(rows_by_code['FH8']['january'], 300.0)
+
+        # pct_jan checks (2dp)
+        self.assertEqual(rows_by_code['41100001']['pct_jan'], 111.12)  # 1000.34 / 900.23 * 100 = 111.1204 -> 111.12
+        self.assertEqual(rows_by_code['FH101']['pct_jan'], 100.0)
+        self.assertEqual(rows_by_code['41100001']['pct_feb'], 0.0)     # zero division guard
+
+        # Excel export validation with openpyxl (no warnings)
+        xlsx_bytes = build_dashboard_xlsx(payload)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            wb = openpyxl.load_workbook(io.BytesIO(xlsx_bytes), data_only=True)
+            self.assertEqual([w for w in caught if 'default style' in str(w.message)], [])
+        ws = wb.active
+        self.assertEqual(ws.title, 'Dashboard')
+        self.assertEqual(ws.max_column, 33)
+        self.assertEqual(ws.max_row, len(payload['rows']) + 1)
+        self.assertEqual(ws.cell(1, 1).value, 'row_order')
+        self.assertEqual(ws.cell(1, 4).value, 'Act จริง')
+        self.assertEqual(ws.cell(1, 21).value, 'total')
+        self.assertEqual(ws.cell(1, 33).value, 'pct_dec')
+        self.assertEqual(ws.freeze_panes, 'D2')
+        # Verify final FH8 row values in Excel
+        self.assertEqual(ws.cell(ws.max_row, 2).value, 'FH8')
+        self.assertEqual(ws.cell(ws.max_row, 4).value, 200.56)
+        self.assertEqual(ws.cell(ws.max_row, 9).value, 300.0)
+        self.assertEqual(ws.cell(ws.max_row, 21).value, 300.0)

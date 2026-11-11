@@ -1,0 +1,210 @@
+{% extends "budget_app/base.html" %}
+{% load static %}
+
+{% block title %}E-Budget Branch Dashboard{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'budget_app/vendor/tom-select/tom-select.bootstrap5.min.css' %}" />
+<link rel="stylesheet" href="{% static 'budget_app/css/dashboard.css' %}?v=20261111_02" />
+{% endblock %}
+
+{% block content %}
+<header class="page-header page-header-dark dashboard-hero-header">
+    <div class="container-fluid px-4">
+        <div class="page-header-content pt-4">
+            <div class="row align-items-center justify-content-between">
+                <div class="col-auto mt-2">
+                    <h1 class="page-header-title">
+                        <div class="page-header-icon"><i data-feather="bar-chart-2"></i></div>
+                        E-Budget Branch Dashboard
+                    </h1>
+                    <div class="page-header-subtitle">
+                        สรุปงบประมาณรายสาขาตามโครงสร้าง GL Actual Template (แสดงผลครั้งละ 1 สาขา ไม่รวมเอกสารยกเลิก)
+                    </div>
+                </div>
+                <div class="col-12 col-xl-auto mt-3 mt-xl-0">
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" id="btn-dashboard-refresh" class="btn btn-light btn-sm shadow-sm fw-semibold">
+                            <i class="fas fa-sync-alt me-1"></i> รีเฟรชข้อมูล
+                        </button>
+                        <button type="button" id="btn-dashboard-export" class="btn btn-success btn-sm shadow-sm fw-semibold" {% if not selected_branch %}disabled{% endif %}>
+                            <i class="fas fa-file-excel me-1"></i> Export Excel (.xlsx)
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</header>
+
+<div class="container-fluid px-4 mt-n5">
+    <!-- Single-Branch Filter Card (No Status Filter, Strictly 1 Branch at a Time) -->
+    <div class="card shadow-sm mb-3">
+        <div class="card-body py-3">
+            <div class="row g-3 align-items-end">
+                <div class="col-12 col-md-5 col-lg-4">
+                    <label for="dashboard-branch-select" class="form-label fw-semibold small mb-1">
+                        สาขา <span class="text-danger">*</span>
+                        <span class="text-muted fw-normal">(เลือกดูได้ครั้งละ 1 สาขา)</span>
+                    </label>
+                    {% if not allowed_branches %}
+                        <input type="hidden" id="dashboard-branch-locked" value="" />
+                        <div class="alert alert-warning py-1 px-2 mb-0 small">
+                            บัญชีของท่านยังไม่ได้ตั้งค่าสาขาในระบบ iMedX
+                        </div>
+                    {% elif is_single_branch_locked %}
+                        {% with only_branch=allowed_branches.0 %}
+                        <input type="hidden" id="dashboard-branch-locked" value="{{ only_branch.code }}" />
+                        <div class="single-branch-badge">
+                            <i class="fas fa-hospital-alt text-primary"></i>
+                            <span>{{ only_branch.code }} — {{ only_branch.name }}</span>
+                        </div>
+                        {% endwith %}
+                    {% else %}
+                        <select id="dashboard-branch-select" class="form-select">
+                            {% for b in allowed_branches %}
+                            <option value="{{ b.code }}" {% if b.code == selected_branch %}selected{% endif %}>
+                                {{ b.code }} — {{ b.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    {% endif %}
+                </div>
+
+                <div class="col-6 col-md-3 col-lg-2">
+                    <label for="dashboard-year-select" class="form-label fw-semibold small mb-1">ปีงบประมาณ</label>
+                    <select id="dashboard-year-select" class="form-select">
+                        {% for yr in budget_years %}
+                        <option value="{{ yr }}" {% if yr == selected_year %}selected{% endif %}>{{ yr }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="col-12 col-lg-6">
+                    <div id="dashboard-meta-strip" class="d-flex flex-wrap align-items-center gap-1 justify-content-lg-end"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="dashboard-error-banner" class="alert alert-danger d-none mb-3" role="alert"></div>
+
+    <!-- KPI Summary Cards (All rounded strictly to 2 decimals) -->
+    <div class="row g-3 mb-3">
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="card shadow-sm h-100 dashboard-kpi-card kpi-revenue">
+                <div class="card-body py-3">
+                    <div class="d-flex justify-content-between align-items-start mb-1">
+                        <span class="small fw-semibold text-uppercase text-muted">รายได้รวม Budget (FH101)</span>
+                        <span class="badge bg-primary-soft text-primary small" id="kpi-rev-pct">0.00%</span>
+                    </div>
+                    <div class="kpi-value mb-1" id="kpi-rev-budget">0.00</div>
+                    <div class="small text-muted">Annualized Actual (x12): <strong id="kpi-rev-actual">0.00</strong></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="card shadow-sm h-100 dashboard-kpi-card kpi-expense">
+                <div class="card-body py-3">
+                    <div class="d-flex justify-content-between align-items-start mb-1">
+                        <span class="small fw-semibold text-uppercase text-muted">ต้นทุน + ค่าใช้จ่าย (FH2+FH3)</span>
+                        <span class="badge bg-warning-soft text-warning small" id="kpi-exp-pct">0.00%</span>
+                    </div>
+                    <div class="kpi-value mb-1" id="kpi-exp-budget">0.00</div>
+                    <div class="small text-muted">Annualized Actual (x12): <strong id="kpi-exp-actual">0.00</strong></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="card shadow-sm h-100 dashboard-kpi-card kpi-ebitda">
+                <div class="card-body py-3">
+                    <div class="d-flex justify-content-between align-items-start mb-1">
+                        <span class="small fw-semibold text-uppercase text-muted">EBITDA (FH1-H3)</span>
+                        <span class="badge bg-info-soft text-info small" id="kpi-ebitda-pct">0.00%</span>
+                    </div>
+                    <div class="kpi-value mb-1" id="kpi-ebitda-budget">0.00</div>
+                    <div class="small text-muted">Annualized Actual (x12): <strong id="kpi-ebitda-actual">0.00</strong></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="card shadow-sm h-100 dashboard-kpi-card kpi-net">
+                <div class="card-body py-3">
+                    <div class="d-flex justify-content-between align-items-start mb-1">
+                        <span class="small fw-semibold text-uppercase text-muted">กำไร (ขาดทุน) สุทธิ (FH8)</span>
+                        <span class="badge bg-success-soft text-success small" id="kpi-net-pct">0.00%</span>
+                    </div>
+                    <div class="kpi-value mb-1" id="kpi-net-budget">0.00</div>
+                    <div class="small text-muted">Annualized Actual (x12): <strong id="kpi-net-actual">0.00</strong></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main P&L Matrix Card -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header py-2 px-3">
+            <div class="row g-2 align-items-center justify-content-between">
+                <div class="col-12 col-xl-auto d-flex flex-wrap align-items-center gap-2">
+                    <span class="fw-bold text-primary me-1"><i class="fas fa-table me-1"></i>ตารางสรุป P&amp;L ตาม GL Code</span>
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Column presets">
+                        <button type="button" class="btn btn-primary" data-col-preset="full">ครบทุกคอลัมน์ (33)</button>
+                        <button type="button" class="btn btn-outline-secondary" data-col-preset="no-pct">ไม่มี % รายเดือน</button>
+                        <button type="button" class="btn btn-outline-secondary" data-col-preset="compare">สรุปเทียบ Actual</button>
+                    </div>
+                    <span id="dashboard-row-count" class="badge bg-light text-dark border small">181 บรรทัด</span>
+                </div>
+
+                <div class="col-12 col-xl-auto d-flex flex-wrap gap-2">
+                    <select id="dashboard-row-filter" class="form-select form-select-sm" style="width: auto; min-width: 190px;">
+                        <option value="all">แสดงทั้งหมด (181 บรรทัด)</option>
+                        <option value="nonzero">เฉพาะรายการที่มีตัวเลข + สรุป</option>
+                        <option value="summary">เฉพาะบรรทัดหัวข้อและสรุป P&amp;L</option>
+                    </select>
+                    <div class="input-group input-group-sm" style="width: 240px;">
+                        <span class="input-group-text"><i class="fas fa-search"></i></span>
+                        <input type="text" id="dashboard-search-input" class="form-control" placeholder="ค้นหา GL Code / ชื่อบัญชี..." />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card-body p-0 position-relative">
+            <div id="dashboard-loading" class="d-none position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center dashboard-loading-overlay">
+                <div class="text-center">
+                    <div class="spinner-border text-primary mb-2" role="status"></div>
+                    <div class="small fw-semibold text-primary">กำลังคำนวณข้อมูลสาขา...</div>
+                </div>
+            </div>
+
+            <div id="dashboard-table-scroll" class="dashboard-table-scroll preset-full">
+                <table class="table table-sm dashboard-matrix-table">
+                    <thead id="dashboard-table-head"></thead>
+                    <tbody id="dashboard-table-body">
+                        <tr>
+                            <td colspan="35" class="text-center py-4 text-muted">กำลังเตรียมข้อมูล Dashboard...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script id="dashboard-config" type="application/json">
+{
+    "selected_branch": "{{ selected_branch|escapejs }}",
+    "selected_year": {{ selected_year }},
+    "data_api_url": "{% url 'api_dashboard_data' %}",
+    "export_api_url": "{% url 'api_dashboard_export' %}"
+}
+</script>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'budget_app/vendor/tom-select/tom-select.complete.min.js' %}"></script>
+<script src="{% static 'budget_app/js/dashboard.js' %}?v=20261111_02"></script>
+{% endblock %}

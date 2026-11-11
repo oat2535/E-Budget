@@ -204,7 +204,12 @@ def resolve_equipment_gl_code(doc_type, purchase_price, fallback_gl_code=None):
     elif doc_type == 'Software':
         return SOFTWARE_GL_CODE
     return fallback_gl_code
-from budget_app.decorators import require_not_frozen, require_not_executive_view_only, require_gl_actual_template_access
+from budget_app.decorators import (
+    require_dashboard_access,
+    require_gl_actual_template_access,
+    require_not_executive_view_only,
+    require_not_frozen,
+)
 
 def login_required_json(view_func):
     """Like login_required, but for fetch()/AJAX endpoints: an expired or
@@ -2496,6 +2501,135 @@ def toggle_freeze_view(request):
         })
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})
+
+@login_required_hybrid
+@require_dashboard_access
+def dashboard_view(request):
+    """Render single-branch E-Budget Dashboard page."""
+    from budget_app.dashboard_service import (
+        get_allowed_branches_for_dashboard,
+        get_dashboard_budget_years,
+    )
+
+    allowed_branches = get_allowed_branches_for_dashboard(request)
+    settings_obj = SystemSettings.load()
+    active_year = int(settings_obj.active_budget_year)
+    budget_years = get_dashboard_budget_years()
+
+    requested_year = request.GET.get('year')
+    selected_year = active_year
+    if requested_year:
+        try:
+            parsed_year = int(requested_year)
+            if parsed_year in budget_years:
+                selected_year = parsed_year
+        except (TypeError, ValueError):
+            pass
+
+    allowed_codes = [b['code'] for b in allowed_branches]
+    requested_branch = (request.GET.get('branch') or '').strip().upper()
+    selected_branch = ''
+    if requested_branch and requested_branch in allowed_codes:
+        selected_branch = requested_branch
+    elif allowed_codes:
+        # Pick the first allowed branch that already has non-CANCELLED data in selected_year (or first allowed)
+        selected_branch = allowed_codes[0]
+        if len(allowed_codes) > 1:
+            from django.db import connection
+            with connection.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT DISTINCT base_branch_id FROM (
+                        SELECT base_branch_id FROM ebudget_revenue WHERE budget_year = %s AND COALESCE(status, '') <> 'CANCELLED'
+                        UNION ALL
+                        SELECT base_branch_id FROM ebudget_gl_entry WHERE budget_year = %s AND COALESCE(status, '') <> 'CANCELLED'
+                        UNION ALL
+                        SELECT base_branch_id FROM ebudget_vet_manpower WHERE budget_year = %s AND COALESCE(status, '') <> 'CANCELLED'
+                        UNION ALL
+                        SELECT base_branch_id FROM ebudget_non_vet_manpower WHERE budget_year = %s AND COALESCE(status, '') <> 'CANCELLED'
+                        UNION ALL
+                        SELECT base_branch_id FROM ebudget_gl_actual_template WHERE budget_year = %s AND COALESCE(status, '') <> 'CANCELLED'
+                    ) active_branches
+                    WHERE base_branch_id = ANY(%s)
+                    """,
+                    [selected_year, selected_year, selected_year, selected_year, selected_year, allowed_codes],
+                )
+                branches_with_data = {r[0] for r in cur.fetchall() if r[0]}
+            for code in allowed_codes:
+                if code in branches_with_data:
+                    selected_branch = code
+                    break
+
+    return render(request, 'budget_app/dashboard.html', {
+        'allowed_branches': allowed_branches,
+        'selected_branch': selected_branch,
+        'is_single_branch_locked': len(allowed_branches) == 1,
+        'budget_years': budget_years,
+        'selected_year': selected_year,
+    })
+
+
+def _resolve_dashboard_payload_or_error(request):
+    """Validate single-branch + year query params and compute Dashboard payload or HTTP error JsonResponse."""
+    from budget_app.dashboard_service import (
+        build_dashboard_data,
+        validate_single_branch,
+    )
+
+    if request.method != 'GET':
+        return None, None, JsonResponse({'status': 'error', 'message': 'Method not allowed'}, status=405)
+
+    branch_dict, err_msg, err_status = validate_single_branch(request, request.GET.get('branch'))
+    if err_msg:
+        return None, None, JsonResponse({'status': 'error', 'message': err_msg}, status=err_status)
+
+    raw_year = request.GET.get('year')
+    if raw_year is None or str(raw_year).strip() == '':
+        budget_year = int(SystemSettings.load().active_budget_year)
+    else:
+        try:
+            budget_year = int(str(raw_year).strip())
+        except ValueError:
+            return None, None, JsonResponse({'status': 'error', 'message': 'ปีงบประมาณไม่ถูกต้อง'}, status=400)
+
+    payload = build_dashboard_data(branch_dict, budget_year)
+    return branch_dict, budget_year, payload
+
+
+@login_required_json
+@require_dashboard_access
+def dashboard_data_api(request):
+    """Return single-branch P&L matrix + KPIs JSON payload (all numbers rounded to 2 decimals)."""
+    _, _, result = _resolve_dashboard_payload_or_error(request)
+    if isinstance(result, JsonResponse):
+        return result
+    return JsonResponse({'status': 'ok', **result})
+
+
+@login_required_json
+@require_dashboard_access
+def dashboard_export_excel_api(request):
+    """Export selected single branch Dashboard data as styled .xlsx matching Dashboard.xlsx (33 cols, 2dp)."""
+    import re
+    from django.http import HttpResponse
+    from budget_app.xlsx_export import build_dashboard_xlsx
+
+    branch_dict, budget_year, result = _resolve_dashboard_payload_or_error(request)
+    if isinstance(result, JsonResponse):
+        return result
+
+    xlsx_bytes = build_dashboard_xlsx(result)
+
+    safe_branch = re.sub(r'[^A-Za-z0-9_-]', '', branch_dict['code']) or 'branch'
+    filename = f'Dashboard_{safe_branch}_{budget_year}.xlsx'
+    response = HttpResponse(
+        xlsx_bytes,
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response['Cache-Control'] = 'no-store'
+    return response
+
 
 @login_required_json
 def set_active_year_view(request):
