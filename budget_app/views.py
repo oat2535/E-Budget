@@ -2530,38 +2530,7 @@ def dashboard_view(request):
 
     allowed_codes = [b['code'] for b in allowed_branches]
     requested_branch = (request.GET.get('branch') or '').strip().upper()
-    selected_branch = ''
-    if requested_branch and requested_branch in allowed_codes:
-        selected_branch = requested_branch
-    elif allowed_codes:
-        # Default privileged All-Branch users directly to consolidated 'ALL' (TLPH) view;
-        # otherwise pick the first allowed TLPH branch that has non-CANCELLED data in selected_year.
-        selected_branch = allowed_codes[0]
-        if 'ALL' not in allowed_codes and len(allowed_codes) > 1:
-            from django.db import connection
-            with connection.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT DISTINCT base_branch_id FROM (
-                        SELECT base_branch_id FROM ebudget_revenue WHERE budget_year = %s AND COALESCE(status, '') <> 'CANCELLED'
-                        UNION ALL
-                        SELECT base_branch_id FROM ebudget_gl_entry WHERE budget_year = %s AND COALESCE(status, '') <> 'CANCELLED'
-                        UNION ALL
-                        SELECT base_branch_id FROM ebudget_vet_manpower WHERE budget_year = %s AND COALESCE(status, '') <> 'CANCELLED'
-                        UNION ALL
-                        SELECT base_branch_id FROM ebudget_non_vet_manpower WHERE budget_year = %s AND COALESCE(status, '') <> 'CANCELLED'
-                        UNION ALL
-                        SELECT base_branch_id FROM ebudget_gl_actual_template WHERE budget_year = %s AND COALESCE(status, '') <> 'CANCELLED'
-                    ) active_branches
-                    WHERE base_branch_id = ANY(%s)
-                    """,
-                    [selected_year, selected_year, selected_year, selected_year, selected_year, allowed_codes],
-                )
-                branches_with_data = {r[0] for r in cur.fetchall() if r[0]}
-            for code in allowed_codes:
-                if code in branches_with_data:
-                    selected_branch = code
-                    break
+    selected_branch = requested_branch if (requested_branch and requested_branch in allowed_codes) else ''
 
     return render(request, 'budget_app/dashboard.html', {
         'allowed_branches': allowed_branches,

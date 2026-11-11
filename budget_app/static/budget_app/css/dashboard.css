@@ -334,3 +334,72 @@ body.theme-dark .single-branch-badge {
     border-color: #475569;
     color: #f8fafc;
 }
+
+/* Initial Idle State Banner (Pinned Left Inside Wide Table Viewport) */
+.dashboard-idle-cell {
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+}
+
+.dashboard-idle-banner {
+    position: sticky;
+    left: 0;
+    width: max-content;
+    max-width: min(560px, calc(100vw - 3rem));
+    padding: 2.5rem 2rem;
+    text-align: left;
+    white-space: normal;
+}
+
+/* Fullscreen Table Overlay Mode */
+body.dashboard-fullscreen-open {
+    overflow: hidden !important;
+}
+
+#dashboard-matrix-card:not(.is-fullscreen) .fs-only-badge {
+    display: none !important;
+}
+
+#dashboard-matrix-card.is-fullscreen {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    border: none !important;
+    z-index: 1045 !important;
+    transform: none !important;
+    display: flex;
+    flex-direction: column;
+}
+
+#dashboard-matrix-card.is-fullscreen .fs-only-badge {
+    display: inline-flex;
+    align-items: center;
+}
+
+#dashboard-matrix-card.is-fullscreen > .card-header {
+    flex: 0 0 auto;
+    border-radius: 0 !important;
+}
+
+#dashboard-matrix-card.is-fullscreen > .card-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+#dashboard-matrix-card.is-fullscreen .dashboard-top-scroll {
+    flex: 0 0 auto;
+}
+
+#dashboard-matrix-card.is-fullscreen .dashboard-table-scroll {
+    flex: 1 1 auto;
+    max-height: none !important;
+    height: 100%;
+}

@@ -5,7 +5,7 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'budget_app/vendor/tom-select/tom-select.bootstrap5.min.css' %}" />
-<link rel="stylesheet" href="{% static 'budget_app/css/dashboard.css' %}?v=20261112_01" />
+<link rel="stylesheet" href="{% static 'budget_app/css/dashboard.css' %}?v=20261112_02" />
 {% endblock %}
 
 {% block content %}
@@ -28,7 +28,7 @@
                 </div>
                 <div class="col-12 col-xl-auto mt-3 mt-xl-0">
                     <div class="d-flex flex-wrap gap-2">
-                        <button type="button" id="btn-dashboard-refresh" class="btn btn-light btn-sm shadow-sm fw-semibold">
+                        <button type="button" id="btn-dashboard-refresh" class="btn btn-light btn-sm shadow-sm fw-semibold" {% if not allowed_branches or not is_single_branch_locked and not selected_branch %}disabled{% endif %}>
                             <i class="fas fa-sync-alt me-1"></i> รีเฟรชข้อมูล
                         </button>
                         <button type="button" id="btn-dashboard-export" class="btn btn-success btn-sm shadow-sm fw-semibold" {% if not selected_branch %}disabled{% endif %}>
@@ -60,7 +60,7 @@
                         </div>
                     {% elif is_single_branch_locked %}
                         {% with only_branch=allowed_branches.0 %}
-                        <input type="hidden" id="dashboard-branch-locked" value="{{ only_branch.code }}" />
+                        <input type="hidden" id="dashboard-branch-locked" value="{{ only_branch.code }}" data-branch-label="{{ only_branch.code }} — {{ only_branch.name }}" />
                         <div class="single-branch-badge">
                             <i class="fas fa-hospital-alt text-primary"></i>
                             <span>{{ only_branch.code }} — {{ only_branch.name }}</span>
@@ -68,6 +68,7 @@
                         {% endwith %}
                     {% else %}
                         <select id="dashboard-branch-select" class="form-select">
+                            <option value="" {% if not selected_branch %}selected{% endif %}>-- กรุณาเลือกสาขา --</option>
                             {% for b in allowed_branches %}
                             <option value="{{ b.code }}" {% if b.code == selected_branch %}selected{% endif %}>
                                 {% if b.is_all %}{{ b.name }}{% else %}{{ b.code }} — {{ b.name }}{% endif %}
@@ -96,20 +97,21 @@
     <div id="dashboard-error-banner" class="alert alert-danger d-none mb-3" role="alert"></div>
 
     <!-- Main P&L Matrix Card -->
-    <div class="card shadow-sm mb-4">
+    <div class="card shadow-sm mb-4" id="dashboard-matrix-card">
         <div class="card-header py-2 px-3">
             <div class="row g-2 align-items-center justify-content-between">
                 <div class="col-12 col-xl-auto d-flex flex-wrap align-items-center gap-2">
                     <span class="fw-bold text-primary me-1"><i class="fas fa-table me-1"></i>ตารางสรุป P&amp;L ตาม GL Code</span>
+                    <span id="dashboard-fs-branch-label" class="badge bg-primary fs-only-badge d-none"></span>
                     <div class="btn-group btn-group-sm" role="group" aria-label="Column presets">
                         <button type="button" class="btn btn-primary" data-col-preset="full">ครบทุกคอลัมน์ (33)</button>
                         <button type="button" class="btn btn-outline-secondary" data-col-preset="no-pct">ไม่มี % รายเดือน</button>
                         <button type="button" class="btn btn-outline-secondary" data-col-preset="compare">สรุปเทียบ Actual</button>
                     </div>
-                    <span id="dashboard-row-count" class="badge bg-light text-dark border small">181 บรรทัด</span>
+                    <span id="dashboard-row-count" class="badge bg-light text-dark border small">{% if selected_branch %}กำลังเตรียม...{% else %}รอเลือกสาขา{% endif %}</span>
                 </div>
 
-                <div class="col-12 col-xl-auto d-flex flex-wrap gap-2">
+                <div class="col-12 col-xl-auto d-flex flex-wrap align-items-center gap-2">
                     <select id="dashboard-row-filter" class="form-select form-select-sm" style="width: auto; min-width: 190px;">
                         <option value="all">แสดงทั้งหมด (181 บรรทัด)</option>
                         <option value="nonzero">เฉพาะรายการที่มีตัวเลข + สรุป</option>
@@ -119,6 +121,10 @@
                         <span class="input-group-text"><i class="fas fa-search"></i></span>
                         <input type="text" id="dashboard-search-input" class="form-control" placeholder="ค้นหา GL Code / ชื่อบัญชี..." />
                     </div>
+                    <button type="button" id="btn-dashboard-fullscreen" class="btn btn-outline-primary btn-sm fw-semibold" title="เปิดดูตารางแบบเต็มหน้าจอ" aria-pressed="false">
+                        <span data-fs-label="enter"><i class="fas fa-expand me-1"></i>เต็มหน้าจอ</span>
+                        <span data-fs-label="exit" class="d-none"><i class="fas fa-compress me-1"></i>ย่อหน้าจอ (Esc)</span>
+                    </button>
                 </div>
             </div>
         </div>
@@ -140,7 +146,11 @@
                     <thead id="dashboard-table-head"></thead>
                     <tbody id="dashboard-table-body">
                         <tr>
-                            <td colspan="35" class="text-center py-4 text-muted">กำลังเตรียมข้อมูล Dashboard...</td>
+                            <td colspan="35" class="dashboard-idle-cell">
+                                <div class="dashboard-idle-banner text-muted">
+                                    {% if selected_branch %}กำลังเตรียมข้อมูล Dashboard...{% else %}กรุณาเลือกสาขาเพื่อแสดงข้อมูลในตาราง{% endif %}
+                                </div>
+                            </td>
                         </tr>
                     </tbody>
                 </table>
@@ -161,5 +171,5 @@
 
 {% block extra_js %}
 <script src="{% static 'budget_app/vendor/tom-select/tom-select.complete.min.js' %}"></script>
-<script src="{% static 'budget_app/js/dashboard.js' %}?v=20261112_01"></script>
+<script src="{% static 'budget_app/js/dashboard.js' %}?v=20261112_02"></script>
 {% endblock %}

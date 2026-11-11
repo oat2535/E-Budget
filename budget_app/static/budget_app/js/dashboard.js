@@ -16,6 +16,8 @@
     const state = {
         rows: [],
         payload: null,
+        hasLoaded: false,
+        isFullscreen: false,
         columnPreset: 'full',
         rowFilter: 'all',
         searchTerm: '',
@@ -31,6 +33,9 @@
         el.yearSelect = document.getElementById('dashboard-year-select');
         el.btnRefresh = document.getElementById('btn-dashboard-refresh');
         el.btnExport = document.getElementById('btn-dashboard-export');
+        el.btnFullscreen = document.getElementById('btn-dashboard-fullscreen');
+        el.fsBranchLabel = document.getElementById('dashboard-fs-branch-label');
+        el.matrixCard = document.getElementById('dashboard-matrix-card');
         el.searchInput = document.getElementById('dashboard-search-input');
         el.rowFilterSelect = document.getElementById('dashboard-row-filter');
         el.presetButtons = document.querySelectorAll('[data-col-preset]');
@@ -92,11 +97,12 @@
     }
 
     function setLoading(isLoading) {
+        const selectedBranch = getSelectedBranch();
         if (el.loadingOverlay) {
             el.loadingOverlay.classList.toggle('d-none', !isLoading);
         }
-        if (el.btnRefresh) el.btnRefresh.disabled = isLoading;
-        if (el.btnExport) el.btnExport.disabled = isLoading || !getSelectedBranch();
+        if (el.btnRefresh) el.btnRefresh.disabled = isLoading || !selectedBranch;
+        if (el.btnExport) el.btnExport.disabled = isLoading || !selectedBranch || !state.hasLoaded;
     }
 
     function showError(message) {
@@ -111,15 +117,21 @@
     }
 
     function initBranchDropdown(config) {
-        if (!el.branchSelect || typeof window.TomSelect === 'undefined') return;
+        if (!el.branchSelect) return;
         const previousVal = config.selected_branch || '';
+        if (typeof window.TomSelect === 'undefined') {
+            el.branchSelect.addEventListener('change', function () {
+                if (getSelectedBranch()) loadDashboardData();
+            });
+            return;
+        }
         state.branchSelectInstance = new window.TomSelect(el.branchSelect, {
             allowEmptyOption: false,
             create: false,
             maxItems: 1,
             // Preserve server ordering so 'ALL' remains Option #1 above TLPH branch codes
             sortField: [{ field: '$score' }, { field: '$order' }],
-            placeholder: 'เลือกสาขา (TLPH)...',
+            placeholder: '-- กรุณาเลือกสาขา --',
             onChange: function (value) {
                 if (!value) {
                     const fallback = this._lastValidBranch || previousVal;
@@ -221,8 +233,57 @@
         });
     }
 
+    function renderIdleState() {
+        state.hasLoaded = false;
+        state.rows = [];
+        state.payload = null;
+
+        const lockedBranch = el.branchLockedInput ? getSelectedBranch() : '';
+        if (el.rowCountBadge) {
+            el.rowCountBadge.textContent = lockedBranch ? 'ยังไม่โหลดข้อมูล' : 'รอเลือกสาขา';
+        }
+        if (el.fsBranchLabel) {
+            el.fsBranchLabel.textContent = '';
+            el.fsBranchLabel.classList.add('d-none');
+        }
+        if (el.metaStrip) {
+            if (lockedBranch) {
+                el.metaStrip.innerHTML = '<span class="badge bg-light text-dark border">กดปุ่ม &quot;แสดงข้อมูลตาราง&quot; เพื่อโหลดข้อมูลสาขา</span>';
+            } else if (!el.branchSelect) {
+                el.metaStrip.innerHTML = '<span class="badge bg-warning text-dark">ไม่พบสาขา TLPH ที่มีสิทธิ์เข้าดูข้อมูล</span>';
+            } else {
+                el.metaStrip.innerHTML = '<span class="badge bg-light text-dark border">กรุณาเลือกสาขาเพื่อโหลดข้อมูล GL Actual และงบประมาณ</span>';
+            }
+        }
+        if (el.tbody) {
+            let bannerHtml = '';
+            if (lockedBranch) {
+                const branchLabel = (el.branchLockedInput.getAttribute('data-branch-label') || lockedBranch);
+                bannerHtml = '<div class="dashboard-idle-banner">' +
+                    '<div class="fw-semibold text-primary mb-1"><i class="fas fa-hospital-alt me-1"></i>พร้อมแสดงข้อมูลสาขา ' + escapeHtml(branchLabel) + '</div>' +
+                    '<div class="small text-muted mb-2">ยังไม่ได้โหลดข้อมูลเพื่อประหยัดเวลาเมื่อเปิดหน้า Dashboard กดปุ่มด้านล่างเพื่อแสดงข้อมูลในตาราง</div>' +
+                    '<button type="button" class="btn btn-primary btn-sm fw-semibold" data-action="load-single-branch"><i class="fas fa-table me-1"></i>แสดงข้อมูลตาราง</button>' +
+                    '</div>';
+            } else if (!el.branchSelect) {
+                bannerHtml = '<div class="dashboard-idle-banner text-muted">ไม่พบสาขา TLPH ที่มีสิทธิ์เข้าดูข้อมูล Dashboard</div>';
+            } else {
+                bannerHtml = '<div class="dashboard-idle-banner">' +
+                    '<div class="fw-semibold text-primary mb-1"><i class="fas fa-code-branch me-1"></i>ยังไม่ได้เลือกสาขา</div>' +
+                    '<div class="small text-muted">กรุณาเลือกสาขา (TLPH) จากตัวเลือกด้านบนเพื่อโหลดและแสดงข้อมูลในตาราง</div>' +
+                    '</div>';
+            }
+            el.tbody.innerHTML = '<tr><td colspan="35" class="dashboard-idle-cell">' + bannerHtml + '</td></tr>';
+        }
+        setLoading(false);
+        syncTopScrollBar();
+    }
+
     function renderTableBody() {
         if (!el.tbody) return;
+        if (!state.hasLoaded) {
+            renderIdleState();
+            return;
+        }
         const rows = getFilteredRows();
         if (el.rowCountBadge) {
             el.rowCountBadge.textContent = 'แสดง ' + rows.length + ' / ' + (state.rows || []).length + ' บรรทัด';
@@ -267,16 +328,22 @@
     }
 
     function renderMetaStrip(payload) {
-        if (!el.metaStrip) return;
         const branch = (payload && payload.branch) || {};
         const doc = payload && payload.gl_actual_document;
         const year = (payload && payload.budget_year) || getSelectedYear();
 
         const branchLabel = branch.is_all
-            ? escapeHtml(branch.name || 'ทุกสาขา (TLPH ทั้งหมด)')
-            : (escapeHtml(branch.code) + ' — ' + escapeHtml(branch.name));
+            ? (branch.name || 'ทุกสาขา (TLPH ทั้งหมด)')
+            : ((branch.code || '') + ' — ' + (branch.name || ''));
+
+        if (el.fsBranchLabel) {
+            el.fsBranchLabel.textContent = branchLabel + ' (ปี ' + year + ')';
+            el.fsBranchLabel.classList.toggle('d-none', !state.isFullscreen);
+        }
+
+        if (!el.metaStrip) return;
         const branchText = '<span class="badge bg-primary me-2">สาขา: ' +
-            branchLabel + '</span>' +
+            escapeHtml(branchLabel) + '</span>' +
             '<span class="badge bg-secondary me-2">ปีงบประมาณ: ' + escapeHtml(year) + '</span>';
 
         if (!doc) {
@@ -318,6 +385,7 @@
                 },
             });
             const data = await window.handleFetchApiResponse(resp);
+            state.hasLoaded = true;
             state.payload = data;
             state.rows = data.rows || [];
             renderMetaStrip(data);
@@ -459,17 +527,71 @@
         syncTopScrollBar();
     }
 
+    function setFullscreen(enabled) {
+        state.isFullscreen = Boolean(enabled);
+        if (el.matrixCard) {
+            el.matrixCard.classList.toggle('is-fullscreen', state.isFullscreen);
+        }
+        if (document.body && document.body.classList) {
+            document.body.classList.toggle('dashboard-fullscreen-open', state.isFullscreen);
+        }
+        if (el.btnFullscreen) {
+            el.btnFullscreen.classList.toggle('btn-primary', state.isFullscreen);
+            el.btnFullscreen.classList.toggle('btn-outline-primary', !state.isFullscreen);
+            el.btnFullscreen.setAttribute('aria-pressed', state.isFullscreen ? 'true' : 'false');
+            el.btnFullscreen.setAttribute('title', state.isFullscreen ? 'ย่อหน้าจอกลับปกติ (Esc)' : 'เปิดดูตารางแบบเต็มหน้าจอ');
+            const enterEl = el.btnFullscreen.querySelector('[data-fs-label="enter"]');
+            const exitEl = el.btnFullscreen.querySelector('[data-fs-label="exit"]');
+            if (enterEl) enterEl.classList.toggle('d-none', state.isFullscreen);
+            if (exitEl) exitEl.classList.toggle('d-none', !state.isFullscreen);
+        }
+        if (el.fsBranchLabel) {
+            el.fsBranchLabel.classList.toggle('d-none', !state.isFullscreen || !state.hasLoaded);
+        }
+        syncTopScrollBar();
+        if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(syncTopScrollBar);
+        }
+    }
+
     function bindEvents() {
         bindHorizontalScrollSync();
         if (el.yearSelect) {
-            el.yearSelect.addEventListener('change', loadDashboardData);
+            el.yearSelect.addEventListener('change', function () {
+                const branch = getSelectedBranch();
+                if (!branch) return;
+                if (!state.hasLoaded && el.branchLockedInput) return;
+                loadDashboardData();
+            });
         }
         if (el.btnRefresh) {
-            el.btnRefresh.addEventListener('click', loadDashboardData);
+            el.btnRefresh.addEventListener('click', function () {
+                if (getSelectedBranch()) {
+                    loadDashboardData();
+                }
+            });
         }
         if (el.btnExport) {
             el.btnExport.addEventListener('click', exportDashboardExcel);
         }
+        if (el.btnFullscreen) {
+            el.btnFullscreen.addEventListener('click', function () {
+                setFullscreen(!state.isFullscreen);
+            });
+        }
+        if (el.tbody) {
+            el.tbody.addEventListener('click', function (evt) {
+                const trigger = evt.target && evt.target.closest ? evt.target.closest('[data-action="load-single-branch"]') : null;
+                if (trigger && getSelectedBranch()) {
+                    loadDashboardData();
+                }
+            });
+        }
+        document.addEventListener('keydown', function (evt) {
+            if (evt.key === 'Escape' && state.isFullscreen) {
+                setFullscreen(false);
+            }
+        });
         if (el.rowFilterSelect) {
             el.rowFilterSelect.addEventListener('change', function () {
                 state.rowFilter = el.rowFilterSelect.value || 'all';
@@ -496,10 +618,10 @@
         renderTableHeader();
         setColumnPreset('full');
         bindEvents();
-        if (getSelectedBranch()) {
+        if (config.selected_branch && String(config.selected_branch).trim()) {
             loadDashboardData();
         } else {
-            setLoading(false);
+            renderIdleState();
         }
     });
 })();

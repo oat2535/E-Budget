@@ -4266,7 +4266,7 @@ class DashboardAccessAndMatrixTests(SimpleTestCase):
         mock_load.return_value = type('S', (), {'is_frozen': 0, 'frozen_message': '', 'active_budget_year': 2025})()
         factory = RequestFactory()
 
-        # Single-branch MANAGER -> locked to CA, no ALL option, no KPI summary cards, has top+bottom scrollbar DOM & ?v=20261112_01
+        # Single-branch MANAGER -> locked to CA, no auto-load on initial entry, has fullscreen toggle & ?v=20261112_02
         req = factory.get('/dashboard/')
         req.user = self._mock_user('mgr_ca')
         req.session = {'branch_info': {'branches': ['CA'], 'is_manager': True, 'is_executive_view_only': False, 'is_district_view_only': False, 'bank_account_note': 'MANAGER'}}
@@ -4274,28 +4274,49 @@ class DashboardAccessAndMatrixTests(SimpleTestCase):
         self.assertEqual(res.status_code, 200)
         body = res.content.decode('utf-8')
         self.assertIn('id="dashboard-branch-locked" value="CA"', body)
+        self.assertIn('"selected_branch": ""', body)
+        self.assertIn('id="dashboard-matrix-card"', body)
+        self.assertIn('id="btn-dashboard-fullscreen"', body)
         self.assertIn('id="dashboard-top-scroll"', body)
         self.assertIn('data-col-preset="compare"', body)
-        self.assertIn('?v=20261112_01', body)
+        self.assertIn('?v=20261112_02', body)
         self.assertNotIn('dashboard-kpi-card', body)
         self.assertNotIn('kpi-rev-budget', body)
         self.assertNotIn('ALL_ACTIVE', body)
         self.assertNotIn('ทุกสาขา', body)
 
-        # All-Branch user (nattchai_u / CFO) -> defaults selected_branch to ALL and shows TLPH branches only
+        # All-Branch user (nattchai_u / CFO) -> waits for user branch selection on initial entry (placeholder selected, ALL unselected)
         req_all = factory.get('/dashboard/')
         req_all.user = self._mock_user('nattchai_u')
         req_all.session = {'branch_info': {'branches': ['HO'], 'is_manager': False, 'is_executive_view_only': False, 'is_district_view_only': False, 'bank_account_note': 'IT'}}
         res_all = dashboard_view(req_all)
         self.assertEqual(res_all.status_code, 200)
         body_all = res_all.content.decode('utf-8')
-        self.assertIn('<option value="ALL" selected>', body_all)
+        self.assertIn('<option value="" selected>-- กรุณาเลือกสาขา --</option>', body_all)
+        self.assertNotIn('<option value="ALL" selected>', body_all)
+        self.assertIn('"selected_branch": ""', body_all)
         self.assertIn('ทุกสาขา (TLPH ทั้งหมด)', body_all)
         self.assertIn('id="dashboard-top-scroll"', body_all)
+        self.assertIn('id="btn-dashboard-fullscreen"', body_all)
         self.assertNotIn('dashboard-kpi-card', body_all)
         self.assertNotIn('MY-BS', body_all)
 
-        # Verify GL Actual document badge in dashboard.js does NOT append "(doc.status)" and KPI helpers removed
+        # Explicit ?branch=ALL deep-link pre-selects ALL; unauthorized ?branch=MY-BS stays empty
+        req_explicit = factory.get('/dashboard/?branch=ALL')
+        req_explicit.user = self._mock_user('nattchai_u')
+        req_explicit.session = req_all.session
+        res_explicit = dashboard_view(req_explicit)
+        self.assertEqual(res_explicit.status_code, 200)
+        body_explicit = res_explicit.content.decode('utf-8')
+        self.assertIn('<option value="ALL" selected>', body_explicit)
+        self.assertIn('"selected_branch": "ALL"', body_explicit)
+
+        req_unauth_branch = factory.get('/dashboard/?branch=MY-BS')
+        req_unauth_branch.user = self._mock_user('nattchai_u')
+        req_unauth_branch.session = req_all.session
+        self.assertIn('"selected_branch": ""', dashboard_view(req_unauth_branch).content.decode('utf-8'))
+
+        # Verify GL Actual document badge, fullscreen toggle, and idle initial load guard in dashboard.js
         js_path = os.path.join(dj_settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'dashboard.js')
         with open(js_path, 'r', encoding='utf-8') as f:
             js_src = f.read()
@@ -4304,6 +4325,9 @@ class DashboardAccessAndMatrixTests(SimpleTestCase):
         self.assertNotIn('renderKpis', js_src)
         self.assertNotIn('setKpiText', js_src)
         self.assertIn('syncTopScrollBar', js_src)
+        self.assertIn('setFullscreen', js_src)
+        self.assertIn('renderIdleState', js_src)
+        self.assertIn("config.selected_branch && String(config.selected_branch).trim()", js_src)
 
     def test_sql_filters_branch_year_and_excludes_cancelled(self):
         from budget_app.dashboard_service import _build_monthly_budget_sql_and_params
