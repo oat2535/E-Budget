@@ -51,6 +51,62 @@ body.theme-dark .dashboard-loading-overlay {
     background: rgba(15, 23, 42, 0.82);
 }
 
+/* Synchronized Top Horizontal Scrollbar Wrapper */
+.dashboard-top-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-top: 1px solid #e2e8f0;
+    background-color: #f8fafc;
+}
+
+.dashboard-top-scroll-spacer {
+    height: 1px;
+}
+
+body.theme-dark .dashboard-top-scroll {
+    background-color: #0f172a;
+    border-color: #334155;
+}
+
+.dashboard-top-scroll::-webkit-scrollbar,
+.dashboard-table-scroll::-webkit-scrollbar {
+    height: 12px;
+    width: 12px;
+}
+
+.dashboard-top-scroll::-webkit-scrollbar-track,
+.dashboard-table-scroll::-webkit-scrollbar-track {
+    background: #f1f5f9;
+}
+
+.dashboard-top-scroll::-webkit-scrollbar-thumb,
+.dashboard-table-scroll::-webkit-scrollbar-thumb {
+    background-color: #94a3b8;
+    border-radius: 6px;
+    border: 2px solid #f1f5f9;
+}
+
+.dashboard-top-scroll::-webkit-scrollbar-thumb:hover,
+.dashboard-table-scroll::-webkit-scrollbar-thumb:hover {
+    background-color: #64748b;
+}
+
+body.theme-dark .dashboard-top-scroll::-webkit-scrollbar-track,
+body.theme-dark .dashboard-table-scroll::-webkit-scrollbar-track {
+    background: #1e293b;
+}
+
+body.theme-dark .dashboard-top-scroll::-webkit-scrollbar-thumb,
+body.theme-dark .dashboard-table-scroll::-webkit-scrollbar-thumb {
+    background-color: #475569;
+    border-color: #1e293b;
+}
+
+body.theme-dark .dashboard-top-scroll::-webkit-scrollbar-thumb:hover,
+body.theme-dark .dashboard-table-scroll::-webkit-scrollbar-thumb:hover {
+    background-color: #64748b;
+}
+
 /* Sticky Table Wrapper & Scroll Viewport */
 .dashboard-table-scroll {
     position: relative;

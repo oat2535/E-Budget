@@ -308,6 +308,30 @@ class BudgetService:
         return [{'code': code, 'name': name} for code, name in GL_ACTUAL_TEMPLATE_BRANCHES]
 
     @staticmethod
+    def get_tlph_branches():
+        """Returns branches belonging to TLPH (branch_id_id = 'TLPH') from base_sub_branch."""
+        branches = []
+        try:
+            with connections['default'].cursor() as cursor:
+                cursor.execute(
+                    "SELECT sub_branch_id, sub_branch_name FROM base_sub_branch "
+                    "WHERE branch_id_id = 'TLPH' ORDER BY sub_branch_id"
+                )
+                rows = cursor.fetchall()
+                if rows:
+                    for code, name in rows:
+                        if code and name:
+                            branches.append({'code': code.strip(), 'name': name.strip()})
+                    return branches
+        except Exception as e:
+            logger.warning(f"Error fetching TLPH branches from base_sub_branch: {e}")
+        return [
+            {'code': code, 'name': name}
+            for code, name in GL_ACTUAL_TEMPLATE_BRANCHES
+            if not code.startswith('MY-')
+        ]
+
+    @staticmethod
     def get_master_fks(item_name_val):
         try:
             master = ebudget_budget_item_master.objects.filter(item_name=item_name_val).first()

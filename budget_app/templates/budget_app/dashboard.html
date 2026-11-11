@@ -5,7 +5,7 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'budget_app/vendor/tom-select/tom-select.bootstrap5.min.css' %}" />
-<link rel="stylesheet" href="{% static 'budget_app/css/dashboard.css' %}?v=20261111_02" />
+<link rel="stylesheet" href="{% static 'budget_app/css/dashboard.css' %}?v=20261111_03" />
 {% endblock %}
 
 {% block content %}
@@ -19,7 +19,11 @@
                         E-Budget Branch Dashboard
                     </h1>
                     <div class="page-header-subtitle">
-                        สรุปงบประมาณรายสาขาตามโครงสร้าง GL Actual Template (แสดงผลครั้งละ 1 สาขา ไม่รวมเอกสารยกเลิก)
+                        {% if can_view_all_branches %}
+                            สรุปงบประมาณสาขาในกลุ่ม TLPH ตามโครงสร้าง GL Actual Template (เลือกดูรายสาขา หรือทุกสาขา TLPH ไม่รวมเอกสารยกเลิก)
+                        {% else %}
+                            สรุปงบประมาณสาขาในกลุ่ม TLPH ตามโครงสร้าง GL Actual Template (แสดงผลครั้งละ 1 สาขา ไม่รวมเอกสารยกเลิก)
+                        {% endif %}
                     </div>
                 </div>
                 <div class="col-12 col-xl-auto mt-3 mt-xl-0">
@@ -38,19 +42,21 @@
 </header>
 
 <div class="container-fluid px-4 mt-n5">
-    <!-- Single-Branch Filter Card (No Status Filter, Strictly 1 Branch at a Time) -->
+    <!-- Branch Filter Card (TLPH Branches Only, No Status Filter) -->
     <div class="card shadow-sm mb-3">
         <div class="card-body py-3">
             <div class="row g-3 align-items-end">
                 <div class="col-12 col-md-5 col-lg-4">
                     <label for="dashboard-branch-select" class="form-label fw-semibold small mb-1">
-                        สาขา <span class="text-danger">*</span>
-                        <span class="text-muted fw-normal">(เลือกดูได้ครั้งละ 1 สาขา)</span>
+                        สาขา (TLPH) <span class="text-danger">*</span>
+                        <span class="text-muted fw-normal">
+                            {% if can_view_all_branches %}(เลือกดูรายสาขา หรือทุกสาขา){% else %}(เลือกดูได้ครั้งละ 1 สาขา){% endif %}
+                        </span>
                     </label>
                     {% if not allowed_branches %}
                         <input type="hidden" id="dashboard-branch-locked" value="" />
                         <div class="alert alert-warning py-1 px-2 mb-0 small">
-                            บัญชีของท่านยังไม่ได้ตั้งค่าสาขาในระบบ iMedX
+                            บัญชีของท่านยังไม่ได้ตั้งค่าสาขา TLPH ในระบบ iMedX
                         </div>
                     {% elif is_single_branch_locked %}
                         {% with only_branch=allowed_branches.0 %}
@@ -64,7 +70,7 @@
                         <select id="dashboard-branch-select" class="form-select">
                             {% for b in allowed_branches %}
                             <option value="{{ b.code }}" {% if b.code == selected_branch %}selected{% endif %}>
-                                {{ b.code }} — {{ b.name }}
+                                {% if b.is_all %}{{ b.name }}{% else %}{{ b.code }} — {{ b.name }}{% endif %}
                             </option>
                             {% endfor %}
                         </select>
@@ -180,6 +186,10 @@
                 </div>
             </div>
 
+            <div id="dashboard-top-scroll" class="dashboard-top-scroll d-none" aria-hidden="true">
+                <div id="dashboard-top-scroll-spacer" class="dashboard-top-scroll-spacer"></div>
+            </div>
+
             <div id="dashboard-table-scroll" class="dashboard-table-scroll preset-full">
                 <table class="table table-sm dashboard-matrix-table">
                     <thead id="dashboard-table-head"></thead>
@@ -206,5 +216,5 @@
 
 {% block extra_js %}
 <script src="{% static 'budget_app/vendor/tom-select/tom-select.complete.min.js' %}"></script>
-<script src="{% static 'budget_app/js/dashboard.js' %}?v=20261111_02"></script>
+<script src="{% static 'budget_app/js/dashboard.js' %}?v=20261111_03"></script>
 {% endblock %}

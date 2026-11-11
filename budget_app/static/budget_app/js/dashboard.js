@@ -34,6 +34,8 @@
         el.searchInput = document.getElementById('dashboard-search-input');
         el.rowFilterSelect = document.getElementById('dashboard-row-filter');
         el.presetButtons = document.querySelectorAll('[data-col-preset]');
+        el.topScroll = document.getElementById('dashboard-top-scroll');
+        el.topScrollSpacer = document.getElementById('dashboard-top-scroll-spacer');
         el.tableWrapper = document.getElementById('dashboard-table-scroll');
         el.thead = document.getElementById('dashboard-table-head');
         el.tbody = document.getElementById('dashboard-table-body');
@@ -115,10 +117,10 @@
             allowEmptyOption: false,
             create: false,
             maxItems: 1,
-            sortField: { field: 'text', direction: 'asc' },
-            placeholder: 'เลือกสาขา (1 สาขา)...',
+            // Preserve server ordering so 'ALL' remains Option #1 above TLPH branch codes
+            sortField: [{ field: '$score' }, { field: '$order' }],
+            placeholder: 'เลือกสาขา (TLPH)...',
             onChange: function (value) {
-                // Strictly prevent clearing to blank ("all branches" is forbidden)
                 if (!value) {
                     const fallback = this._lastValidBranch || previousVal;
                     if (fallback) this.setValue(fallback, true);
@@ -168,6 +170,7 @@
         colRow += '</tr>';
 
         el.thead.innerHTML = groupRow + colRow;
+        syncTopScrollBar();
     }
 
     function numCellHtml(value, extraClass) {
@@ -227,6 +230,7 @@
 
         if (!rows.length) {
             el.tbody.innerHTML = '<tr><td colspan="35" class="text-center py-4 text-muted">ไม่พบรายการที่ตรงกับเงื่อนไขการค้นหา</td></tr>';
+            syncTopScrollBar();
             return;
         }
 
@@ -259,6 +263,7 @@
             htmlParts.push(tr);
         }
         el.tbody.innerHTML = htmlParts.join('');
+        syncTopScrollBar();
     }
 
     function setKpiText(id, val, suffix) {
@@ -299,8 +304,11 @@
         const doc = payload && payload.gl_actual_document;
         const year = (payload && payload.budget_year) || getSelectedYear();
 
+        const branchLabel = branch.is_all
+            ? escapeHtml(branch.name || 'ทุกสาขา (TLPH ทั้งหมด)')
+            : (escapeHtml(branch.code) + ' — ' + escapeHtml(branch.name));
         const branchText = '<span class="badge bg-primary me-2">สาขา: ' +
-            escapeHtml(branch.code) + ' — ' + escapeHtml(branch.name) + '</span>' +
+            branchLabel + '</span>' +
             '<span class="badge bg-secondary me-2">ปีงบประมาณ: ' + escapeHtml(year) + '</span>';
 
         if (!doc) {
@@ -310,7 +318,7 @@
         }
 
         el.metaStrip.innerHTML = branchText +
-            '<span class="badge bg-info text-dark me-2">GL Actual: ' + escapeHtml(doc.document_no) + ' (' + escapeHtml(doc.status) + ')</span>' +
+            '<span class="badge bg-info text-dark me-2">GL Actual: ' + escapeHtml(doc.document_no) + '</span>' +
             '<span class="badge bg-light text-dark border me-2">Actual: ' + escapeHtml(doc.actual_month_count) + ' เดือน</span>' +
             '<span class="badge bg-light text-dark border">%โต 1/2/3: ' +
             formatNum2(doc.growth_pct_1) + '% / ' + formatNum2(doc.growth_pct_2) + '% / ' + formatNum2(doc.growth_pct_3) + '%</span>';
@@ -421,6 +429,55 @@
         }
     }
 
+    function syncTopScrollBar() {
+        if (!el.topScroll || !el.topScrollSpacer || !el.tableWrapper) return;
+        const table = el.tableWrapper.querySelector('table');
+        const contentWidth = table ? table.scrollWidth : el.tableWrapper.scrollWidth;
+        const viewportWidth = el.tableWrapper.clientWidth;
+        const needsHorizontalScroll = contentWidth > viewportWidth + 1;
+
+        el.topScroll.classList.toggle('d-none', !needsHorizontalScroll);
+        if (!needsHorizontalScroll) {
+            el.topScrollSpacer.style.width = '0px';
+            return;
+        }
+
+        // Offset by vertical scrollbar width inside #dashboard-table-scroll so top & bottom max scrollLeft align 1:1
+        const extraWidth = Math.max(0, el.topScroll.clientWidth - viewportWidth);
+        el.topScrollSpacer.style.width = (contentWidth + extraWidth) + 'px';
+        el.topScroll.scrollLeft = el.tableWrapper.scrollLeft;
+    }
+
+    function bindHorizontalScrollSync() {
+        if (!el.topScroll || !el.tableWrapper) return;
+        let skipTop = false;
+        let skipBottom = false;
+
+        function linkPane(source, target, shouldSkip, setOtherSkip) {
+            source.addEventListener('scroll', function () {
+                if (shouldSkip()) return;
+                const nextLeft = source.scrollLeft;
+                if (Math.abs(target.scrollLeft - nextLeft) < 1) return;
+                setOtherSkip(true);
+                target.scrollLeft = nextLeft;
+                window.requestAnimationFrame(function () {
+                    setOtherSkip(false);
+                });
+            });
+        }
+
+        linkPane(el.topScroll, el.tableWrapper, function () { return skipTop; }, function (v) { skipBottom = v; });
+        linkPane(el.tableWrapper, el.topScroll, function () { return skipBottom; }, function (v) { skipTop = v; });
+
+        window.addEventListener('resize', syncTopScrollBar);
+        if (typeof window.ResizeObserver === 'function') {
+            const ro = new window.ResizeObserver(syncTopScrollBar);
+            const tableEl = el.tableWrapper.querySelector('table');
+            if (tableEl) ro.observe(tableEl);
+            ro.observe(el.tableWrapper);
+        }
+    }
+
     function setColumnPreset(preset) {
         state.columnPreset = preset;
         if (el.tableWrapper) {
@@ -432,9 +489,11 @@
             btn.classList.toggle('btn-primary', active);
             btn.classList.toggle('btn-outline-secondary', !active);
         });
+        syncTopScrollBar();
     }
 
     function bindEvents() {
+        bindHorizontalScrollSync();
         if (el.yearSelect) {
             el.yearSelect.addEventListener('change', loadDashboardData);
         }

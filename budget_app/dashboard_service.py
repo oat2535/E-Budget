@@ -187,30 +187,53 @@ def can_access_dashboard(request) -> bool:
     return BudgetService.is_district_role(note) or BudgetService.is_manager_role(note)
 
 
+def can_view_all_branches_dashboard(request) -> bool:
+    """Return True if the authenticated user may select ALL TLPH branches combined."""
+    if not request:
+        return False
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        return False
+    info = _resolve_session_or_live_branch_info(request)
+    return _has_all_branch_dashboard_access(user, info)
+
+
 def get_allowed_branches_for_dashboard(request):
-    """Return sorted list of {'code': str, 'name': str} branches the user can view (1 at a time)."""
+    """Return selectable Dashboard branch options filtered strictly to TLPH branches.
+
+    Users in ALL_BRANCH_USERNAMES / superuser / CHRO / CFO / COO receive an explicit
+    {'code': 'ALL', 'name': 'ทุกสาขา (TLPH ทั้งหมด)', 'is_all': True} entry at the top
+    alongside every individual TLPH branch. District managers, directors, and branch
+    managers receive only their own assigned TLPH branches (no 'ALL' option).
+    """
     from budget_app.services import BudgetService
 
     if not can_access_dashboard(request):
         return []
 
     user = request.user
-    # Always fetch fresh branch info when resolving actual branch list unless mocked cleanly
     session = getattr(request, 'session', None)
     info = session.get('branch_info') if (session is not None and 'branch_info' in session) else None
     if info is None:
         info = BudgetService.get_branch_info_from_imedx(user.username)
 
+    tlph_branches = BudgetService.get_tlph_branches()
+    tlph_map = {b['code']: b for b in tlph_branches}
+    tlph_order = {b['code']: idx for idx, b in enumerate(tlph_branches)}
+
     if _has_all_branch_dashboard_access(user, info):
-        return BudgetService.get_all_branches()
+        return [
+            {'code': 'ALL', 'name': 'ทุกสาขา (TLPH ทั้งหมด)', 'is_all': True},
+            *tlph_branches,
+        ]
 
     raw_codes = list((info or {}).get('branches') or [])
-    # Deduplicate preserving uppercase clean codes
     seen = set()
     clean_codes = []
     for c in raw_codes:
         code = (c or '').strip().upper()
-        if code and code not in seen:
+        # Keep only branches belonging to TLPH
+        if code and code in tlph_map and code not in seen:
             seen.add(code)
             clean_codes.append(code)
 
@@ -218,35 +241,59 @@ def get_allowed_branches_for_dashboard(request):
         return []
 
     name_map = BudgetService.get_branch_names_from_imedx(clean_codes)
-    # Use master order where available so dropdown stays predictable
-    all_order = {b['code']: idx for idx, b in enumerate(BudgetService.get_all_branches())}
-    result = [{'code': code, 'name': name_map.get(code, code)} for code in clean_codes]
-    result.sort(key=lambda item: (all_order.get(item['code'], 999), item['code']))
+    result = [
+        {'code': code, 'name': name_map.get(code) or tlph_map[code]['name']}
+        for code in clean_codes
+    ]
+    result.sort(key=lambda item: (tlph_order.get(item['code'], 999), item['code']))
     return result
 
 
-def validate_single_branch(request, raw_branch):
-    """Strictly validate that raw_branch is ONE branch code authorized for the user.
+def validate_dashboard_branch(request, raw_branch):
+    """Validate requested branch parameter according to user's TLPH / ALL role scope.
 
-    Rejects blank, 'ALL', comma-separated multi-branch values, or unauthorized branches.
-    Returns (branch_dict, error_message, http_status).
+    - All-branch roles (pattida_y, nattchai_u, kanchana_a, CHRO, CFO, COO) may select
+      'ALL' (resolves to all TLPH branch codes) or any single TLPH branch.
+    - District managers, directors, and branch managers may select only 1 branch inside
+      their assigned TLPH branches (ALL / comma lists / non-TLPH branches rejected).
+    Returns (resolved_branch_dict, error_message, http_status).
     """
     allowed = get_allowed_branches_for_dashboard(request)
     if not allowed:
-        return None, 'บัญชีของท่านไม่มีสิทธิ์เข้าใช้งาน Dashboard หรือยังไม่ได้ตั้งค่าสาขาในระบบ', 403
+        return None, 'บัญชีของท่านไม่มีสิทธิ์เข้าใช้งาน Dashboard หรือยังไม่ได้ตั้งค่าสาขาในกลุ่ม TLPH', 403
 
+    can_view_all = can_view_all_branches_dashboard(request)
     branch_code = (raw_branch or '').strip().upper()
     if not branch_code:
-        return None, 'กรุณาเลือกสาขาที่ต้องการดูข้อมูล (ดูได้ครั้งละ 1 สาขาเท่านั้น)', 400
+        msg = 'กรุณาเลือกสาขาที่ต้องการดูข้อมูล' if can_view_all else 'กรุณาเลือกสาขาที่ต้องการดูข้อมูล (ดูได้ครั้งละ 1 สาขาเท่านั้น)'
+        return None, msg, 400
 
-    if branch_code == 'ALL' or ',' in branch_code or ';' in branch_code or ' ' in branch_code:
-        return None, 'ระบบอนุญาตให้เลือกดูข้อมูลได้ทีละ 1 สาขาเท่านั้น (ไม่รองรับการดูรวมทุกสาขา)', 400
+    if ',' in branch_code or ';' in branch_code or ' ' in branch_code:
+        return None, 'กรุณาเลือกดูรายสาขา หรือเลือก "ทุกสาขา" จากตัวเลือกที่กำหนดเท่านั้น', 400
 
     allowed_map = {b['code']: b for b in allowed}
+
+    if branch_code == 'ALL':
+        if not can_view_all or 'ALL' not in allowed_map:
+            return None, 'สิทธิ์ของท่านอนุญาตให้เลือกดูได้ทีละ 1 สาขาเท่านั้น (ไม่รองรับการดูทุกสาขารวม)', 400
+        tlph_codes = [b['code'] for b in allowed if b['code'] != 'ALL']
+        if not tlph_codes:
+            return None, 'ไม่พบรายชื่อสาขาในกลุ่ม TLPH สำหรับแสดงผลรวม', 400
+        resolved = dict(allowed_map['ALL'])
+        resolved['branch_codes'] = tlph_codes
+        return resolved, None, 200
+
     if branch_code not in allowed_map:
         return None, f'ท่านไม่มีสิทธิ์เข้าดูข้อมูล Dashboard ของสาขา {branch_code}', 403
 
-    return allowed_map[branch_code], None, 200
+    resolved = dict(allowed_map[branch_code])
+    resolved['is_all'] = False
+    resolved['branch_codes'] = [branch_code]
+    return resolved, None, 200
+
+
+# Preserve backwards-compatible symbol name
+validate_single_branch = validate_dashboard_branch
 
 
 def get_dashboard_budget_years():
@@ -297,81 +344,215 @@ def _build_section_block_lookup(outline):
     return leaf_to_footer, footer_order_by_code
 
 
-def fetch_gl_actual_template_for_branch(branch_code, budget_year):
-    """Fetch the active non-CANCELLED GL Actual Template rows & metadata for one branch+year.
+def _normalize_branch_codes(branch_codes):
+    """Normalize a single branch code string or iterable of branch codes into an ordered unique list."""
+    if isinstance(branch_codes, str):
+        raw = [branch_codes]
+    else:
+        raw = list(branch_codes or [])
+    seen = set()
+    codes = []
+    for item in raw:
+        c = (item or '').strip().upper()
+        if c and c not in seen and c != 'ALL':
+            seen.add(c)
+            codes.append(c)
+    return codes
 
-    Prefers APPROVED document over PENDING, and most recently modified document_no.
-    Reads Actual columns directly per template row (preventing double-counting subtotals).
+
+def fetch_gl_actual_template_for_branch(branch_codes, budget_year):
+    """Fetch active non-CANCELLED GL Actual Template data for 1 or many TLPH branches.
+
+    Picks at most 1 winning document_no per branch (APPROVED preferred, then latest
+    modify_date/create_date/id) and aggregates cleanly across branches without
+    double-counting subtotals.
     """
+    codes = _normalize_branch_codes(branch_codes)
+    if not codes:
+        return {'document': None, 'by_code': {}, 'by_row_order': {}}
+
     tbl = ebudget_gl_actual_template._meta.db_table
     with connection.cursor() as cur:
         cur.execute(
             f"""
-            SELECT document_no, status, actual_month_count, growth_pct_1, growth_pct_2, growth_pct_3
+            SELECT DISTINCT ON (base_branch_id)
+                   base_branch_id, document_no, status, actual_month_count,
+                   growth_pct_1, growth_pct_2, growth_pct_3
             FROM {tbl}
-            WHERE base_branch_id = %s
+            WHERE base_branch_id = ANY(%s)
               AND budget_year = %s
               AND COALESCE(status, '') <> %s
-            ORDER BY CASE WHEN status = %s THEN 0 ELSE 1 END,
+            ORDER BY base_branch_id ASC,
+                     CASE WHEN status = %s THEN 0 ELSE 1 END,
                      modify_date DESC NULLS LAST,
                      create_date DESC NULLS LAST,
                      id DESC
-            LIMIT 1
             """,
-            [branch_code, budget_year, STATUS_CANCELLED, STATUS_APPROVED],
+            [codes, budget_year, STATUS_CANCELLED, STATUS_APPROVED],
         )
-        header = cur.fetchone()
-        if not header:
+        headers = cur.fetchall()
+        if not headers:
             return {'document': None, 'by_code': {}, 'by_row_order': {}}
 
-        doc_no, doc_status, actual_months, gp1, gp2, gp3 = header
+        doc_pairs = tuple((h[0], h[1]) for h in headers)
         cur.execute(
             f"""
-            SELECT template_row_id, row_order, code,
+            SELECT base_branch_id, row_order, code, row_type,
                    COALESCE(actual_value, 0),
                    COALESCE(per_month_value, 0),
                    COALESCE(annualized_value, 0),
                    COALESCE(sales_ratio, 0),
                    COALESCE(growth_rate, 0)
             FROM {tbl}
-            WHERE base_branch_id = %s
-              AND budget_year = %s
-              AND document_no = %s
+            WHERE budget_year = %s
               AND COALESCE(status, '') <> %s
-            ORDER BY row_order ASC
+              AND (base_branch_id, document_no) IN %s
+            ORDER BY row_order ASC, base_branch_id ASC
             """,
-            [branch_code, budget_year, doc_no, STATUS_CANCELLED],
+            [budget_year, STATUS_CANCELLED, doc_pairs],
         )
         rows = cur.fetchall()
 
+    # Single-document fast path (preserves exact saved sales_ratio / growth_rate)
+    if len(headers) == 1:
+        _, doc_no, doc_status, actual_months, gp1, gp2, gp3 = headers[0]
+        by_code = {}
+        by_row_order = {}
+        for _, row_order, code, _, act, per_m, ann, sr, gr in rows:
+            entry = {
+                'actual_value': round2(act),
+                'per_month_value': round2(per_m),
+                'annualized_value': round2(ann),
+                'sales_ratio': round2(sr),
+                'growth_rate': round2(gr),
+            }
+            if code:
+                by_code[str(code).strip()] = entry
+            if row_order is not None:
+                by_row_order[int(row_order)] = entry
+
+        doc_meta = {
+            'document_no': doc_no,
+            'status': doc_status,
+            'actual_month_count': int(actual_months or 0),
+            'growth_pct_1': _to_float2(gp1),
+            'growth_pct_2': _to_float2(gp2),
+            'growth_pct_3': _to_float2(gp3),
+        }
+        return {'document': doc_meta, 'by_code': by_code, 'by_row_order': by_row_order}
+
+    # Multi-branch consolidated path (ALL TLPH)
+    agg_by_ord = {}
+    branch_fh101_actual = {}
+    for br_id, row_order, code, row_type, act, per_m, ann, _, gr in rows:
+        if row_order is None:
+            continue
+        ord_num = int(row_order)
+        clean_code = (str(code).strip() if code else '')
+        act_d = round2(act)
+        per_m_d = round2(per_m)
+        ann_d = round2(ann)
+        gr_d = round2(gr)
+
+        if clean_code == 'FH101':
+            branch_fh101_actual[br_id] = abs(act_d)
+
+        slot = agg_by_ord.get(ord_num)
+        if slot is None:
+            slot = {
+                'code': clean_code,
+                'row_type': row_type,
+                'actual_value': ZERO,
+                'per_month_value': ZERO,
+                'annualized_value': ZERO,
+                'gr_weighted_num': ZERO,
+                'gr_weight_den': ZERO,
+                'gr_vals': [],
+            }
+            agg_by_ord[ord_num] = slot
+
+        slot['actual_value'] += act_d
+        slot['per_month_value'] += per_m_d
+        slot['annualized_value'] += ann_d
+        w = abs(act_d)
+        if w > ZERO:
+            slot['gr_weighted_num'] += gr_d * w
+            slot['gr_weight_den'] += w
+        if gr_d != ZERO:
+            slot['gr_vals'].append(gr_d)
+
+    # Combined FH101 actual sales for consolidated sales_ratio recomputation
+    fh101_total_actual = ZERO
+    for slot in agg_by_ord.values():
+        if slot['code'] == 'FH101':
+            fh101_total_actual = round2(slot['actual_value'])
+            break
+
     by_code = {}
     by_row_order = {}
-    for _, row_order, code, act, per_m, ann, sr, gr in rows:
+    for ord_num, slot in agg_by_ord.items():
+        act_sum = round2(slot['actual_value'])
+        per_m_sum = round2(slot['per_month_value'])
+        ann_sum = round2(slot['annualized_value'])
+
+        is_calculated_header = slot['code'] in ('H6', 'H8')
+        if fh101_total_actual != ZERO and (slot['row_type'] != 'header' or is_calculated_header):
+            sr = round2((act_sum * HUNDRED) / fh101_total_actual)
+        else:
+            sr = ZERO
+
+        if slot['gr_weight_den'] > ZERO:
+            gr = round2(slot['gr_weighted_num'] / slot['gr_weight_den'])
+        elif slot['gr_vals']:
+            gr = round2(sum(slot['gr_vals'], ZERO) / Decimal(len(slot['gr_vals'])))
+        else:
+            gr = ZERO
+
         entry = {
-            'actual_value': round2(act),
-            'per_month_value': round2(per_m),
-            'annualized_value': round2(ann),
-            'sales_ratio': round2(sr),
-            'growth_rate': round2(gr),
+            'actual_value': act_sum,
+            'per_month_value': per_m_sum,
+            'annualized_value': ann_sum,
+            'sales_ratio': sr,
+            'growth_rate': gr,
         }
-        if code:
-            by_code[str(code).strip()] = entry
-        if row_order is not None:
-            by_row_order[int(row_order)] = entry
+        if slot['code']:
+            by_code[slot['code']] = entry
+        by_row_order[ord_num] = entry
+
+    # Consolidated doc metadata across participating TLPH branches
+    total_w = sum(branch_fh101_actual.values(), ZERO)
+    if total_w > ZERO:
+        gp1_avg = sum((round2(h[4]) * branch_fh101_actual.get(h[0], ZERO) for h in headers), ZERO) / total_w
+        gp2_avg = sum((round2(h[5]) * branch_fh101_actual.get(h[0], ZERO) for h in headers), ZERO) / total_w
+        gp3_avg = sum((round2(h[6]) * branch_fh101_actual.get(h[0], ZERO) for h in headers), ZERO) / total_w
+    else:
+        n_docs = Decimal(len(headers))
+        gp1_avg = sum((round2(h[4]) for h in headers), ZERO) / n_docs
+        gp2_avg = sum((round2(h[5]) for h in headers), ZERO) / n_docs
+        gp3_avg = sum((round2(h[6]) for h in headers), ZERO) / n_docs
 
     doc_meta = {
-        'document_no': doc_no,
-        'status': doc_status,
-        'actual_month_count': int(actual_months or 0),
-        'growth_pct_1': _to_float2(gp1),
-        'growth_pct_2': _to_float2(gp2),
-        'growth_pct_3': _to_float2(gp3),
+        'document_no': f'รวม {len(headers)} สาขา TLPH',
+        'status': 'CONSOLIDATED',
+        'actual_month_count': max(int(h[3] or 0) for h in headers),
+        'growth_pct_1': _to_float2(gp1_avg),
+        'growth_pct_2': _to_float2(gp2_avg),
+        'growth_pct_3': _to_float2(gp3_avg),
     }
     return {'document': doc_meta, 'by_code': by_code, 'by_row_order': by_row_order}
 
 
-def _build_monthly_budget_sql_and_params(branch_code, budget_year):
-    """Build parameterized single-branch monthly GL aggregation SQL across all 13 budget tables."""
+def _build_monthly_budget_sql_and_params(branch_codes, budget_year):
+    """Build parameterized monthly GL aggregation SQL across all 13 budget tables
+    for either 1 branch or multiple TLPH branches uniformly."""
+    codes = _normalize_branch_codes(branch_codes)
+    if len(codes) == 1:
+        branch_clause = 'v.base_branch_id = %s'
+        branch_param = codes[0]
+    else:
+        branch_clause = 'v.base_branch_id = ANY(%s)'
+        branch_param = codes
+
     md_tbl = BudgetMonthlyDetail._meta.db_table
     gl_tbl = ebudget_general_ledger_master._meta.db_table
     vet_tbl = ebudget_vet_manpower._meta.db_table
@@ -387,170 +568,85 @@ def _build_monthly_budget_sql_and_params(branch_code, budget_year):
     subqueries = []
     params = []
 
-    # 1. Vet Manpower -> general_ledger_code, md.cost
-    subqueries.append(
-        f"""
-        SELECT TRIM(v.general_ledger_code) AS gl_code,
-               md.month AS month_num,
-               COALESCE(md.cost, 0) AS amt
-        FROM {vet_tbl} v
-        INNER JOIN {md_tbl} md ON md.vet_budget_id = v.id
-        WHERE v.base_branch_id = %s
-          AND v.budget_year = %s
-          AND COALESCE(v.status, '') <> %s
-          AND v.general_ledger_code IS NOT NULL
-          AND TRIM(v.general_ledger_code) <> ''
-        """
-    )
-    params.extend([branch_code, budget_year, STATUS_CANCELLED])
-
-    # 2a. Non-Vet Manpower -> salary_general_ledger_code, md.salary
-    subqueries.append(
-        f"""
-        SELECT TRIM(v.salary_general_ledger_code) AS gl_code,
-               md.month AS month_num,
-               COALESCE(md.salary, 0) AS amt
-        FROM {nonvet_tbl} v
-        INNER JOIN {md_tbl} md ON md.non_vet_budget_id = v.id
-        WHERE v.base_branch_id = %s
-          AND v.budget_year = %s
-          AND COALESCE(v.status, '') <> %s
-          AND v.salary_general_ledger_code IS NOT NULL
-          AND TRIM(v.salary_general_ledger_code) <> ''
-        """
-    )
-    params.extend([branch_code, budget_year, STATUS_CANCELLED])
-
-    # 2b. Non-Vet Manpower -> position_allowance_general_ledger_code, md.position_allowance
-    subqueries.append(
-        f"""
-        SELECT TRIM(v.position_allowance_general_ledger_code) AS gl_code,
-               md.month AS month_num,
-               COALESCE(md.position_allowance, 0) AS amt
-        FROM {nonvet_tbl} v
-        INNER JOIN {md_tbl} md ON md.non_vet_budget_id = v.id
-        WHERE v.base_branch_id = %s
-          AND v.budget_year = %s
-          AND COALESCE(v.status, '') <> %s
-          AND v.position_allowance_general_ledger_code IS NOT NULL
-          AND TRIM(v.position_allowance_general_ledger_code) <> ''
-        """
-    )
-    params.extend([branch_code, budget_year, STATUS_CANCELLED])
-
-    # 3a. Position Adjustment -> salary diff (new_salary - salary)
-    subqueries.append(
-        f"""
-        SELECT TRIM(v.salary_general_ledger_code) AS gl_code,
-               md.month AS month_num,
-               COALESCE(md.new_salary, 0) - COALESCE(md.salary, 0) AS amt
-        FROM {posadj_tbl} v
-        INNER JOIN {md_tbl} md ON md.position_adj_id = v.id
-        WHERE v.base_branch_id = %s
-          AND v.budget_year = %s
-          AND COALESCE(v.status, '') <> %s
-          AND v.salary_general_ledger_code IS NOT NULL
-          AND TRIM(v.salary_general_ledger_code) <> ''
-        """
-    )
-    params.extend([branch_code, budget_year, STATUS_CANCELLED])
-
-    # 3b. Position Adjustment -> position allowance diff (new_allowance - position_allowance)
-    subqueries.append(
-        f"""
-        SELECT TRIM(v.allowance_general_ledger_code) AS gl_code,
-               md.month AS month_num,
-               COALESCE(md.new_allowance, 0) - COALESCE(md.position_allowance, 0) AS amt
-        FROM {posadj_tbl} v
-        INNER JOIN {md_tbl} md ON md.position_adj_id = v.id
-        WHERE v.base_branch_id = %s
-          AND v.budget_year = %s
-          AND COALESCE(v.status, '') <> %s
-          AND v.allowance_general_ledger_code IS NOT NULL
-          AND TRIM(v.allowance_general_ledger_code) <> ''
-        """
-    )
-    params.extend([branch_code, budget_year, STATUS_CANCELLED])
-
-    # 4-10. Seven Fix Asset tables: use precomputed 2dp cumulative_depreciation when GL has depreciation > 0, else md.cost
-    for _, fa_model, fk_col in FIX_ASSET_SOURCES:
-        fa_tbl = fa_model._meta.db_table
+    def add_leg(gl_expr, amt_expr, from_clause, gl_not_null_expr):
         subqueries.append(
             f"""
-            SELECT TRIM(v.general_ledger_code) AS gl_code,
+            SELECT TRIM({gl_expr}) AS gl_code,
                    md.month AS month_num,
-                   CASE
-                       WHEN COALESCE(gl.depreciation, 0) > 0 THEN COALESCE(md.cumulative_depreciation, 0)
-                       ELSE COALESCE(md.cost, 0)
-                   END AS amt
-            FROM {fa_tbl} v
-            INNER JOIN {md_tbl} md ON md.{fk_col} = v.id
-            LEFT JOIN {gl_tbl} gl ON gl.gl_code = v.general_ledger_code
-            WHERE v.base_branch_id = %s
+                   {amt_expr} AS amt
+            {from_clause}
+            WHERE {branch_clause}
               AND v.budget_year = %s
               AND COALESCE(v.status, '') <> %s
-              AND v.general_ledger_code IS NOT NULL
-              AND TRIM(v.general_ledger_code) <> ''
+              AND {gl_not_null_expr} IS NOT NULL
+              AND TRIM({gl_not_null_expr}) <> ''
             """
         )
-        params.extend([branch_code, budget_year, STATUS_CANCELLED])
+        params.extend([branch_param, budget_year, STATUS_CANCELLED])
 
+    # 1. Vet Manpower
+    add_leg(
+        'v.general_ledger_code',
+        'COALESCE(md.cost, 0)',
+        f'FROM {vet_tbl} v INNER JOIN {md_tbl} md ON md.vet_budget_id = v.id',
+        'v.general_ledger_code',
+    )
+    # 2a/2b. Non-Vet Manpower (salary + position allowance)
+    add_leg(
+        'v.salary_general_ledger_code',
+        'COALESCE(md.salary, 0)',
+        f'FROM {nonvet_tbl} v INNER JOIN {md_tbl} md ON md.non_vet_budget_id = v.id',
+        'v.salary_general_ledger_code',
+    )
+    add_leg(
+        'v.position_allowance_general_ledger_code',
+        'COALESCE(md.position_allowance, 0)',
+        f'FROM {nonvet_tbl} v INNER JOIN {md_tbl} md ON md.non_vet_budget_id = v.id',
+        'v.position_allowance_general_ledger_code',
+    )
+    # 3a/3b. Position Adjustment (salary diff + allowance diff)
+    add_leg(
+        'v.salary_general_ledger_code',
+        'COALESCE(md.new_salary, 0) - COALESCE(md.salary, 0)',
+        f'FROM {posadj_tbl} v INNER JOIN {md_tbl} md ON md.position_adj_id = v.id',
+        'v.salary_general_ledger_code',
+    )
+    add_leg(
+        'v.allowance_general_ledger_code',
+        'COALESCE(md.new_allowance, 0) - COALESCE(md.position_allowance, 0)',
+        f'FROM {posadj_tbl} v INNER JOIN {md_tbl} md ON md.position_adj_id = v.id',
+        'v.allowance_general_ledger_code',
+    )
+    # 4-10. Seven Fix Asset tables
+    for _, fa_model, fk_col in FIX_ASSET_SOURCES:
+        fa_tbl = fa_model._meta.db_table
+        add_leg(
+            'v.general_ledger_code',
+            'CASE WHEN COALESCE(gl.depreciation, 0) > 0 THEN COALESCE(md.cumulative_depreciation, 0) ELSE COALESCE(md.cost, 0) END',
+            f'FROM {fa_tbl} v INNER JOIN {md_tbl} md ON md.{fk_col} = v.id LEFT JOIN {gl_tbl} gl ON gl.gl_code = v.general_ledger_code',
+            'v.general_ledger_code',
+        )
     # 11. GL Entry
-    subqueries.append(
-        f"""
-        SELECT TRIM(v.general_ledger_code) AS gl_code,
-               md.month AS month_num,
-               CASE
-                   WHEN COALESCE(v.depreciation, 0) > 0 THEN COALESCE(md.cumulative_amount, 0)
-                   ELSE COALESCE(md.amount, 0)
-               END AS amt
-        FROM {gle_tbl} v
-        INNER JOIN {gle_md_tbl} md ON md.gl_entry_id = v.id
-        WHERE v.base_branch_id = %s
-          AND v.budget_year = %s
-          AND COALESCE(v.status, '') <> %s
-          AND v.general_ledger_code IS NOT NULL
-          AND TRIM(v.general_ledger_code) <> ''
-        """
+    add_leg(
+        'v.general_ledger_code',
+        'CASE WHEN COALESCE(v.depreciation, 0) > 0 THEN COALESCE(md.cumulative_amount, 0) ELSE COALESCE(md.amount, 0) END',
+        f'FROM {gle_tbl} v INNER JOIN {gle_md_tbl} md ON md.gl_entry_id = v.id',
+        'v.general_ledger_code',
     )
-    params.extend([branch_code, budget_year, STATUS_CANCELLED])
-
     # 12. Revenue Entry
-    subqueries.append(
-        f"""
-        SELECT TRIM(v.general_ledger_code) AS gl_code,
-               md.month AS month_num,
-               CASE
-                   WHEN COALESCE(v.depreciation, 0) > 0 THEN COALESCE(md.cumulative_amount, 0)
-                   ELSE COALESCE(md.amount, 0)
-               END AS amt
-        FROM {rev_tbl} v
-        INNER JOIN {rev_md_tbl} md ON md.revenue_entry_id = v.id
-        WHERE v.base_branch_id = %s
-          AND v.budget_year = %s
-          AND COALESCE(v.status, '') <> %s
-          AND v.general_ledger_code IS NOT NULL
-          AND TRIM(v.general_ledger_code) <> ''
-        """
+    add_leg(
+        'v.general_ledger_code',
+        'CASE WHEN COALESCE(v.depreciation, 0) > 0 THEN COALESCE(md.cumulative_amount, 0) ELSE COALESCE(md.amount, 0) END',
+        f'FROM {rev_tbl} v INNER JOIN {rev_md_tbl} md ON md.revenue_entry_id = v.id',
+        'v.general_ledger_code',
     )
-    params.extend([branch_code, budget_year, STATUS_CANCELLED])
-
     # 13. Budget Plan Item
-    subqueries.append(
-        f"""
-        SELECT TRIM(v.general_ledger_code) AS gl_code,
-               md.month AS month_num,
-               COALESCE(md.amount, 0) AS amt
-        FROM {bp_tbl} v
-        INNER JOIN {bp_md_tbl} md ON md.plan_item_id = v.id
-        WHERE v.base_branch_id = %s
-          AND v.budget_year = %s
-          AND COALESCE(v.status, '') <> %s
-          AND v.general_ledger_code IS NOT NULL
-          AND TRIM(v.general_ledger_code) <> ''
-        """
+    add_leg(
+        'v.general_ledger_code',
+        'COALESCE(md.amount, 0)',
+        f'FROM {bp_tbl} v INNER JOIN {bp_md_tbl} md ON md.plan_item_id = v.id',
+        'v.general_ledger_code',
     )
-    params.extend([branch_code, budget_year, STATUS_CANCELLED])
 
     union_body = '\nUNION ALL\n'.join(subqueries)
     month_pivots = ',\n'.join(
@@ -568,9 +664,12 @@ def _build_monthly_budget_sql_and_params(branch_code, budget_year):
     return sql, params
 
 
-def fetch_branch_budget_by_gl(branch_code, budget_year):
-    """Execute single-branch SQL aggregation and return {gl_code: [jan..dec Decimal]}."""
-    sql, params = _build_monthly_budget_sql_and_params(branch_code, budget_year)
+def fetch_branch_budget_by_gl(branch_codes, budget_year):
+    """Execute monthly SQL aggregation and return {gl_code: [jan..dec Decimal]}."""
+    codes = _normalize_branch_codes(branch_codes)
+    if not codes:
+        return {}
+    sql, params = _build_monthly_budget_sql_and_params(codes, budget_year)
     by_gl = {}
     with connection.cursor() as cur:
         cur.execute(sql, params)
@@ -595,14 +694,14 @@ def _sub_months(a, b):
 
 
 def build_dashboard_data(branch_info_dict, budget_year):
-    """Assemble full 181-row P&L matrix, KPI cards, and metadata for one branch+year.
+    """Assemble full 181-row P&L matrix, KPI cards, and metadata for 1 or ALL TLPH branches.
 
     All numeric values are rounded strictly to 2 decimal places.
     """
-    branch_code = branch_info_dict['code']
+    target_codes = branch_info_dict.get('branch_codes') or [branch_info_dict['code']]
     outline = _get_template_outline()
-    actual_bundle = fetch_gl_actual_template_for_branch(branch_code, budget_year)
-    budget_by_gl = fetch_branch_budget_by_gl(branch_code, budget_year)
+    actual_bundle = fetch_gl_actual_template_for_branch(target_codes, budget_year)
+    budget_by_gl = fetch_branch_budget_by_gl(target_codes, budget_year)
 
     leaf_to_footer, _ = _build_section_block_lookup(outline)
 
@@ -818,3 +917,4 @@ def _build_kpi_summary(row_by_code):
             'margin_pct': _to_float2(net_margin),
         },
     }
+

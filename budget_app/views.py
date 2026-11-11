@@ -2505,13 +2505,15 @@ def toggle_freeze_view(request):
 @login_required_hybrid
 @require_dashboard_access
 def dashboard_view(request):
-    """Render single-branch E-Budget Dashboard page."""
+    """Render TLPH E-Budget Dashboard page (single-branch or ALL TLPH for privileged roles)."""
     from budget_app.dashboard_service import (
+        can_view_all_branches_dashboard,
         get_allowed_branches_for_dashboard,
         get_dashboard_budget_years,
     )
 
     allowed_branches = get_allowed_branches_for_dashboard(request)
+    can_view_all = can_view_all_branches_dashboard(request)
     settings_obj = SystemSettings.load()
     active_year = int(settings_obj.active_budget_year)
     budget_years = get_dashboard_budget_years()
@@ -2532,9 +2534,10 @@ def dashboard_view(request):
     if requested_branch and requested_branch in allowed_codes:
         selected_branch = requested_branch
     elif allowed_codes:
-        # Pick the first allowed branch that already has non-CANCELLED data in selected_year (or first allowed)
+        # Default privileged All-Branch users directly to consolidated 'ALL' (TLPH) view;
+        # otherwise pick the first allowed TLPH branch that has non-CANCELLED data in selected_year.
         selected_branch = allowed_codes[0]
-        if len(allowed_codes) > 1:
+        if 'ALL' not in allowed_codes and len(allowed_codes) > 1:
             from django.db import connection
             with connection.cursor() as cur:
                 cur.execute(
@@ -2564,22 +2567,23 @@ def dashboard_view(request):
         'allowed_branches': allowed_branches,
         'selected_branch': selected_branch,
         'is_single_branch_locked': len(allowed_branches) == 1,
+        'can_view_all_branches': can_view_all,
         'budget_years': budget_years,
         'selected_year': selected_year,
     })
 
 
 def _resolve_dashboard_payload_or_error(request):
-    """Validate single-branch + year query params and compute Dashboard payload or HTTP error JsonResponse."""
+    """Validate branch (TLPH or ALL) + year query params and compute Dashboard payload or HTTP error JsonResponse."""
     from budget_app.dashboard_service import (
         build_dashboard_data,
-        validate_single_branch,
+        validate_dashboard_branch,
     )
 
     if request.method != 'GET':
         return None, None, JsonResponse({'status': 'error', 'message': 'Method not allowed'}, status=405)
 
-    branch_dict, err_msg, err_status = validate_single_branch(request, request.GET.get('branch'))
+    branch_dict, err_msg, err_status = validate_dashboard_branch(request, request.GET.get('branch'))
     if err_msg:
         return None, None, JsonResponse({'status': 'error', 'message': err_msg}, status=err_status)
 
@@ -2599,7 +2603,7 @@ def _resolve_dashboard_payload_or_error(request):
 @login_required_json
 @require_dashboard_access
 def dashboard_data_api(request):
-    """Return single-branch P&L matrix + KPIs JSON payload (all numbers rounded to 2 decimals)."""
+    """Return TLPH branch (or ALL TLPH) P&L matrix + KPIs JSON payload (all numbers rounded to 2 decimals)."""
     _, _, result = _resolve_dashboard_payload_or_error(request)
     if isinstance(result, JsonResponse):
         return result
@@ -2609,7 +2613,7 @@ def dashboard_data_api(request):
 @login_required_json
 @require_dashboard_access
 def dashboard_export_excel_api(request):
-    """Export selected single branch Dashboard data as styled .xlsx matching Dashboard.xlsx (33 cols, 2dp)."""
+    """Export selected TLPH branch (or ALL TLPH) Dashboard data as styled .xlsx matching Dashboard.xlsx (33 cols, 2dp)."""
     import re
     from django.http import HttpResponse
     from budget_app.xlsx_export import build_dashboard_xlsx
