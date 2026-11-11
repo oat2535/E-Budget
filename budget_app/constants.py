@@ -3,6 +3,9 @@
 # user tier (nattchai_u, kanchana / kanchana_a, pattida_y).
 ALL_BRANCH_USERNAMES = {'nattchai_u', 'kanchana', 'kanchana_a', 'pattida_y'}
 
+# Usernames allowed to see and access the "GL Actual Template" menu and creation page.
+GL_ACTUAL_TEMPLATE_ALLOWED_USERNAMES = {'nattchai_u', 'kanchana_a', 'pattida_y'}
+
 # Executive roles from iMedX (bank_account_note) that have read-only visibility
 # across all documents in the system (can see all documents in list and view details,
 # but cannot edit, create, or cancel documents).

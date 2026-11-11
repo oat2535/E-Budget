@@ -204,7 +204,7 @@ def resolve_equipment_gl_code(doc_type, purchase_price, fallback_gl_code=None):
     elif doc_type == 'Software':
         return SOFTWARE_GL_CODE
     return fallback_gl_code
-from budget_app.decorators import require_not_frozen, require_not_executive_view_only
+from budget_app.decorators import require_not_frozen, require_not_executive_view_only, require_gl_actual_template_access
 
 def login_required_json(view_func):
     """Like login_required, but for fetch()/AJAX endpoints: an expired or
@@ -2371,6 +2371,7 @@ def budget_add_budget_plan_view(request):
 
 @login_required_hybrid
 @require_not_executive_view_only
+@require_gl_actual_template_access
 @require_not_frozen
 def budget_add_gl_actual_template_view(request):
     """Unlike every other add-budget page, this one's rows are a fixed
