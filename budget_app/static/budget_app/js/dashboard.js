@@ -266,38 +266,6 @@
         syncTopScrollBar();
     }
 
-    function setKpiText(id, val, suffix) {
-        const node = document.getElementById(id);
-        if (!node) return;
-        const num = Number(val || 0);
-        node.textContent = formatNum2(num) + (suffix || '');
-        node.classList.toggle('text-danger', num < 0);
-    }
-
-    function renderKpis(payload) {
-        const kpis = (payload && payload.kpis) || {};
-        const rev = kpis.revenue || {};
-        const exp = kpis.expense || {};
-        const ebitda = kpis.ebitda || {};
-        const net = kpis.net_profit || {};
-
-        setKpiText('kpi-rev-budget', rev.budget_total, '');
-        setKpiText('kpi-rev-actual', rev.actual_annualized, '');
-        setKpiText('kpi-rev-pct', rev.change_pct, '%');
-
-        setKpiText('kpi-exp-budget', exp.budget_total, '');
-        setKpiText('kpi-exp-actual', exp.actual_annualized, '');
-        setKpiText('kpi-exp-pct', exp.pct_of_sales, '%');
-
-        setKpiText('kpi-ebitda-budget', ebitda.budget_total, '');
-        setKpiText('kpi-ebitda-actual', ebitda.actual_annualized, '');
-        setKpiText('kpi-ebitda-pct', ebitda.margin_pct, '%');
-
-        setKpiText('kpi-net-budget', net.budget_total, '');
-        setKpiText('kpi-net-actual', net.actual_annualized, '');
-        setKpiText('kpi-net-pct', net.margin_pct, '%');
-    }
-
     function renderMetaStrip(payload) {
         if (!el.metaStrip) return;
         const branch = (payload && payload.branch) || {};
@@ -352,7 +320,6 @@
             const data = await window.handleFetchApiResponse(resp);
             state.payload = data;
             state.rows = data.rows || [];
-            renderKpis(data);
             renderMetaStrip(data);
             renderTableBody();
         } catch (err) {

@@ -15,33 +15,6 @@ body.theme-dark .dashboard-hero-header {
     background: linear-gradient(135deg, #020617 0%, #0f172a 65%, #1e293b 100%);
 }
 
-.dashboard-kpi-card {
-    border-radius: 0.75rem;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
-    border-left: 4px solid transparent;
-}
-
-.dashboard-kpi-card:hover {
-    transform: translateY(-2px);
-}
-
-.kpi-revenue { border-left-color: #2563eb !important; }
-.kpi-expense { border-left-color: #f59e0b !important; }
-.kpi-ebitda { border-left-color: #06b6d4 !important; }
-.kpi-net { border-left-color: #10b981 !important; }
-
-.kpi-value {
-    font-variant-numeric: tabular-nums;
-    font-size: 1.35rem;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    color: #0f172a;
-}
-
-body.theme-dark .kpi-value {
-    color: #f8fafc;
-}
-
 .dashboard-loading-overlay {
     background: rgba(255, 255, 255, 0.78);
     z-index: 40;

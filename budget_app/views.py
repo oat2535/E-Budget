@@ -2603,7 +2603,7 @@ def _resolve_dashboard_payload_or_error(request):
 @login_required_json
 @require_dashboard_access
 def dashboard_data_api(request):
-    """Return TLPH branch (or ALL TLPH) P&L matrix + KPIs JSON payload (all numbers rounded to 2 decimals)."""
+    """Return TLPH branch (or ALL TLPH) P&L matrix JSON payload (all numbers rounded to 2 decimals)."""
     _, _, result = _resolve_dashboard_payload_or_error(request)
     if isinstance(result, JsonResponse):
         return result

@@ -694,7 +694,7 @@ def _sub_months(a, b):
 
 
 def build_dashboard_data(branch_info_dict, budget_year):
-    """Assemble full 181-row P&L matrix, KPI cards, and metadata for 1 or ALL TLPH branches.
+    """Assemble full 181-row P&L matrix and metadata for 1 or ALL TLPH branches.
 
     All numeric values are rounded strictly to 2 decimal places.
     """
@@ -857,64 +857,10 @@ def build_dashboard_data(branch_info_dict, budget_year):
 
         output_rows.append(row_dict)
 
-    row_by_code = {r['general_ledger_code']: r for r in output_rows if r['general_ledger_code']}
-
-    kpis = _build_kpi_summary(row_by_code)
     return {
         'branch': branch_info_dict,
         'budget_year': int(budget_year),
         'gl_actual_document': actual_bundle['document'],
-        'kpis': kpis,
         'rows': output_rows,
-    }
-
-
-def _build_kpi_summary(row_by_code):
-    """Build 4 executive KPI summary metrics, all rounded to 2 decimal places."""
-    rev_row = row_by_code.get('FH101', {})
-    cogs_opex_fh2 = Decimal(str(row_by_code.get('FH2', {}).get('total', 0) or 0))
-    cogs_opex_fh3 = Decimal(str(row_by_code.get('FH3', {}).get('total', 0) or 0))
-    act_fh2 = Decimal(str(row_by_code.get('FH2', {}).get('annualized_value', 0) or 0))
-    act_fh3 = Decimal(str(row_by_code.get('FH3', {}).get('annualized_value', 0) or 0))
-    ebitda_row = row_by_code.get('FH1-H3', {})
-    net_row = row_by_code.get('FH8', {})
-
-    rev_budget = round2(rev_row.get('total', 0))
-    rev_actual_ann = round2(rev_row.get('annualized_value', 0))
-    rev_change_pct = round2(((rev_budget - rev_actual_ann) * HUNDRED) / abs(rev_actual_ann)) if rev_actual_ann else ZERO
-
-    total_exp_budget = round2(cogs_opex_fh2 + cogs_opex_fh3)
-    total_exp_actual_ann = round2(act_fh2 + act_fh3)
-    exp_pct_sales = round2((total_exp_budget * HUNDRED) / rev_budget) if rev_budget else ZERO
-
-    ebitda_budget = round2(ebitda_row.get('total', 0))
-    ebitda_actual_ann = round2(ebitda_row.get('annualized_value', 0))
-    ebitda_margin = round2((ebitda_budget * HUNDRED) / rev_budget) if rev_budget else ZERO
-
-    net_budget = round2(net_row.get('total', 0))
-    net_actual_ann = round2(net_row.get('annualized_value', 0))
-    net_margin = round2((net_budget * HUNDRED) / rev_budget) if rev_budget else ZERO
-
-    return {
-        'revenue': {
-            'budget_total': _to_float2(rev_budget),
-            'actual_annualized': _to_float2(rev_actual_ann),
-            'change_pct': _to_float2(rev_change_pct),
-        },
-        'expense': {
-            'budget_total': _to_float2(total_exp_budget),
-            'actual_annualized': _to_float2(total_exp_actual_ann),
-            'pct_of_sales': _to_float2(exp_pct_sales),
-        },
-        'ebitda': {
-            'budget_total': _to_float2(ebitda_budget),
-            'actual_annualized': _to_float2(ebitda_actual_ann),
-            'margin_pct': _to_float2(ebitda_margin),
-        },
-        'net_profit': {
-            'budget_total': _to_float2(net_budget),
-            'actual_annualized': _to_float2(net_actual_ann),
-            'margin_pct': _to_float2(net_margin),
-        },
     }
 

@@ -4187,7 +4187,7 @@ class DashboardAccessAndMatrixTests(SimpleTestCase):
         html_staff = render_to_string('budget_app/base.html', {}, request=req_staff)
         self.assertNotIn('href="/dashboard/"', html_staff)
 
-    @patch('budget_app.dashboard_service.build_dashboard_data', return_value={'branch': {'code': 'ALL', 'name': 'ทุกสาขา (TLPH ทั้งหมด)', 'is_all': True}, 'budget_year': 2025, 'rows': [], 'kpis': {}})
+    @patch('budget_app.dashboard_service.build_dashboard_data', return_value={'branch': {'code': 'ALL', 'name': 'ทุกสาขา (TLPH ทั้งหมด)', 'is_all': True}, 'budget_year': 2025, 'rows': []})
     @patch('budget_app.models.SystemSettings.load')
     @patch('budget_app.services.BudgetService.get_branch_names_from_imedx', return_value={'CA': 'สาขาเชียงใหม่แอร์พอร์ต', 'MY-BS': 'Moya Bangsaen'})
     @patch('budget_app.services.BudgetService.get_tlph_branches', return_value=[
@@ -4266,7 +4266,7 @@ class DashboardAccessAndMatrixTests(SimpleTestCase):
         mock_load.return_value = type('S', (), {'is_frozen': 0, 'frozen_message': '', 'active_budget_year': 2025})()
         factory = RequestFactory()
 
-        # Single-branch MANAGER -> locked to CA, no ALL option, has top+bottom scrollbar DOM & ?v=20261111_03
+        # Single-branch MANAGER -> locked to CA, no ALL option, no KPI summary cards, has top+bottom scrollbar DOM & ?v=20261112_01
         req = factory.get('/dashboard/')
         req.user = self._mock_user('mgr_ca')
         req.session = {'branch_info': {'branches': ['CA'], 'is_manager': True, 'is_executive_view_only': False, 'is_district_view_only': False, 'bank_account_note': 'MANAGER'}}
@@ -4275,7 +4275,10 @@ class DashboardAccessAndMatrixTests(SimpleTestCase):
         body = res.content.decode('utf-8')
         self.assertIn('id="dashboard-branch-locked" value="CA"', body)
         self.assertIn('id="dashboard-top-scroll"', body)
-        self.assertIn('?v=20261111_03', body)
+        self.assertIn('data-col-preset="compare"', body)
+        self.assertIn('?v=20261112_01', body)
+        self.assertNotIn('dashboard-kpi-card', body)
+        self.assertNotIn('kpi-rev-budget', body)
         self.assertNotIn('ALL_ACTIVE', body)
         self.assertNotIn('ทุกสาขา', body)
 
@@ -4289,14 +4292,17 @@ class DashboardAccessAndMatrixTests(SimpleTestCase):
         self.assertIn('<option value="ALL" selected>', body_all)
         self.assertIn('ทุกสาขา (TLPH ทั้งหมด)', body_all)
         self.assertIn('id="dashboard-top-scroll"', body_all)
+        self.assertNotIn('dashboard-kpi-card', body_all)
         self.assertNotIn('MY-BS', body_all)
 
-        # Verify GL Actual document badge in dashboard.js does NOT append "(doc.status)"
+        # Verify GL Actual document badge in dashboard.js does NOT append "(doc.status)" and KPI helpers removed
         js_path = os.path.join(dj_settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'dashboard.js')
         with open(js_path, 'r', encoding='utf-8') as f:
             js_src = f.read()
         self.assertIn("GL Actual: ' + escapeHtml(doc.document_no)", js_src)
         self.assertNotIn('escapeHtml(doc.status)', js_src)
+        self.assertNotIn('renderKpis', js_src)
+        self.assertNotIn('setKpiText', js_src)
         self.assertIn('syncTopScrollBar', js_src)
 
     def test_sql_filters_branch_year_and_excludes_cancelled(self):
@@ -4396,8 +4402,11 @@ class DashboardAccessAndMatrixTests(SimpleTestCase):
         rows_by_code = {r['general_ledger_code']: r for r in payload['rows']}
 
         # No double counting on Actual snapshot
+        self.assertNotIn('kpis', payload)
         self.assertEqual(rows_by_code['FH101']['actual_value'], 1000.34)
         self.assertEqual(rows_by_code['FH8']['actual_value'], 200.56)
+        self.assertEqual(rows_by_code['41100001']['diff_vs_actual'], -333.44)  # total(1000.34) - raw ann(1333.784) -> -333.444 -> -333.44
+        self.assertEqual(rows_by_code['FH8']['diff_vs_actual'], 32.6)          # total(300.00) - raw ann(267.405) -> 32.595 -> 32.60
 
         # P&L chain & HALF_UP 2dp rounding
         self.assertEqual(rows_by_code['41100001']['january'], 1000.34)

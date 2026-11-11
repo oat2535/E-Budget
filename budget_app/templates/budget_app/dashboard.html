@@ -5,7 +5,7 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'budget_app/vendor/tom-select/tom-select.bootstrap5.min.css' %}" />
-<link rel="stylesheet" href="{% static 'budget_app/css/dashboard.css' %}?v=20261111_03" />
+<link rel="stylesheet" href="{% static 'budget_app/css/dashboard.css' %}?v=20261112_01" />
 {% endblock %}
 
 {% block content %}
@@ -95,61 +95,6 @@
 
     <div id="dashboard-error-banner" class="alert alert-danger d-none mb-3" role="alert"></div>
 
-    <!-- KPI Summary Cards (All rounded strictly to 2 decimals) -->
-    <div class="row g-3 mb-3">
-        <div class="col-12 col-sm-6 col-xl-3">
-            <div class="card shadow-sm h-100 dashboard-kpi-card kpi-revenue">
-                <div class="card-body py-3">
-                    <div class="d-flex justify-content-between align-items-start mb-1">
-                        <span class="small fw-semibold text-uppercase text-muted">รายได้รวม Budget (FH101)</span>
-                        <span class="badge bg-primary-soft text-primary small" id="kpi-rev-pct">0.00%</span>
-                    </div>
-                    <div class="kpi-value mb-1" id="kpi-rev-budget">0.00</div>
-                    <div class="small text-muted">Annualized Actual (x12): <strong id="kpi-rev-actual">0.00</strong></div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-12 col-sm-6 col-xl-3">
-            <div class="card shadow-sm h-100 dashboard-kpi-card kpi-expense">
-                <div class="card-body py-3">
-                    <div class="d-flex justify-content-between align-items-start mb-1">
-                        <span class="small fw-semibold text-uppercase text-muted">ต้นทุน + ค่าใช้จ่าย (FH2+FH3)</span>
-                        <span class="badge bg-warning-soft text-warning small" id="kpi-exp-pct">0.00%</span>
-                    </div>
-                    <div class="kpi-value mb-1" id="kpi-exp-budget">0.00</div>
-                    <div class="small text-muted">Annualized Actual (x12): <strong id="kpi-exp-actual">0.00</strong></div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-12 col-sm-6 col-xl-3">
-            <div class="card shadow-sm h-100 dashboard-kpi-card kpi-ebitda">
-                <div class="card-body py-3">
-                    <div class="d-flex justify-content-between align-items-start mb-1">
-                        <span class="small fw-semibold text-uppercase text-muted">EBITDA (FH1-H3)</span>
-                        <span class="badge bg-info-soft text-info small" id="kpi-ebitda-pct">0.00%</span>
-                    </div>
-                    <div class="kpi-value mb-1" id="kpi-ebitda-budget">0.00</div>
-                    <div class="small text-muted">Annualized Actual (x12): <strong id="kpi-ebitda-actual">0.00</strong></div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-12 col-sm-6 col-xl-3">
-            <div class="card shadow-sm h-100 dashboard-kpi-card kpi-net">
-                <div class="card-body py-3">
-                    <div class="d-flex justify-content-between align-items-start mb-1">
-                        <span class="small fw-semibold text-uppercase text-muted">กำไร (ขาดทุน) สุทธิ (FH8)</span>
-                        <span class="badge bg-success-soft text-success small" id="kpi-net-pct">0.00%</span>
-                    </div>
-                    <div class="kpi-value mb-1" id="kpi-net-budget">0.00</div>
-                    <div class="small text-muted">Annualized Actual (x12): <strong id="kpi-net-actual">0.00</strong></div>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- Main P&L Matrix Card -->
     <div class="card shadow-sm mb-4">
         <div class="card-header py-2 px-3">
@@ -216,5 +161,5 @@
 
 {% block extra_js %}
 <script src="{% static 'budget_app/vendor/tom-select/tom-select.complete.min.js' %}"></script>
-<script src="{% static 'budget_app/js/dashboard.js' %}?v=20261111_03"></script>
+<script src="{% static 'budget_app/js/dashboard.js' %}?v=20261112_01"></script>
 {% endblock %}
