@@ -43,3 +43,23 @@ def require_not_executive_view_only(view_func):
 
 
 require_not_view_only = require_not_executive_view_only
+
+
+def require_gl_actual_template_access(view_func):
+    """Restricts access to the GL Actual Template creation view strictly to
+    GL_ACTUAL_TEMPLATE_ALLOWED_USERNAMES (nattchai_u, kanchana_a, pattida_y):
+    - GET: redirects to budget_list
+    - POST: returns 403 Forbidden JsonResponse"""
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        from budget_app.services import can_access_gl_actual_template
+        if not can_access_gl_actual_template(request):
+            if request.method == 'POST':
+                return JsonResponse({
+                    'status': 'error',
+                    'message': 'ท่านไม่มีสิทธิ์เข้าใช้งานเมนู GL Actual Template'
+                }, status=403)
+            from django.shortcuts import redirect
+            return redirect('budget_list')
+        return view_func(request, *args, **kwargs)
+    return wrapper

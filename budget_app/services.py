@@ -772,3 +772,12 @@ def is_view_only_user(request):
     info = BudgetService.get_branch_info_from_imedx(request.user.username)
     return bool(info.get('is_view_only', False))
 
+
+def can_access_gl_actual_template(request):
+    """Returns True only if the authenticated user's username is explicitly in
+    GL_ACTUAL_TEMPLATE_ALLOWED_USERNAMES (nattchai_u, kanchana_a, pattida_y)."""
+    if not request or not getattr(request, 'user', None) or not request.user.is_authenticated:
+        return False
+    from budget_app.constants import GL_ACTUAL_TEMPLATE_ALLOWED_USERNAMES
+    return (request.user.username or '').strip().lower() in GL_ACTUAL_TEMPLATE_ALLOWED_USERNAMES
+

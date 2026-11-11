@@ -208,7 +208,9 @@
                 <div>
                 <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_gl_entry' %}active{% endif %}" href="{% url 'budget_add_gl_entry' %}">EXPENSE</a>
                 <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_revenue' %}active{% endif %}" href="{% url 'budget_add_revenue' %}">Revenue</a>
+                {% if can_access_gl_actual_template %}
                 <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_gl_actual_template' %}active{% endif %}" href="{% url 'budget_add_gl_actual_template' %}">GL Actual Template</a>
+                {% endif %}
                 {# Budget Plan - Back Office hidden from the sidebar for now (requested); page/route/code left intact, still reachable by direct URL. #}
                 {% comment %}
                 <a class="nav-link ps-4 {% if request.resolver_match.url_name == 'budget_add_budget_plan' %}active{% endif %}" href="{% url 'budget_add_budget_plan' %}">Budget Plan - Back Office (แผนงบประมาณประจำปี)</a>

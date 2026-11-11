@@ -4006,3 +4006,89 @@ class ItemMasterOrderByIdAscTests(SimpleTestCase):
         self.assertIn("ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=10).order_by('id')", content)
         self.assertIn("ebudget_budget_item_master.objects.filter(category_id=2, sub_category_id=sub_category_id).order_by('id')", content)
 
+
+class GlActualTemplateAccessControlTests(SimpleTestCase):
+    """Verifies that the 'GL Actual Template' menu and add view are visible
+    and accessible strictly to users nattchai_u, kanchana_a, and pattida_y."""
+
+    def test_can_access_gl_actual_template_helper(self):
+        from budget_app.services import can_access_gl_actual_template
+        from django.contrib.auth.models import AnonymousUser
+        factory = RequestFactory()
+
+        for allowed in ['nattchai_u', 'kanchana_a', 'pattida_y', 'NATTCHAI_U', 'Pattida_Y']:
+            req = factory.get('/')
+            req.user = User(username=allowed)
+            self.assertTrue(can_access_gl_actual_template(req), f"{allowed} should be allowed")
+
+        for disallowed in ['kanchana', 'admin', 'sutep', 'khanitta', 'mgr01', 'regular_emp']:
+            req = factory.get('/')
+            req.user = User(username=disallowed, is_superuser=(disallowed == 'admin'))
+            self.assertFalse(can_access_gl_actual_template(req), f"{disallowed} should NOT be allowed")
+
+        req_anon = factory.get('/')
+        req_anon.user = AnonymousUser()
+        self.assertFalse(can_access_gl_actual_template(req_anon))
+
+    @patch('budget_app.models.SystemSettings.load')
+    def test_site_status_context_processor_gl_actual_template_flag(self, mock_load):
+        mock_settings = type('Settings', (), {'is_frozen': 0, 'frozen_message': '', 'active_budget_year': 2026})()
+        mock_load.return_value = mock_settings
+        factory = RequestFactory()
+
+        req_allowed = factory.get('/')
+        req_allowed.user = User(username='pattida_y')
+        req_allowed.session = {'branch_info': {'is_view_only': False, 'is_executive_view_only': False, 'is_district_view_only': False}}
+        self.assertTrue(site_status(req_allowed)['can_access_gl_actual_template'])
+
+        req_denied = factory.get('/')
+        req_denied.user = User(username='mgr01')
+        req_denied.session = {'branch_info': {'is_view_only': False, 'is_executive_view_only': False, 'is_district_view_only': False}}
+        self.assertFalse(site_status(req_denied)['can_access_gl_actual_template'])
+
+    @patch('budget_app.models.SystemSettings.load')
+    def test_base_template_shows_or_hides_gl_actual_template_menu(self, mock_load):
+        mock_settings = type('Settings', (), {'is_frozen': 0, 'frozen_message': '', 'active_budget_year': 2026})()
+        mock_load.return_value = mock_settings
+        factory = RequestFactory()
+
+        for allowed_username in ['nattchai_u', 'kanchana_a', 'pattida_y']:
+            req = factory.get('/')
+            req.user = User(username=allowed_username, first_name=allowed_username)
+            req.session = {'branch_info': {'is_view_only': False, 'is_executive_view_only': False, 'is_district_view_only': False}}
+            out = render_to_string('budget_app/base.html', {'csrf_token': 'dummy'}, request=req)
+            self.assertIn(reverse('budget_add_gl_actual_template'), out, f"{allowed_username} should see GL Actual Template menu")
+            self.assertIn('GL Actual Template', out)
+
+        for denied_username in ['mgr01', 'kanchana', 'sutep', 'khanitta']:
+            req = factory.get('/')
+            req.user = User(username=denied_username, first_name=denied_username)
+            req.session = {'branch_info': {'is_view_only': False, 'is_executive_view_only': False, 'is_district_view_only': False}}
+            out = render_to_string('budget_app/base.html', {'csrf_token': 'dummy'}, request=req)
+            self.assertNotIn(reverse('budget_add_gl_actual_template'), out, f"{denied_username} should NOT see GL Actual Template menu")
+            self.assertNotIn('GL Actual Template', out)
+
+    @patch('budget_app.models.SystemSettings.load')
+    def test_gl_actual_template_view_blocks_unauthorized_users(self, mock_load):
+        from budget_app.views import budget_add_gl_actual_template_view
+        mock_settings = type('Settings', (), {'is_frozen': 0, 'frozen_message': '', 'active_budget_year': 2026})()
+        mock_load.return_value = mock_settings
+        factory = RequestFactory()
+
+        for denied_user in ['mgr01', 'kanchana', 'admin']:
+            req_get = factory.get(reverse('budget_add_gl_actual_template'))
+            req_get.user = User(username=denied_user, is_superuser=(denied_user == 'admin'))
+            req_get.session = {'branch_info': {'is_view_only': False}}
+            res_get = budget_add_gl_actual_template_view(req_get)
+            self.assertEqual(res_get.status_code, 302)
+            self.assertEqual(res_get.url, reverse('budget_list'))
+
+            req_post = factory.post(reverse('budget_add_gl_actual_template'), data='[]', content_type='application/json')
+            req_post.user = User(username=denied_user, is_superuser=(denied_user == 'admin'))
+            req_post.session = {'branch_info': {'is_view_only': False}}
+            res_post = budget_add_gl_actual_template_view(req_post)
+            self.assertEqual(res_post.status_code, 403)
+            data = json.loads(res_post.content)
+            self.assertEqual(data['status'], 'error')
+            self.assertIn('ไม่มีสิทธิ์', data['message'])
+
