@@ -7,7 +7,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('budget_app', '0044_budgetmonthlydetail_new_allowance_and_more'),
-        ('master_data', '0026_replace_medical_equipment_items'),
     ]
 
     operations = [
