@@ -1,0 +1,847 @@
+WITH all_ebudget_data AS (
+    -- =========================================================================
+    -- 1. VET Manpower
+    -- =========================================================================
+    SELECT
+        'VET Manpower'::character varying AS doc_type,
+        v.document_no,
+        v.budget_year,
+        v.status,
+        v.cancel_reason,
+        v.base_branch_id,
+        bsb.sub_branch_name,
+        v.department_id,
+        mc.cost_center_code,
+        v.cost_center_name,
+        mc.description AS cost_center_description,
+        v.create_eid,
+        v.create_date,
+        v.modify_eid,
+        v.modify_date,
+        v.general_ledger_code,
+        glm.gl_name,
+        glm.proportion AS gl_proportion,
+        glm.depreciation AS gl_depreciation,
+        NULL::character varying AS position_allowance_gl_code,
+        NULL::character varying AS position_allowance_gl_name,
+        NULL::character varying AS budget_category,
+        NULL::character varying AS item_code,
+        v.id AS item_id,
+        v.item_master_id,
+        v.position_name AS item_detail,
+        v.description,
+        NULL::character varying AS adjustment_type,
+        NULL::character varying AS old_position_name,
+        NULL::character varying AS old_description,
+        NULL::character varying AS new_position_name,
+        NULL::character varying AS new_description,
+        NULL::numeric(12, 2) AS old_salary,
+        NULL::numeric(12, 2) AS old_allowance,
+        NULL::numeric(12, 2) AS new_salary,
+        NULL::numeric(12, 2) AS new_allowance,
+        NULL::numeric(12, 2) AS diff_salary,
+        NULL::numeric(12, 2) AS diff_allowance,
+        COALESCE(v.salary, im.salary) AS salary,
+        NULL::numeric(12, 2) AS position_allowance,
+        im.estimated_shift_allowance,
+        im.total_salary,
+        NULL::numeric(12, 2) AS purchase_price,
+        md.id AS monthly_detail_id,
+        md.month,
+        md.headcount,
+        md.salary AS monthly_salary,
+        NULL::numeric(14, 2) AS monthly_allowance,
+        NULL::numeric(14, 2) AS monthly_new_salary,
+        NULL::numeric(14, 2) AS monthly_new_allowance,
+        NULL::numeric(14, 2) AS monthly_diff_salary,
+        NULL::numeric(14, 2) AS monthly_diff_allowance,
+        md.cost AS monthly_cost,
+        NULL::numeric(14, 2) AS monthly_depreciation,
+        NULL::numeric(14, 2) AS amount,
+        NULL::numeric(14, 2) AS cumulative_amount,
+        NULL::character varying AS monthly_detail_note,
+        NULL::bigint AS template_row_id,
+        NULL::integer AS row_order,
+        NULL::character varying AS row_type,
+        NULL::numeric(14, 2) AS actual_value,
+        NULL::numeric(14, 2) AS per_month_value,
+        NULL::numeric(14, 2) AS annualized_value,
+        NULL::numeric(14, 2) AS sales_ratio,
+        NULL::numeric(14, 2) AS growth_rate,
+        NULL::integer AS actual_month_count,
+        NULL::numeric(5, 2) AS growth_pct_1,
+        NULL::numeric(5, 2) AS growth_pct_2,
+        NULL::numeric(5, 2) AS growth_pct_3
+    FROM intra_tl.ebudget_vet_manpower v
+    LEFT JOIN intra_tl.ebudget_monthly_detail md ON md.vet_budget_id = v.id
+    LEFT JOIN intra_tl.base_sub_branch bsb ON bsb.sub_branch_id = v.base_branch_id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master glm ON glm.gl_code = v.general_ledger_code
+    LEFT JOIN intra_tl.master_data_ebudget_budget_item_master im ON im.id = v.item_master_id
+    LEFT JOIN intra_tl.master_data_ebudget_cost_center_master mc ON v.cost_center_name = mc.cost_center_name
+
+    UNION ALL
+
+    -- =========================================================================
+    -- 2.1 NON VET Manpower (Salary Line)
+    -- =========================================================================
+    SELECT
+        'NON VET Manpower'::character varying,
+        v.document_no,
+        v.budget_year,
+        v.status,
+        v.cancel_reason,
+        v.base_branch_id,
+        bsb.sub_branch_name,
+        v.department_id,
+        mc.cost_center_code,
+        v.cost_center_name,
+        mc.description,
+        v.create_eid,
+        v.create_date,
+        v.modify_eid,
+        v.modify_date,
+        v.salary_general_ledger_code,
+        glm.gl_name,
+        glm.proportion,
+        glm.depreciation,
+        v.position_allowance_general_ledger_code,
+        glm_allow.gl_name,
+        NULL::character varying,
+        NULL::character varying,
+        v.id,
+        v.item_master_id,
+        v.position_name,
+        v.description,
+        NULL::character varying,
+        NULL::character varying,
+        NULL::character varying,
+        NULL::character varying,
+        NULL::character varying,
+        NULL::numeric(12, 2),
+        NULL::numeric(12, 2),
+        NULL::numeric(12, 2),
+        NULL::numeric(12, 2),
+        NULL::numeric(12, 2),
+        NULL::numeric(12, 2),
+        COALESCE(v.salary, im.salary),
+        COALESCE(v.position_allowance, im.position_allowance),
+        im.estimated_shift_allowance,
+        im.total_salary,
+        NULL::numeric(12, 2),
+        md.id,
+        md.month,
+        md.headcount,
+        md.salary,
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        COALESCE(md.salary, 0)::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::character varying,
+        NULL::bigint,
+        NULL::integer,
+        'Salary_Line'::character varying,
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::integer,
+        NULL::numeric(5, 2),
+        NULL::numeric(5, 2),
+        NULL::numeric(5, 2)
+    FROM intra_tl.ebudget_non_vet_manpower v
+    LEFT JOIN intra_tl.ebudget_monthly_detail md ON md.non_vet_budget_id = v.id
+    LEFT JOIN intra_tl.base_sub_branch bsb ON bsb.sub_branch_id = v.base_branch_id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master glm ON glm.gl_code = v.salary_general_ledger_code
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master glm_allow ON glm_allow.gl_code = v.position_allowance_general_ledger_code
+    LEFT JOIN intra_tl.master_data_ebudget_budget_item_master im ON im.id = v.item_master_id
+    LEFT JOIN intra_tl.master_data_ebudget_cost_center_master mc ON v.cost_center_name = mc.cost_center_name
+
+    UNION ALL
+
+    -- =========================================================================
+    -- 2.2 NON VET Manpower (Allowance Line)
+    -- =========================================================================
+    SELECT
+        'NON VET Manpower'::character varying,
+        v.document_no,
+        v.budget_year,
+        v.status,
+        v.cancel_reason,
+        v.base_branch_id,
+        bsb.sub_branch_name,
+        v.department_id,
+        mc.cost_center_code,
+        v.cost_center_name,
+        mc.description,
+        v.create_eid,
+        v.create_date,
+        v.modify_eid,
+        v.modify_date,
+        v.position_allowance_general_ledger_code,
+        glm_allow.gl_name,
+        glm_allow.proportion,
+        glm_allow.depreciation,
+        v.position_allowance_general_ledger_code,
+        glm_allow.gl_name,
+        NULL::character varying,
+        NULL::character varying,
+        v.id,
+        v.item_master_id,
+        v.position_name,
+        v.description,
+        NULL::character varying,
+        NULL::character varying,
+        NULL::character varying,
+        NULL::character varying,
+        NULL::character varying,
+        NULL::numeric(12, 2),
+        NULL::numeric(12, 2),
+        NULL::numeric(12, 2),
+        NULL::numeric(12, 2),
+        NULL::numeric(12, 2),
+        NULL::numeric(12, 2),
+        COALESCE(v.salary, im.salary),
+        COALESCE(v.position_allowance, im.position_allowance),
+        im.estimated_shift_allowance,
+        im.total_salary,
+        NULL::numeric(12, 2),
+        md.id,
+        md.month,
+        md.headcount,
+        NULL::numeric(14, 2),
+        md.position_allowance,
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        COALESCE(md.position_allowance, 0)::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::character varying,
+        NULL::bigint,
+        NULL::integer,
+        'Allowance_Line'::character varying,
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::integer,
+        NULL::numeric(5, 2),
+        NULL::numeric(5, 2),
+        NULL::numeric(5, 2)
+    FROM intra_tl.ebudget_non_vet_manpower v
+    LEFT JOIN intra_tl.ebudget_monthly_detail md ON md.non_vet_budget_id = v.id
+    LEFT JOIN intra_tl.base_sub_branch bsb ON bsb.sub_branch_id = v.base_branch_id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master glm_allow ON glm_allow.gl_code = v.position_allowance_general_ledger_code
+    LEFT JOIN intra_tl.master_data_ebudget_budget_item_master im ON im.id = v.item_master_id
+    LEFT JOIN intra_tl.master_data_ebudget_cost_center_master mc ON v.cost_center_name = mc.cost_center_name
+
+    UNION ALL
+
+    -- =========================================================================
+    -- 3.1 Position Adjustment (Salary Line)
+    -- =========================================================================
+    SELECT
+        'Position Adjustment'::character varying,
+        v.document_no,
+        v.budget_year,
+        v.status,
+        v.cancel_reason,
+        v.base_branch_id,
+        bsb.sub_branch_name,
+        v.department_id,
+        mc.cost_center_code,
+        v.cost_center_name,
+        mc.description,
+        v.create_eid,
+        v.create_date,
+        v.modify_eid,
+        v.modify_date,
+        v.salary_general_ledger_code,
+        glm.gl_name,
+        glm.proportion,
+        glm.depreciation,
+        v.allowance_general_ledger_code,
+        glm_allow.gl_name,
+        NULL::character varying,
+        NULL::character varying,
+        v.id,
+        v.item_master_id,
+        (v.old_position_name || ' -> ' || v.new_position_name)::text,
+        CONCAT_WS(' // ', v.new_description, v.old_description),
+        v.adjustment_type,
+        v.old_position_name,
+        v.old_description,
+        v.new_position_name,
+        v.new_description,
+        v.old_salary,
+        v.old_allowance,
+        v.new_salary,
+        v.new_allowance,
+        (v.new_salary - v.old_salary) AS diff_salary,
+        (v.new_allowance - v.old_allowance) AS diff_allowance,
+        v.new_salary,
+        v.new_allowance,
+        NULL::numeric(12, 2),
+        (COALESCE(v.new_salary, 0) + COALESCE(v.new_allowance, 0)) AS total_salary,
+        NULL::numeric(12, 2),
+        md.id,
+        md.month,
+        md.headcount,
+        md.salary,
+        NULL::numeric(14, 2),
+        md.new_salary,
+        NULL::numeric(14, 2),
+        (COALESCE(md.new_salary, 0) - COALESCE(md.salary, 0))::numeric(14, 2) AS monthly_diff_salary,
+        NULL::numeric(14, 2),
+        (COALESCE(md.new_salary, 0) - COALESCE(md.salary, 0))::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::character varying,
+        NULL::bigint,
+        NULL::integer,
+        'Salary_Line'::character varying,
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::integer,
+        NULL::numeric(5, 2),
+        NULL::numeric(5, 2),
+        NULL::numeric(5, 2)
+    FROM intra_tl.ebudget_position_adjustment v
+    LEFT JOIN intra_tl.ebudget_monthly_detail md ON md.position_adj_id = v.id
+    LEFT JOIN intra_tl.base_sub_branch bsb ON bsb.sub_branch_id = v.base_branch_id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master glm ON glm.gl_code = v.salary_general_ledger_code
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master glm_allow ON glm_allow.gl_code = v.allowance_general_ledger_code
+    LEFT JOIN intra_tl.master_data_ebudget_cost_center_master mc ON v.cost_center_name = mc.cost_center_name
+
+    UNION ALL
+
+    -- =========================================================================
+    -- 3.2 Position Adjustment (Allowance Line - เฉพาะที่ยอดต่างกันไม่เท่ากับ 0)
+    -- =========================================================================
+    SELECT
+        'Position Adjustment'::character varying,
+        v.document_no,
+        v.budget_year,
+        v.status,
+        v.cancel_reason,
+        v.base_branch_id,
+        bsb.sub_branch_name,
+        v.department_id,
+        mc.cost_center_code,
+        v.cost_center_name,
+        mc.description,
+        v.create_eid,
+        v.create_date,
+        v.modify_eid,
+        v.modify_date,
+        v.allowance_general_ledger_code,
+        glm_allow.gl_name,
+        glm_allow.proportion,
+        glm_allow.depreciation,
+        v.allowance_general_ledger_code,
+        glm_allow.gl_name,
+        NULL::character varying,
+        NULL::character varying,
+        v.id,
+        v.item_master_id,
+        (v.old_position_name || ' -> ' || v.new_position_name)::text,
+        CONCAT_WS(' // ', v.new_description, v.old_description),
+        v.adjustment_type,
+        v.old_position_name,
+        v.old_description,
+        v.new_position_name,
+        v.new_description,
+        v.old_salary,
+        v.old_allowance,
+        v.new_salary,
+        v.new_allowance,
+        (v.new_salary - v.old_salary) AS diff_salary,
+        (v.new_allowance - v.old_allowance) AS diff_allowance,
+        v.new_salary,
+        v.new_allowance,
+        NULL::numeric(12, 2),
+        (COALESCE(v.new_salary, 0) + COALESCE(v.new_allowance, 0)) AS total_salary,
+        NULL::numeric(12, 2),
+        md.id,
+        md.month,
+        md.headcount,
+        NULL::numeric(14, 2),
+        md.position_allowance,
+        NULL::numeric(14, 2),
+        md.new_allowance,
+        NULL::numeric(14, 2),
+        (COALESCE(md.new_allowance, 0) - COALESCE(md.position_allowance, 0))::numeric(14, 2) AS monthly_diff_allowance,
+        (COALESCE(md.new_allowance, 0) - COALESCE(md.position_allowance, 0))::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::character varying,
+        NULL::bigint,
+        NULL::integer,
+        'Allowance_Line'::character varying,
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::numeric(14, 2),
+        NULL::integer,
+        NULL::numeric(5, 2),
+        NULL::numeric(5, 2),
+        NULL::numeric(5, 2)
+    FROM intra_tl.ebudget_position_adjustment v
+    LEFT JOIN intra_tl.ebudget_monthly_detail md ON md.position_adj_id = v.id
+    LEFT JOIN intra_tl.base_sub_branch bsb ON bsb.sub_branch_id = v.base_branch_id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master glm_allow ON glm_allow.gl_code = v.allowance_general_ledger_code
+    LEFT JOIN intra_tl.master_data_ebudget_cost_center_master mc ON v.cost_center_name = mc.cost_center_name
+    WHERE (COALESCE(v.new_allowance, 0) - COALESCE(v.old_allowance, 0)) <> 0
+
+    UNION ALL
+
+    -- =========================================================================
+    -- 4. Medical Equipment
+    -- =========================================================================
+    SELECT
+        'Medical Equipment'::character varying,
+        v.document_no, v.budget_year, v.status, v.cancel_reason,
+        v.base_branch_id, bsb.sub_branch_name, v.department_id, mc.cost_center_code, v.cost_center_name, mc.description,
+        v.create_eid, v.create_date, v.modify_eid, v.modify_date,
+        v.general_ledger_code, glm.gl_name, glm.proportion, glm.depreciation,
+        NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying,
+        v.id, v.item_master_id, v.item_name::text, v.description,
+        NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying,
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        COALESCE(v.purchase_price, im.purchase_price),
+        md.id, md.month, md.headcount,
+        NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        md.cost, md.cumulative_depreciation,
+        NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::character varying,
+        NULL::bigint, NULL::integer, NULL::character varying, NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        NULL::integer, NULL::numeric(5, 2), NULL::numeric(5, 2), NULL::numeric(5, 2)
+    FROM intra_tl.ebudget_medical_equipment v
+    LEFT JOIN intra_tl.ebudget_monthly_detail md ON md.med_equip_id = v.id
+    LEFT JOIN intra_tl.base_sub_branch bsb ON bsb.sub_branch_id = v.base_branch_id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master glm ON glm.gl_code = v.general_ledger_code
+    LEFT JOIN intra_tl.master_data_ebudget_budget_item_master im ON im.id = v.item_master_id
+    LEFT JOIN intra_tl.master_data_ebudget_cost_center_master mc ON v.cost_center_name = mc.cost_center_name
+
+    UNION ALL
+
+    -- =========================================================================
+    -- 5. Computer Equipment
+    -- =========================================================================
+    SELECT
+        'Computer Equipment'::character varying,
+        v.document_no, v.budget_year, v.status, v.cancel_reason,
+        v.base_branch_id, bsb.sub_branch_name, v.department_id, mc.cost_center_code, v.cost_center_name, mc.description,
+        v.create_eid, v.create_date, v.modify_eid, v.modify_date,
+        v.general_ledger_code, glm.gl_name, glm.proportion, glm.depreciation,
+        NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying,
+        v.id, v.item_master_id, v.item_name::text, v.description,
+        NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying,
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        COALESCE(v.purchase_price, im.purchase_price),
+        md.id, md.month, md.headcount,
+        NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        md.cost, md.cumulative_depreciation,
+        NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::character varying,
+        NULL::bigint, NULL::integer, NULL::character varying, NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        NULL::integer, NULL::numeric(5, 2), NULL::numeric(5, 2), NULL::numeric(5, 2)
+    FROM intra_tl.ebudget_computer_equipment v
+    LEFT JOIN intra_tl.ebudget_monthly_detail md ON md.comp_equip_id = v.id
+    LEFT JOIN intra_tl.base_sub_branch bsb ON bsb.sub_branch_id = v.base_branch_id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master glm ON glm.gl_code = v.general_ledger_code
+    LEFT JOIN intra_tl.master_data_ebudget_budget_item_master im ON im.id = v.item_master_id
+    LEFT JOIN intra_tl.master_data_ebudget_cost_center_master mc ON v.cost_center_name = mc.cost_center_name
+
+    UNION ALL
+
+    -- =========================================================================
+    -- 6. Furniture
+    -- =========================================================================
+    SELECT
+        'Furniture'::character varying,
+        v.document_no, v.budget_year, v.status, v.cancel_reason,
+        v.base_branch_id, bsb.sub_branch_name, v.department_id, mc.cost_center_code, v.cost_center_name, mc.description,
+        v.create_eid, v.create_date, v.modify_eid, v.modify_date,
+        v.general_ledger_code, glm.gl_name, glm.proportion, glm.depreciation,
+        NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying,
+        v.id, v.item_master_id, v.item_name::text, v.description,
+        NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying,
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        COALESCE(v.purchase_price, im.purchase_price),
+        md.id, md.month, md.headcount,
+        NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        md.cost, md.cumulative_depreciation,
+        NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::character varying,
+        NULL::bigint, NULL::integer, NULL::character varying, NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        NULL::integer, NULL::numeric(5, 2), NULL::numeric(5, 2), NULL::numeric(5, 2)
+    FROM intra_tl.ebudget_furniture v
+    LEFT JOIN intra_tl.ebudget_monthly_detail md ON md.furniture_equip_id = v.id
+    LEFT JOIN intra_tl.base_sub_branch bsb ON bsb.sub_branch_id = v.base_branch_id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master glm ON glm.gl_code = v.general_ledger_code
+    LEFT JOIN intra_tl.master_data_ebudget_budget_item_master im ON im.id = v.item_master_id
+    LEFT JOIN intra_tl.master_data_ebudget_cost_center_master mc ON v.cost_center_name = mc.cost_center_name
+
+    UNION ALL
+
+    -- =========================================================================
+    -- 7. Tools & Equipment
+    -- =========================================================================
+    SELECT
+        'Tools & Equipment'::character varying,
+        v.document_no, v.budget_year, v.status, v.cancel_reason,
+        v.base_branch_id, bsb.sub_branch_name, v.department_id, mc.cost_center_code, v.cost_center_name, mc.description,
+        v.create_eid, v.create_date, v.modify_eid, v.modify_date,
+        v.general_ledger_code, glm.gl_name, glm.proportion, glm.depreciation,
+        NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying,
+        v.id, v.item_master_id, v.item_name::text, v.description,
+        NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying,
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        COALESCE(v.purchase_price, im.purchase_price),
+        md.id, md.month, md.headcount,
+        NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        md.cost, md.cumulative_depreciation,
+        NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::character varying,
+        NULL::bigint, NULL::integer, NULL::character varying, NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        NULL::integer, NULL::numeric(5, 2), NULL::numeric(5, 2), NULL::numeric(5, 2)
+    FROM intra_tl.ebudget_tools_equipment v
+    LEFT JOIN intra_tl.ebudget_monthly_detail md ON md.tools_equip_id = v.id
+    LEFT JOIN intra_tl.base_sub_branch bsb ON bsb.sub_branch_id = v.base_branch_id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master glm ON glm.gl_code = v.general_ledger_code
+    LEFT JOIN intra_tl.master_data_ebudget_budget_item_master im ON im.id = v.item_master_id
+    LEFT JOIN intra_tl.master_data_ebudget_cost_center_master mc ON v.cost_center_name = mc.cost_center_name
+
+    UNION ALL
+
+    -- =========================================================================
+    -- 8. CAR
+    -- =========================================================================
+    SELECT
+        'CAR'::character varying,
+        v.document_no, v.budget_year, v.status, v.cancel_reason,
+        v.base_branch_id, bsb.sub_branch_name, v.department_id, mc.cost_center_code, v.cost_center_name, mc.description,
+        v.create_eid, v.create_date, v.modify_eid, v.modify_date,
+        v.general_ledger_code, glm.gl_name, glm.proportion, glm.depreciation,
+        NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying,
+        v.id, v.item_master_id, v.item_name::text, v.description,
+        NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying,
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        COALESCE(v.purchase_price, im.purchase_price),
+        md.id, md.month, md.headcount,
+        NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        md.cost, md.cumulative_depreciation,
+        NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::character varying,
+        NULL::bigint, NULL::integer, NULL::character varying, NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        NULL::integer, NULL::numeric(5, 2), NULL::numeric(5, 2), NULL::numeric(5, 2)
+    FROM intra_tl.ebudget_car v
+    LEFT JOIN intra_tl.ebudget_monthly_detail md ON md.car_equip_id = v.id
+    LEFT JOIN intra_tl.base_sub_branch bsb ON bsb.sub_branch_id = v.base_branch_id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master glm ON glm.gl_code = v.general_ledger_code
+    LEFT JOIN intra_tl.master_data_ebudget_budget_item_master im ON im.id = v.item_master_id
+    LEFT JOIN intra_tl.master_data_ebudget_cost_center_master mc ON v.cost_center_name = mc.cost_center_name
+
+    UNION ALL
+
+    -- =========================================================================
+    -- 9. Renovate
+    -- =========================================================================
+    SELECT
+        'Renovate'::character varying,
+        v.document_no, v.budget_year, v.status, v.cancel_reason,
+        v.base_branch_id, bsb.sub_branch_name, v.department_id, mc.cost_center_code, v.cost_center_name, mc.description,
+        v.create_eid, v.create_date, v.modify_eid, v.modify_date,
+        v.general_ledger_code, glm.gl_name, glm.proportion, glm.depreciation,
+        NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying,
+        v.id, v.item_master_id, v.item_name::text, v.description,
+        NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying,
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        COALESCE(v.purchase_price, im.purchase_price),
+        md.id, md.month, md.headcount,
+        NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        md.cost, md.cumulative_depreciation,
+        NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::character varying,
+        NULL::bigint, NULL::integer, NULL::character varying, NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        NULL::integer, NULL::numeric(5, 2), NULL::numeric(5, 2), NULL::numeric(5, 2)
+    FROM intra_tl.ebudget_renovate v
+    LEFT JOIN intra_tl.ebudget_monthly_detail md ON md.renovate_equip_id = v.id
+    LEFT JOIN intra_tl.base_sub_branch bsb ON bsb.sub_branch_id = v.base_branch_id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master glm ON glm.gl_code = v.general_ledger_code
+    LEFT JOIN intra_tl.master_data_ebudget_budget_item_master im ON im.id = v.item_master_id
+    LEFT JOIN intra_tl.master_data_ebudget_cost_center_master mc ON v.cost_center_name = mc.cost_center_name
+
+    UNION ALL
+
+    -- =========================================================================
+    -- 10. Software
+    -- =========================================================================
+    SELECT
+        'Software'::character varying,
+        v.document_no, v.budget_year, v.status, v.cancel_reason,
+        v.base_branch_id, bsb.sub_branch_name, v.department_id, mc.cost_center_code, v.cost_center_name, mc.description,
+        v.create_eid, v.create_date, v.modify_eid, v.modify_date,
+        v.general_ledger_code, glm.gl_name, glm.proportion, glm.depreciation,
+        NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying,
+        v.id, v.item_master_id, v.item_name::text, v.description,
+        NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying,
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        COALESCE(v.purchase_price, im.purchase_price),
+        md.id, md.month, md.headcount,
+        NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        md.cost, md.cumulative_depreciation,
+        NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::character varying,
+        NULL::bigint, NULL::integer, NULL::character varying, NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        NULL::integer, NULL::numeric(5, 2), NULL::numeric(5, 2), NULL::numeric(5, 2)
+    FROM intra_tl.ebudget_software v
+    LEFT JOIN intra_tl.ebudget_monthly_detail md ON md.software_equip_id = v.id
+    LEFT JOIN intra_tl.base_sub_branch bsb ON bsb.sub_branch_id = v.base_branch_id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master glm ON glm.gl_code = v.general_ledger_code
+    LEFT JOIN intra_tl.master_data_ebudget_budget_item_master im ON im.id = v.item_master_id
+    LEFT JOIN intra_tl.master_data_ebudget_cost_center_master mc ON v.cost_center_name = mc.cost_center_name
+
+    UNION ALL
+
+    -- =========================================================================
+    -- 11. GL Entry (EXPENSE)
+    -- =========================================================================
+    SELECT
+        'GL Entry'::character varying,
+        v.document_no, v.budget_year, v.status, v.cancel_reason,
+        v.base_branch_id, bsb.sub_branch_name, v.department_id, mc.cost_center_code, v.cost_center_name, mc.description,
+        v.create_eid, v.create_date, v.modify_eid, v.modify_date,
+        v.general_ledger_code, glm.gl_name,
+        COALESCE(v.proportion, glm.proportion),
+        COALESCE(v.depreciation, glm.depreciation),
+        NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying,
+        v.id, NULL::bigint, v.detail_note::text, NULL::character varying,
+        NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying,
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        gl.id, gl.month, NULL::numeric(10, 2),
+        NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        gl.amount, NULL::numeric(14, 2),
+        gl.amount, gl.cumulative_amount, gl.detail_note,
+        NULL::bigint, NULL::integer, NULL::character varying, NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        NULL::integer, NULL::numeric(5, 2), NULL::numeric(5, 2), NULL::numeric(5, 2)
+    FROM intra_tl.ebudget_gl_entry v
+    LEFT JOIN intra_tl.ebudget_gl_entry_monthly_detail gl ON gl.gl_entry_id = v.id
+    LEFT JOIN intra_tl.base_sub_branch bsb ON bsb.sub_branch_id = v.base_branch_id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master glm ON glm.gl_code = v.general_ledger_code
+    LEFT JOIN intra_tl.master_data_ebudget_cost_center_master mc ON v.cost_center_name = mc.cost_center_name
+
+    UNION ALL
+
+    -- =========================================================================
+    -- 12. Revenue
+    -- =========================================================================
+    SELECT
+        'Revenue'::character varying,
+        v.document_no, v.budget_year, v.status, v.cancel_reason,
+        v.base_branch_id, bsb.sub_branch_name, v.department_id, mc.cost_center_code, v.cost_center_name, mc.description,
+        v.create_eid, v.create_date, v.modify_eid, v.modify_date,
+        v.general_ledger_code, glm.gl_name,
+        COALESCE(v.proportion, glm.proportion),
+        COALESCE(v.depreciation, glm.depreciation),
+        NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying,
+        v.id, NULL::bigint, v.detail_note::text, NULL::character varying,
+        NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying,
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        rv.id, rv.month, NULL::numeric(10, 2),
+        NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        rv.amount, NULL::numeric(14, 2),
+        rv.amount, rv.cumulative_amount, rv.detail_note,
+        NULL::bigint, NULL::integer, NULL::character varying, NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        NULL::integer, NULL::numeric(5, 2), NULL::numeric(5, 2), NULL::numeric(5, 2)
+    FROM intra_tl.ebudget_revenue v
+    LEFT JOIN intra_tl.ebudget_revenue_monthly_detail rv ON rv.revenue_entry_id = v.id
+    LEFT JOIN intra_tl.base_sub_branch bsb ON bsb.sub_branch_id = v.base_branch_id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master glm ON glm.gl_code = v.general_ledger_code
+    LEFT JOIN intra_tl.master_data_ebudget_cost_center_master mc ON v.cost_center_name = mc.cost_center_name
+
+    UNION ALL
+
+    -- =========================================================================
+    -- 13. Budget Plan
+    -- =========================================================================
+    SELECT
+        'Budget Plan'::character varying,
+        v.document_no, v.budget_year, v.status, v.cancel_reason,
+        v.base_branch_id, bsb.sub_branch_name, v.department_id, mc.cost_center_code, v.cost_center_name, mc.description,
+        v.create_eid, v.create_date, v.modify_eid, v.modify_date,
+        v.general_ledger_code, glm.gl_name, glm.proportion, glm.depreciation,
+        NULL::character varying, NULL::character varying,
+        v.budget_category,
+        v.item_code,
+        v.id, NULL::bigint, v.description::text, NULL::character varying,
+        NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying,
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        bp.id, bp.month, NULL::numeric(10, 2),
+        NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        bp.amount, NULL::numeric(14, 2),
+        bp.amount, NULL::numeric(14, 2), NULL::character varying,
+        NULL::bigint, NULL::integer, NULL::character varying, NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        NULL::integer, NULL::numeric(5, 2), NULL::numeric(5, 2), NULL::numeric(5, 2)
+    FROM intra_tl.ebudget_budget_plan_item v
+    LEFT JOIN intra_tl.ebudget_budget_plan_monthly_detail bp ON bp.plan_item_id = v.id
+    LEFT JOIN intra_tl.base_sub_branch bsb ON bsb.sub_branch_id = v.base_branch_id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master glm ON glm.gl_code = v.general_ledger_code
+    LEFT JOIN intra_tl.master_data_ebudget_cost_center_master mc ON v.cost_center_name = mc.cost_center_name
+
+    UNION ALL
+
+    -- =========================================================================
+    -- 14. GL Actual Template
+    -- =========================================================================
+    SELECT
+        'GL Actual Template'::character varying,
+        v.document_no, v.budget_year, v.status, v.cancel_reason,
+        v.base_branch_id, bsb.sub_branch_name, v.department_id, NULL::character varying, NULL::character varying, NULL::character varying,
+        v.create_eid, v.create_date, v.modify_eid, v.modify_date,
+        v.code AS general_ledger_code, v.label AS gl_name, glm.proportion, glm.depreciation,
+        NULL::character varying, NULL::character varying,
+        NULL::character varying,
+        v.code AS item_code,
+        v.id, NULL::bigint, v.label::text, NULL::character varying,
+        NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying, NULL::character varying,
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2), NULL::numeric(12, 2),
+        NULL::bigint AS monthly_detail_id, NULL::smallint AS month, NULL::numeric(10, 2) AS headcount,
+        NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2), NULL::numeric(14, 2),
+        v.annualized_value AS monthly_cost, NULL::numeric(14, 2) AS monthly_depreciation,
+        v.annualized_value AS amount, NULL::numeric(14, 2) AS cumulative_amount, NULL::character varying AS monthly_detail_note,
+        v.template_row_id,
+        v.row_order,
+        v.row_type,
+        v.actual_value,
+        v.per_month_value,
+        v.annualized_value,
+        v.sales_ratio,
+        v.growth_rate,
+        v.actual_month_count,
+        v.growth_pct_1,
+        v.growth_pct_2,
+        v.growth_pct_3
+    FROM intra_tl.ebudget_gl_actual_template v
+    LEFT JOIN intra_tl.base_sub_branch bsb ON bsb.sub_branch_id = v.base_branch_id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master glm ON glm.gl_code = v.code
+)
+SELECT
+    doc_type AS "ประเภท",
+    document_no AS "เลขที่เอกสาร",
+    budget_year AS "ปีงบประมาณ",
+    status AS "สถานะ",
+    cancel_reason AS "เหตุผลการยกเลิก",
+    base_branch_id AS "รหัสสาขา",
+    sub_branch_name AS "ชื่อสาขา",
+    department_id AS "รหัสแผนก",
+    cost_center_code AS "รหัส Cost Center",
+    cost_center_name AS "ชื่อ Cost Center",
+    cost_center_description AS "คำอธิบาย Cost Center",
+    create_eid AS "รหัสผู้สร้าง",
+    create_date AS "วันที่สร้าง",
+    modify_eid AS "รหัสผู้แก้ไข",
+    modify_date AS "วันที่แก้ไขล่าสุด",
+    general_ledger_code AS "รหัส GL",
+    gl_name AS "ชื่อบัญชี GL",
+    gl_proportion AS "สัดส่วน GL (%)",
+    gl_depreciation AS "อัตราค่าเสื่อม GL (%)",
+    position_allowance_gl_code AS "รหัส GL ค่าวัดระดับ",
+    position_allowance_gl_name AS "ชื่อ GL ค่าวัดระดับ",
+    budget_category AS "หมวดงบประมาณ",
+    item_code AS "รหัสรายการ",
+    item_id AS "ID รายการ",
+    item_master_id AS "ID Item Master",
+    item_detail AS "รายละเอียด",
+    description AS "รายละเอียดเพิ่มเติม",
+    adjustment_type AS "ประเภทปรับตำแหน่ง",
+    old_position_name AS "ตำแหน่งเดิม",
+    old_description AS "คำอธิบายตำแหน่งเดิม",
+    new_position_name AS "ตำแหน่งใหม่",
+    new_description AS "คำอธิบายตำแหน่งใหม่",
+    old_salary AS "เงินเดือนเดิม",
+    old_allowance AS "ค่าวัดระดับเดิม",
+    new_salary AS "เงินเดือนใหม่",
+    new_allowance AS "ค่าวัดระดับใหม่",
+    diff_salary AS "ผลต่างเงินเดือน",
+    diff_allowance AS "ผลต่างค่าวัดระดับ",
+    salary AS "เงินเดือน",
+    position_allowance AS "ค่าวัดระดับ/ตำแหน่ง",
+    estimated_shift_allowance AS "ค่าเวรโดยประมาณ",
+    total_salary AS "เงินเดือนรวม",
+    purchase_price AS "ราคาซื้อ",
+    monthly_detail_id AS "ID รายเดือน",
+    month AS "เดือน",
+    headcount AS "จำนวน (คน/ชิ้น)",
+    monthly_salary AS "เงินเดือนรายเดือน",
+    monthly_allowance AS "ค่าวัดระดับรายเดือน",
+    monthly_new_salary AS "เงินเดือนใหม่/ด.",
+    monthly_new_allowance AS "ค่าวัดระดับใหม่/ด.",
+    monthly_diff_salary AS "ผลต่างเงินเดือน/ด.",
+    monthly_diff_allowance AS "ผลต่างค่าวัดระดับ/ด.",
+    monthly_cost AS "งบประมาณรายเดือน",
+    monthly_depreciation AS "ค่าเสื่อมสะสม/เดือน",
+    amount AS "จำนวนเงิน",
+    cumulative_amount AS "ยอดสะสมระหว่างเดือน",
+    monthly_detail_note AS "รายละเอียดรายเดือน",
+    template_row_id AS "ID แถวเทมเพลต GL",
+    row_order AS "ลำดับแถว",
+    row_type,
+    actual_value AS "ยอด Act จริง",
+    per_month_value AS "ยอดเฉลี่ยต่อเดือน",
+    annualized_value AS "ประมาณการรายปี (x12)",
+    sales_ratio AS "สัดส่วน/ยอดขาย (%)",
+    growth_rate AS "% การเติบโต",
+    actual_month_count AS "จำนวนเดือนข้อมูลจริง",
+    growth_pct_1 AS "% การเติบโต 1",
+    growth_pct_2 AS "% การเติบโต 2",
+    growth_pct_3 AS "% การเติบโต 3",
+    -- คอลัมน์รวมยอดสุทธิต่อเดือนสำหรับทำ Pivot (เทียบเท่า logic หน้า Dashboard และแก้ไขช่องโหว่จากสูตรเดิม)
+    CASE
+        -- 1. กลุ่ม Fix Assets (7 หมวด): ถ้ามีอัตราค่าเสื่อม GL (> 0) ใช้ค่าเสื่อมสะสม/เดือนจากระบบ (md.cumulative_depreciation)
+        --    ถ้าอัตราค่าเสื่อม = 0 หรือ NULL ใช้ยอดงบรายเดือน (md.cost) ตาม Logic หน้า Dashboard
+        WHEN doc_type IN (
+            'Medical Equipment', 'Computer Equipment', 'Furniture',
+            'Tools & Equipment', 'CAR', 'Renovate', 'Software'
+        ) THEN
+            CASE
+                WHEN COALESCE(gl_depreciation, 0) > 0 THEN COALESCE(monthly_depreciation, 0)
+                ELSE COALESCE(monthly_cost, 0)
+            END
+
+        -- 2. หมวดรายเดือนปกติ + Manpower แยกบรรทัด + รายได้ + Budget Plan:
+        --    ใช้ monthly_cost ซึ่ง CTE แยก Salary_Line / Allowance_Line / Diff มาตรงๆ จากฐานข้อมูลแล้ว
+        --    (ป้องกันหารด้วย 0 / NULL กรณี Position Adjustment ที่ผลต่างสุทธิเป็น 0 และครอบคลุม Budget Plan)
+        WHEN doc_type IN (
+            'VET Manpower', 'NON VET Manpower', 'Position Adjustment',
+            'GL Entry', 'Revenue', 'Budget Plan'
+        ) THEN COALESCE(monthly_cost, 0)
+
+        -- 3. GL Actual Template (เป็นยอด Baseline/Actual ทั้งปี x12 บนแถว month IS NULL รวมถึง header/subtotal):
+        --    ตั้งเป็น 0 เพื่อไม่ให้นำ Actual ทั้งปีไปบวกซ้ำกับงบประมาณรายเดือนใน Pivot และไม่หลุดเข้าสูตรค่าเสื่อม
+        ELSE 0::numeric(14, 2)
+    END AS "ยอดงบประมาณรวม (Pivot)"
+FROM all_ebudget_data
+WHERE status <> 'CANCELLED'   -- (แนะนำ) เปิดใช้เพื่อตัดเอกสารที่ยกเลิกออก
+--   AND budget_year = 2025       -- (แนะนำ) เปิดใช้เพื่อกรองเฉพาะปีงบประมาณ
+ORDER BY create_date DESC, month, item_id, row_type DESC NULLS LAST;

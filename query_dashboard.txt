@@ -1,0 +1,485 @@
+-- ============================================================================
+-- E-Budget Dashboard Consolidated / Multi-Branch / Single-Branch P&L Query (PostgreSQL)
+-- Matches budget_app/dashboard_service.py 100% across all 181 template rows:
+--   * Restricted strictly to TLPH branches by default (MY-* excluded)
+--   * Supports filtering: NULL / '' / 'ALL' (all TLPH), single ('PM'), or comma-separated ('PM,R5')
+--   * Filters active budget_year and excludes CANCELLED documents
+--   * Prevents double-counting GL Actual Template documents & F* subtotals
+--   * Preserves negative actual/growth values & consolidated weighted growth
+--   * Computes full P&L hierarchy: FH2, FH3, FH1-H3, SP-B, H6, H8, FH8
+--   * Rounds every numeric output column strictly to 2 decimal places
+-- ============================================================================
+WITH params AS (
+    SELECT
+        COALESCE(
+            (SELECT s.active_budget_year FROM intra_tl.ebudget_system_settings s ORDER BY s.id DESC LIMIT 1),
+            2025
+        )::integer AS target_budget_year,   -- เปลี่ยนปีงบประมาณตรงนี้ (เช่น 2025, 2026) หากไม่ต้องการอ้างอิงปีล่าสุดของระบบ
+        'TLPH'::varchar AS target_branch_group, -- ใส่ 'TLPH' เพื่อจำกัดเฉพาะกลุ่มสาขา TLPH หรือใส่ NULL / '' หากต้องการค้นทุกกลุ่มสาขา (รวม MY-*)
+        NULL::varchar AS target_sub_branch_id   -- กรองสาขา: ใส่ NULL / '' / 'ALL' = ทุกสาขา | สาขาเดียว เช่น 'PM' | หลายสาขาคั่นด้วย , เช่น 'PM,R5' หรือ 'SR,R2,BN'
+),
+branch_filter_mode AS (
+    SELECT
+        NULLIF(UPPER(TRIM(COALESCE(p.target_branch_group, ''))), '') AS branch_group,
+        NULLIF(UPPER(TRIM(COALESCE(p.target_sub_branch_id, ''))), '') AS raw_sub_branch_list
+    FROM params p
+),
+requested_branches AS (
+    SELECT DISTINCT UPPER(TRIM(tok)) AS branch_code
+    FROM branch_filter_mode fm
+    CROSS JOIN LATERAL unnest(string_to_array(fm.raw_sub_branch_list, ',')) AS tok
+    WHERE fm.raw_sub_branch_list IS NOT NULL
+      AND fm.raw_sub_branch_list <> 'ALL'
+      AND TRIM(tok) <> ''
+),
+target_branches AS MATERIALIZED (
+    SELECT DISTINCT b.sub_branch_id
+    FROM intra_tl.base_sub_branch b
+    CROSS JOIN branch_filter_mode fm
+    WHERE (fm.branch_group IS NULL OR UPPER(TRIM(b.branch_id_id)) = fm.branch_group)
+      AND (
+          fm.raw_sub_branch_list IS NULL
+          OR fm.raw_sub_branch_list = 'ALL'
+          OR EXISTS (
+              SELECT 1
+              FROM requested_branches rb
+              WHERE rb.branch_code = UPPER(TRIM(b.sub_branch_id))
+          )
+      )
+),
+raw_monthly_budget AS (
+    -- 1. VET Manpower
+    SELECT TRIM(v.general_ledger_code) AS gl_code, md.month AS month_num, COALESCE(md.cost, 0)::numeric(14, 2) AS amt
+    FROM intra_tl.ebudget_vet_manpower v
+    INNER JOIN intra_tl.ebudget_monthly_detail md ON md.vet_budget_id = v.id
+    INNER JOIN target_branches tb ON tb.sub_branch_id = v.base_branch_id
+    CROSS JOIN params p
+    WHERE v.budget_year = p.target_budget_year
+      AND COALESCE(v.status, '') <> 'CANCELLED'
+      AND v.general_ledger_code IS NOT NULL AND TRIM(v.general_ledger_code) <> ''
+
+    UNION ALL
+    -- 2.1 NON VET Manpower (Salary)
+    SELECT TRIM(v.salary_general_ledger_code), md.month, COALESCE(md.salary, 0)::numeric(14, 2)
+    FROM intra_tl.ebudget_non_vet_manpower v
+    INNER JOIN intra_tl.ebudget_monthly_detail md ON md.non_vet_budget_id = v.id
+    INNER JOIN target_branches tb ON tb.sub_branch_id = v.base_branch_id
+    CROSS JOIN params p
+    WHERE v.budget_year = p.target_budget_year
+      AND COALESCE(v.status, '') <> 'CANCELLED'
+      AND v.salary_general_ledger_code IS NOT NULL AND TRIM(v.salary_general_ledger_code) <> ''
+
+    UNION ALL
+    -- 2.2 NON VET Manpower (Position Allowance)
+    SELECT TRIM(v.position_allowance_general_ledger_code), md.month, COALESCE(md.position_allowance, 0)::numeric(14, 2)
+    FROM intra_tl.ebudget_non_vet_manpower v
+    INNER JOIN intra_tl.ebudget_monthly_detail md ON md.non_vet_budget_id = v.id
+    INNER JOIN target_branches tb ON tb.sub_branch_id = v.base_branch_id
+    CROSS JOIN params p
+    WHERE v.budget_year = p.target_budget_year
+      AND COALESCE(v.status, '') <> 'CANCELLED'
+      AND v.position_allowance_general_ledger_code IS NOT NULL AND TRIM(v.position_allowance_general_ledger_code) <> ''
+
+    UNION ALL
+    -- 3.1 Position Adjustment (Salary Diff)
+    SELECT TRIM(v.salary_general_ledger_code), md.month, (COALESCE(md.new_salary, 0) - COALESCE(md.salary, 0))::numeric(14, 2)
+    FROM intra_tl.ebudget_position_adjustment v
+    INNER JOIN intra_tl.ebudget_monthly_detail md ON md.position_adj_id = v.id
+    INNER JOIN target_branches tb ON tb.sub_branch_id = v.base_branch_id
+    CROSS JOIN params p
+    WHERE v.budget_year = p.target_budget_year
+      AND COALESCE(v.status, '') <> 'CANCELLED'
+      AND v.salary_general_ledger_code IS NOT NULL AND TRIM(v.salary_general_ledger_code) <> ''
+
+    UNION ALL
+    -- 3.2 Position Adjustment (Position Allowance Diff)
+    SELECT TRIM(v.allowance_general_ledger_code), md.month, (COALESCE(md.new_allowance, 0) - COALESCE(md.position_allowance, 0))::numeric(14, 2)
+    FROM intra_tl.ebudget_position_adjustment v
+    INNER JOIN intra_tl.ebudget_monthly_detail md ON md.position_adj_id = v.id
+    INNER JOIN target_branches tb ON tb.sub_branch_id = v.base_branch_id
+    CROSS JOIN params p
+    WHERE v.budget_year = p.target_budget_year
+      AND COALESCE(v.status, '') <> 'CANCELLED'
+      AND v.allowance_general_ledger_code IS NOT NULL AND TRIM(v.allowance_general_ledger_code) <> ''
+
+    UNION ALL
+    -- 4. Medical Equipment
+    SELECT TRIM(v.general_ledger_code), md.month,
+           CASE WHEN COALESCE(gl.depreciation, 0) > 0 THEN COALESCE(md.cumulative_depreciation, 0) ELSE COALESCE(md.cost, 0) END::numeric(14, 2)
+    FROM intra_tl.ebudget_medical_equipment v
+    INNER JOIN intra_tl.ebudget_monthly_detail md ON md.med_equip_id = v.id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master gl ON gl.gl_code = v.general_ledger_code
+    INNER JOIN target_branches tb ON tb.sub_branch_id = v.base_branch_id
+    CROSS JOIN params p
+    WHERE v.budget_year = p.target_budget_year
+      AND COALESCE(v.status, '') <> 'CANCELLED'
+      AND v.general_ledger_code IS NOT NULL AND TRIM(v.general_ledger_code) <> ''
+
+    UNION ALL
+    -- 5. Computer Equipment
+    SELECT TRIM(v.general_ledger_code), md.month,
+           CASE WHEN COALESCE(gl.depreciation, 0) > 0 THEN COALESCE(md.cumulative_depreciation, 0) ELSE COALESCE(md.cost, 0) END::numeric(14, 2)
+    FROM intra_tl.ebudget_computer_equipment v
+    INNER JOIN intra_tl.ebudget_monthly_detail md ON md.comp_equip_id = v.id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master gl ON gl.gl_code = v.general_ledger_code
+    INNER JOIN target_branches tb ON tb.sub_branch_id = v.base_branch_id
+    CROSS JOIN params p
+    WHERE v.budget_year = p.target_budget_year
+      AND COALESCE(v.status, '') <> 'CANCELLED'
+      AND v.general_ledger_code IS NOT NULL AND TRIM(v.general_ledger_code) <> ''
+
+    UNION ALL
+    -- 6. Furniture
+    SELECT TRIM(v.general_ledger_code), md.month,
+           CASE WHEN COALESCE(gl.depreciation, 0) > 0 THEN COALESCE(md.cumulative_depreciation, 0) ELSE COALESCE(md.cost, 0) END::numeric(14, 2)
+    FROM intra_tl.ebudget_furniture v
+    INNER JOIN intra_tl.ebudget_monthly_detail md ON md.furniture_equip_id = v.id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master gl ON gl.gl_code = v.general_ledger_code
+    INNER JOIN target_branches tb ON tb.sub_branch_id = v.base_branch_id
+    CROSS JOIN params p
+    WHERE v.budget_year = p.target_budget_year
+      AND COALESCE(v.status, '') <> 'CANCELLED'
+      AND v.general_ledger_code IS NOT NULL AND TRIM(v.general_ledger_code) <> ''
+
+    UNION ALL
+    -- 7. Tools & Equipment
+    SELECT TRIM(v.general_ledger_code), md.month,
+           CASE WHEN COALESCE(gl.depreciation, 0) > 0 THEN COALESCE(md.cumulative_depreciation, 0) ELSE COALESCE(md.cost, 0) END::numeric(14, 2)
+    FROM intra_tl.ebudget_tools_equipment v
+    INNER JOIN intra_tl.ebudget_monthly_detail md ON md.tools_equip_id = v.id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master gl ON gl.gl_code = v.general_ledger_code
+    INNER JOIN target_branches tb ON tb.sub_branch_id = v.base_branch_id
+    CROSS JOIN params p
+    WHERE v.budget_year = p.target_budget_year
+      AND COALESCE(v.status, '') <> 'CANCELLED'
+      AND v.general_ledger_code IS NOT NULL AND TRIM(v.general_ledger_code) <> ''
+
+    UNION ALL
+    -- 8. CAR
+    SELECT TRIM(v.general_ledger_code), md.month,
+           CASE WHEN COALESCE(gl.depreciation, 0) > 0 THEN COALESCE(md.cumulative_depreciation, 0) ELSE COALESCE(md.cost, 0) END::numeric(14, 2)
+    FROM intra_tl.ebudget_car v
+    INNER JOIN intra_tl.ebudget_monthly_detail md ON md.car_equip_id = v.id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master gl ON gl.gl_code = v.general_ledger_code
+    INNER JOIN target_branches tb ON tb.sub_branch_id = v.base_branch_id
+    CROSS JOIN params p
+    WHERE v.budget_year = p.target_budget_year
+      AND COALESCE(v.status, '') <> 'CANCELLED'
+      AND v.general_ledger_code IS NOT NULL AND TRIM(v.general_ledger_code) <> ''
+
+    UNION ALL
+    -- 9. Renovate
+    SELECT TRIM(v.general_ledger_code), md.month,
+           CASE WHEN COALESCE(gl.depreciation, 0) > 0 THEN COALESCE(md.cumulative_depreciation, 0) ELSE COALESCE(md.cost, 0) END::numeric(14, 2)
+    FROM intra_tl.ebudget_renovate v
+    INNER JOIN intra_tl.ebudget_monthly_detail md ON md.renovate_equip_id = v.id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master gl ON gl.gl_code = v.general_ledger_code
+    INNER JOIN target_branches tb ON tb.sub_branch_id = v.base_branch_id
+    CROSS JOIN params p
+    WHERE v.budget_year = p.target_budget_year
+      AND COALESCE(v.status, '') <> 'CANCELLED'
+      AND v.general_ledger_code IS NOT NULL AND TRIM(v.general_ledger_code) <> ''
+
+    UNION ALL
+    -- 10. Software
+    SELECT TRIM(v.general_ledger_code), md.month,
+           CASE WHEN COALESCE(gl.depreciation, 0) > 0 THEN COALESCE(md.cumulative_depreciation, 0) ELSE COALESCE(md.cost, 0) END::numeric(14, 2)
+    FROM intra_tl.ebudget_software v
+    INNER JOIN intra_tl.ebudget_monthly_detail md ON md.software_equip_id = v.id
+    LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master gl ON gl.gl_code = v.general_ledger_code
+    INNER JOIN target_branches tb ON tb.sub_branch_id = v.base_branch_id
+    CROSS JOIN params p
+    WHERE v.budget_year = p.target_budget_year
+      AND COALESCE(v.status, '') <> 'CANCELLED'
+      AND v.general_ledger_code IS NOT NULL AND TRIM(v.general_ledger_code) <> ''
+
+    UNION ALL
+    -- 11. GL Entry
+    SELECT TRIM(v.general_ledger_code), md.month,
+           CASE WHEN COALESCE(v.depreciation, 0) > 0 THEN COALESCE(md.cumulative_amount, 0) ELSE COALESCE(md.amount, 0) END::numeric(14, 2)
+    FROM intra_tl.ebudget_gl_entry v
+    INNER JOIN intra_tl.ebudget_gl_entry_monthly_detail md ON md.gl_entry_id = v.id
+    INNER JOIN target_branches tb ON tb.sub_branch_id = v.base_branch_id
+    CROSS JOIN params p
+    WHERE v.budget_year = p.target_budget_year
+      AND COALESCE(v.status, '') <> 'CANCELLED'
+      AND v.general_ledger_code IS NOT NULL AND TRIM(v.general_ledger_code) <> ''
+
+    UNION ALL
+    -- 12. Revenue
+    SELECT TRIM(v.general_ledger_code), md.month,
+           CASE WHEN COALESCE(v.depreciation, 0) > 0 THEN COALESCE(md.cumulative_amount, 0) ELSE COALESCE(md.amount, 0) END::numeric(14, 2)
+    FROM intra_tl.ebudget_revenue v
+    INNER JOIN intra_tl.ebudget_revenue_monthly_detail md ON md.revenue_entry_id = v.id
+    INNER JOIN target_branches tb ON tb.sub_branch_id = v.base_branch_id
+    CROSS JOIN params p
+    WHERE v.budget_year = p.target_budget_year
+      AND COALESCE(v.status, '') <> 'CANCELLED'
+      AND v.general_ledger_code IS NOT NULL AND TRIM(v.general_ledger_code) <> ''
+
+    UNION ALL
+    -- 13. Budget Plan Item
+    SELECT TRIM(v.general_ledger_code), md.month, COALESCE(md.amount, 0)::numeric(14, 2)
+    FROM intra_tl.ebudget_budget_plan_item v
+    INNER JOIN intra_tl.ebudget_budget_plan_monthly_detail md ON md.plan_item_id = v.id
+    INNER JOIN target_branches tb ON tb.sub_branch_id = v.base_branch_id
+    CROSS JOIN params p
+    WHERE v.budget_year = p.target_budget_year
+      AND COALESCE(v.status, '') <> 'CANCELLED'
+      AND v.general_ledger_code IS NOT NULL AND TRIM(v.general_ledger_code) <> ''
+),
+budget_by_gl AS (
+    SELECT
+        gl_code,
+        ROUND(SUM(CASE WHEN month_num = 1 THEN amt ELSE 0 END), 2) AS m01,
+        ROUND(SUM(CASE WHEN month_num = 2 THEN amt ELSE 0 END), 2) AS m02,
+        ROUND(SUM(CASE WHEN month_num = 3 THEN amt ELSE 0 END), 2) AS m03,
+        ROUND(SUM(CASE WHEN month_num = 4 THEN amt ELSE 0 END), 2) AS m04,
+        ROUND(SUM(CASE WHEN month_num = 5 THEN amt ELSE 0 END), 2) AS m05,
+        ROUND(SUM(CASE WHEN month_num = 6 THEN amt ELSE 0 END), 2) AS m06,
+        ROUND(SUM(CASE WHEN month_num = 7 THEN amt ELSE 0 END), 2) AS m07,
+        ROUND(SUM(CASE WHEN month_num = 8 THEN amt ELSE 0 END), 2) AS m08,
+        ROUND(SUM(CASE WHEN month_num = 9 THEN amt ELSE 0 END), 2) AS m09,
+        ROUND(SUM(CASE WHEN month_num = 10 THEN amt ELSE 0 END), 2) AS m10,
+        ROUND(SUM(CASE WHEN month_num = 11 THEN amt ELSE 0 END), 2) AS m11,
+        ROUND(SUM(CASE WHEN month_num = 12 THEN amt ELSE 0 END), 2) AS m12
+    FROM raw_monthly_budget
+    GROUP BY gl_code
+),
+-- Pick at most 1 active non-CANCELLED GL Actual Template document per TLPH branch (APPROVED preferred, else latest)
+winning_gl_actual_docs AS (
+    SELECT DISTINCT ON (t.base_branch_id)
+           t.base_branch_id,
+           t.document_no
+    FROM intra_tl.ebudget_gl_actual_template t
+    INNER JOIN target_branches tb ON tb.sub_branch_id = t.base_branch_id
+    CROSS JOIN params p
+    WHERE t.budget_year = p.target_budget_year
+      AND COALESCE(t.status, '') <> 'CANCELLED'
+    ORDER BY t.base_branch_id ASC,
+             CASE WHEN t.status = 'APPROVED' THEN 0 ELSE 1 END,
+             t.modify_date DESC NULLS LAST,
+             t.create_date DESC NULLS LAST,
+             t.id DESC
+),
+actual_doc_meta AS (
+    SELECT COUNT(*)::integer AS branch_doc_count FROM winning_gl_actual_docs
+),
+actual_rows_raw AS (
+    SELECT
+        t.base_branch_id,
+        t.row_order,
+        TRIM(COALESCE(t.code, '')) AS code,
+        t.row_type,
+        ROUND(COALESCE(t.actual_value, 0)::numeric, 2) AS actual_value,
+        ROUND(COALESCE(t.per_month_value, 0)::numeric, 2) AS per_month_value,
+        ROUND(COALESCE(t.annualized_value, 0)::numeric, 2) AS annualized_value,
+        ROUND(COALESCE(t.sales_ratio, 0)::numeric, 2) AS sales_ratio,
+        ROUND(COALESCE(t.growth_rate, 0)::numeric, 2) AS growth_rate
+    FROM intra_tl.ebudget_gl_actual_template t
+    INNER JOIN winning_gl_actual_docs wd
+        ON wd.base_branch_id = t.base_branch_id AND wd.document_no = t.document_no
+    CROSS JOIN params p
+    WHERE t.budget_year = p.target_budget_year
+      AND COALESCE(t.status, '') <> 'CANCELLED'
+),
+fh101_actual_total AS (
+    SELECT COALESCE(SUM(actual_value), 0)::numeric(14, 2) AS total_actual
+    FROM actual_rows_raw
+    WHERE code = 'FH101'
+),
+actual_aggregated AS (
+    SELECT
+        r.row_order,
+        MAX(r.code) AS code,
+        MAX(r.row_type) AS row_type,
+        ROUND(SUM(r.actual_value), 2) AS act_real,
+        ROUND(SUM(r.per_month_value), 2) AS per_month,
+        ROUND(SUM(r.annualized_value), 2) AS annualized_12,
+        CASE
+            WHEN m.branch_doc_count <= 1 THEN ROUND(MAX(r.sales_ratio), 2)
+            WHEN f.total_actual <> 0 AND (MAX(r.row_type) <> 'header' OR MAX(r.code) IN ('H6', 'H7', 'H8'))
+                THEN ROUND((SUM(r.actual_value) * 100.0) / f.total_actual, 2)
+            ELSE 0.00
+        END AS sales_ratio,
+        CASE
+            WHEN m.branch_doc_count <= 1 THEN ROUND(MAX(r.growth_rate), 2)
+            WHEN SUM(CASE WHEN ABS(r.actual_value) > 0 THEN ABS(r.actual_value) ELSE 0 END) > 0
+                THEN ROUND(
+                    SUM(CASE WHEN ABS(r.actual_value) > 0 THEN r.growth_rate * ABS(r.actual_value) ELSE 0 END)
+                    / SUM(CASE WHEN ABS(r.actual_value) > 0 THEN ABS(r.actual_value) ELSE 0 END),
+                    2
+                )
+            WHEN COUNT(CASE WHEN r.growth_rate <> 0 THEN 1 END) > 0
+                THEN ROUND(AVG(CASE WHEN r.growth_rate <> 0 THEN r.growth_rate END), 2)
+            ELSE 0.00
+        END AS growth_rate
+    FROM actual_rows_raw r
+    CROSS JOIN actual_doc_meta m
+    CROSS JOIN fh101_actual_total f
+    WHERE r.row_order IS NOT NULL
+    GROUP BY r.row_order, m.branch_doc_count, f.total_actual
+),
+section_blocks (footer_code, start_ord, end_ord) AS (
+    VALUES
+        ('FH101', 3, 12), ('FH201', 16, 18), ('FH202', 21, 32), ('FH203', 35, 35),
+        ('FH301', 40, 57), ('FH302', 60, 62), ('FH303', 65, 68), ('FH304', 71, 73),
+        ('FH305', 76, 78), ('FH306', 81, 83), ('FH307', 86, 92), ('FH308', 95, 105),
+        ('FH309', 108, 110), ('FH310', 113, 115), ('FH311', 118, 126), ('FH312', 129, 135),
+        ('FH313', 138, 140), ('FH410', 145, 158), ('FH401', 161, 162), ('FH5', 166, 167),
+        ('FH7', 172, 177)
+),
+base_rows AS (
+    SELECT
+        tr.row_order,
+        TRIM(COALESCE(tr.code, '')) AS code,
+        COALESCE(tr.label, '') AS gl_name,
+        tr.row_type,
+        sb.footer_code AS section_footer_code,
+        CASE WHEN tr.row_type = 'gl' THEN COALESCE(bg.m01, 0.00) ELSE 0.00 END AS m01,
+        CASE WHEN tr.row_type = 'gl' THEN COALESCE(bg.m02, 0.00) ELSE 0.00 END AS m02,
+        CASE WHEN tr.row_type = 'gl' THEN COALESCE(bg.m03, 0.00) ELSE 0.00 END AS m03,
+        CASE WHEN tr.row_type = 'gl' THEN COALESCE(bg.m04, 0.00) ELSE 0.00 END AS m04,
+        CASE WHEN tr.row_type = 'gl' THEN COALESCE(bg.m05, 0.00) ELSE 0.00 END AS m05,
+        CASE WHEN tr.row_type = 'gl' THEN COALESCE(bg.m06, 0.00) ELSE 0.00 END AS m06,
+        CASE WHEN tr.row_type = 'gl' THEN COALESCE(bg.m07, 0.00) ELSE 0.00 END AS m07,
+        CASE WHEN tr.row_type = 'gl' THEN COALESCE(bg.m08, 0.00) ELSE 0.00 END AS m08,
+        CASE WHEN tr.row_type = 'gl' THEN COALESCE(bg.m09, 0.00) ELSE 0.00 END AS m09,
+        CASE WHEN tr.row_type = 'gl' THEN COALESCE(bg.m10, 0.00) ELSE 0.00 END AS m10,
+        CASE WHEN tr.row_type = 'gl' THEN COALESCE(bg.m11, 0.00) ELSE 0.00 END AS m11,
+        CASE WHEN tr.row_type = 'gl' THEN COALESCE(bg.m12, 0.00) ELSE 0.00 END AS m12
+    FROM intra_tl.master_data_ebudget_gl_actual_template_row tr
+    LEFT JOIN budget_by_gl bg ON bg.gl_code = TRIM(COALESCE(tr.code, ''))
+    LEFT JOIN section_blocks sb ON tr.row_order BETWEEN sb.start_ord AND sb.end_ord
+),
+section_totals AS (
+    SELECT
+        section_footer_code AS code,
+        ROUND(SUM(m01), 2) AS m01, ROUND(SUM(m02), 2) AS m02, ROUND(SUM(m03), 2) AS m03, ROUND(SUM(m04), 2) AS m04,
+        ROUND(SUM(m05), 2) AS m05, ROUND(SUM(m06), 2) AS m06, ROUND(SUM(m07), 2) AS m07, ROUND(SUM(m08), 2) AS m08,
+        ROUND(SUM(m09), 2) AS m09, ROUND(SUM(m10), 2) AS m10, ROUND(SUM(m11), 2) AS m11, ROUND(SUM(m12), 2) AS m12
+    FROM base_rows
+    WHERE row_type = 'gl' AND section_footer_code IS NOT NULL
+    GROUP BY section_footer_code
+),
+pnl_components AS (
+    SELECT code, m01, m02, m03, m04, m05, m06, m07, m08, m09, m10, m11, m12
+    FROM section_totals
+    UNION ALL
+    SELECT code, m01, m02, m03, m04, m05, m06, m07, m08, m09, m10, m11, m12
+    FROM base_rows
+    WHERE code IN ('42000005', '61700001')
+),
+-- Higher-level P&L rollups expressed as exact signed linear combinations of rounded section/standalone rows
+pnl_formula (target_code, component_code, sign) AS (
+    VALUES
+        ('FH2', 'FH201', 1), ('FH2', 'FH202', 1), ('FH2', 'FH203', 1),
+        ('FH3', 'FH301', 1), ('FH3', 'FH302', 1), ('FH3', 'FH303', 1), ('FH3', 'FH304', 1),
+        ('FH3', 'FH305', 1), ('FH3', 'FH306', 1), ('FH3', 'FH307', 1), ('FH3', 'FH308', 1),
+        ('FH3', 'FH309', 1), ('FH3', 'FH310', 1), ('FH3', 'FH311', 1), ('FH3', 'FH312', 1), ('FH3', 'FH313', 1),
+        ('FH1-H3', 'FH101', 1),
+        ('FH1-H3', 'FH201', -1), ('FH1-H3', 'FH202', -1), ('FH1-H3', 'FH203', -1),
+        ('FH1-H3', 'FH301', -1), ('FH1-H3', 'FH302', -1), ('FH1-H3', 'FH303', -1), ('FH1-H3', 'FH304', -1),
+        ('FH1-H3', 'FH305', -1), ('FH1-H3', 'FH306', -1), ('FH1-H3', 'FH307', -1), ('FH1-H3', 'FH308', -1),
+        ('FH1-H3', 'FH309', -1), ('FH1-H3', 'FH310', -1), ('FH1-H3', 'FH311', -1), ('FH1-H3', 'FH312', -1), ('FH1-H3', 'FH313', -1),
+        ('SP-B', 'FH101', 1),
+        ('SP-B', 'FH201', -1), ('SP-B', 'FH202', -1), ('SP-B', 'FH203', -1),
+        ('SP-B', 'FH301', -1), ('SP-B', 'FH302', -1), ('SP-B', 'FH303', -1), ('SP-B', 'FH304', -1),
+        ('SP-B', 'FH305', -1), ('SP-B', 'FH306', -1), ('SP-B', 'FH307', -1), ('SP-B', 'FH308', -1),
+        ('SP-B', 'FH309', -1), ('SP-B', 'FH310', -1), ('SP-B', 'FH311', -1), ('SP-B', 'FH312', -1), ('SP-B', 'FH313', -1),
+        ('SP-B', 'FH410', -1), ('SP-B', 'FH401', -1),
+        ('H6', 'FH101', 1),
+        ('H6', 'FH201', -1), ('H6', 'FH202', -1), ('H6', 'FH203', -1),
+        ('H6', 'FH301', -1), ('H6', 'FH302', -1), ('H6', 'FH303', -1), ('H6', 'FH304', -1),
+        ('H6', 'FH305', -1), ('H6', 'FH306', -1), ('H6', 'FH307', -1), ('H6', 'FH308', -1),
+        ('H6', 'FH309', -1), ('H6', 'FH310', -1), ('H6', 'FH311', -1), ('H6', 'FH312', -1), ('H6', 'FH313', -1),
+        ('H6', 'FH410', -1), ('H6', 'FH401', -1), ('H6', 'FH5', -1),
+        ('H8', 'FH101', 1),
+        ('H8', 'FH201', -1), ('H8', 'FH202', -1), ('H8', 'FH203', -1),
+        ('H8', 'FH301', -1), ('H8', 'FH302', -1), ('H8', 'FH303', -1), ('H8', 'FH304', -1),
+        ('H8', 'FH305', -1), ('H8', 'FH306', -1), ('H8', 'FH307', -1), ('H8', 'FH308', -1),
+        ('H8', 'FH309', -1), ('H8', 'FH310', -1), ('H8', 'FH311', -1), ('H8', 'FH312', -1), ('H8', 'FH313', -1),
+        ('H8', 'FH410', -1), ('H8', 'FH401', -1), ('H8', 'FH5', -1), ('H8', '42000005', 1), ('H8', 'FH7', -1),
+        ('FH8', 'FH101', 1),
+        ('FH8', 'FH201', -1), ('FH8', 'FH202', -1), ('FH8', 'FH203', -1),
+        ('FH8', 'FH301', -1), ('FH8', 'FH302', -1), ('FH8', 'FH303', -1), ('FH8', 'FH304', -1),
+        ('FH8', 'FH305', -1), ('FH8', 'FH306', -1), ('FH8', 'FH307', -1), ('FH8', 'FH308', -1),
+        ('FH8', 'FH309', -1), ('FH8', 'FH310', -1), ('FH8', 'FH311', -1), ('FH8', 'FH312', -1), ('FH8', 'FH313', -1),
+        ('FH8', 'FH410', -1), ('FH8', 'FH401', -1), ('FH8', 'FH5', -1), ('FH8', '42000005', 1), ('FH8', 'FH7', -1), ('FH8', '61700001', -1)
+),
+composite_totals AS (
+    SELECT
+        pf.target_code AS code,
+        ROUND(SUM(pc.m01 * pf.sign), 2) AS m01, ROUND(SUM(pc.m02 * pf.sign), 2) AS m02,
+        ROUND(SUM(pc.m03 * pf.sign), 2) AS m03, ROUND(SUM(pc.m04 * pf.sign), 2) AS m04,
+        ROUND(SUM(pc.m05 * pf.sign), 2) AS m05, ROUND(SUM(pc.m06 * pf.sign), 2) AS m06,
+        ROUND(SUM(pc.m07 * pf.sign), 2) AS m07, ROUND(SUM(pc.m08 * pf.sign), 2) AS m08,
+        ROUND(SUM(pc.m09 * pf.sign), 2) AS m09, ROUND(SUM(pc.m10 * pf.sign), 2) AS m10,
+        ROUND(SUM(pc.m11 * pf.sign), 2) AS m11, ROUND(SUM(pc.m12 * pf.sign), 2) AS m12
+    FROM pnl_formula pf
+    INNER JOIN pnl_components pc ON pc.code = pf.component_code
+    GROUP BY pf.target_code
+),
+all_computed_totals AS (
+    SELECT * FROM section_totals
+    UNION ALL
+    SELECT * FROM composite_totals
+),
+resolved_rows AS (
+    SELECT
+        br.row_order,
+        br.code AS general_ledger_code,
+        br.gl_name,
+        br.row_type,
+        br.section_footer_code,
+        COALESCE(aa.act_real, 0.00) AS act_real,
+        COALESCE(aa.per_month, 0.00) AS per_month,
+        COALESCE(aa.annualized_12, 0.00) AS annualized_12,
+        COALESCE(aa.sales_ratio, 0.00) AS sales_ratio,
+        COALESCE(aa.growth_rate, 0.00) AS growth_rate,
+        COALESCE(ct.m01, br.m01) AS january,
+        COALESCE(ct.m02, br.m02) AS february,
+        COALESCE(ct.m03, br.m03) AS march,
+        COALESCE(ct.m04, br.m04) AS april,
+        COALESCE(ct.m05, br.m05) AS may,
+        COALESCE(ct.m06, br.m06) AS june,
+        COALESCE(ct.m07, br.m07) AS july,
+        COALESCE(ct.m08, br.m08) AS august,
+        COALESCE(ct.m09, br.m09) AS september,
+        COALESCE(ct.m10, br.m10) AS october,
+        COALESCE(ct.m11, br.m11) AS november,
+        COALESCE(ct.m12, br.m12) AS december,
+        st.m01 AS sec_m01, st.m02 AS sec_m02, st.m03 AS sec_m03, st.m04 AS sec_m04,
+        st.m05 AS sec_m05, st.m06 AS sec_m06, st.m07 AS sec_m07, st.m08 AS sec_m08,
+        st.m09 AS sec_m09, st.m10 AS sec_m10, st.m11 AS sec_m11, st.m12 AS sec_m12
+    FROM base_rows br
+    LEFT JOIN actual_aggregated aa ON aa.row_order = br.row_order
+    LEFT JOIN all_computed_totals ct ON ct.code = br.code
+    LEFT JOIN section_totals st ON st.code = br.section_footer_code
+)
+SELECT
+    row_order,
+    general_ledger_code,
+    gl_name,
+    act_real AS "Act จริง",
+    per_month AS "ต่อเดือน",
+    annualized_12 AS "12",
+    sales_ratio AS "สัดส่วน/ยอดขาย",
+    growth_rate AS "% การโต",
+    january, february, march, april, may, june,
+    july, august, september, october, november, december,
+    ROUND(january + february + march + april + may + june + july + august + september + october + november + december, 2) AS total,
+    CASE WHEN row_type = 'subtotal' THEN CASE WHEN january   <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' AND general_ledger_code IN ('42000005', '61700001') THEN CASE WHEN january   <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' THEN ROUND(COALESCE((january   * 100.0) / NULLIF(sec_m01, 0), 0), 2) ELSE 0.00 END AS pct_jan,
+    CASE WHEN row_type = 'subtotal' THEN CASE WHEN february  <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' AND general_ledger_code IN ('42000005', '61700001') THEN CASE WHEN february  <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' THEN ROUND(COALESCE((february  * 100.0) / NULLIF(sec_m02, 0), 0), 2) ELSE 0.00 END AS pct_feb,
+    CASE WHEN row_type = 'subtotal' THEN CASE WHEN march     <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' AND general_ledger_code IN ('42000005', '61700001') THEN CASE WHEN march     <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' THEN ROUND(COALESCE((march     * 100.0) / NULLIF(sec_m03, 0), 0), 2) ELSE 0.00 END AS pct_mar,
+    CASE WHEN row_type = 'subtotal' THEN CASE WHEN april     <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' AND general_ledger_code IN ('42000005', '61700001') THEN CASE WHEN april     <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' THEN ROUND(COALESCE((april     * 100.0) / NULLIF(sec_m04, 0), 0), 2) ELSE 0.00 END AS pct_apr,
+    CASE WHEN row_type = 'subtotal' THEN CASE WHEN may       <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' AND general_ledger_code IN ('42000005', '61700001') THEN CASE WHEN may       <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' THEN ROUND(COALESCE((may       * 100.0) / NULLIF(sec_m05, 0), 0), 2) ELSE 0.00 END AS pct_may,
+    CASE WHEN row_type = 'subtotal' THEN CASE WHEN june      <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' AND general_ledger_code IN ('42000005', '61700001') THEN CASE WHEN june      <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' THEN ROUND(COALESCE((june      * 100.0) / NULLIF(sec_m06, 0), 0), 2) ELSE 0.00 END AS pct_jun,
+    CASE WHEN row_type = 'subtotal' THEN CASE WHEN july      <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' AND general_ledger_code IN ('42000005', '61700001') THEN CASE WHEN july      <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' THEN ROUND(COALESCE((july      * 100.0) / NULLIF(sec_m07, 0), 0), 2) ELSE 0.00 END AS pct_jul,
+    CASE WHEN row_type = 'subtotal' THEN CASE WHEN august    <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' AND general_ledger_code IN ('42000005', '61700001') THEN CASE WHEN august    <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' THEN ROUND(COALESCE((august    * 100.0) / NULLIF(sec_m08, 0), 0), 2) ELSE 0.00 END AS pct_aug,
+    CASE WHEN row_type = 'subtotal' THEN CASE WHEN september <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' AND general_ledger_code IN ('42000005', '61700001') THEN CASE WHEN september <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' THEN ROUND(COALESCE((september * 100.0) / NULLIF(sec_m09, 0), 0), 2) ELSE 0.00 END AS pct_sep,
+    CASE WHEN row_type = 'subtotal' THEN CASE WHEN october   <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' AND general_ledger_code IN ('42000005', '61700001') THEN CASE WHEN october   <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' THEN ROUND(COALESCE((october   * 100.0) / NULLIF(sec_m10, 0), 0), 2) ELSE 0.00 END AS pct_oct,
+    CASE WHEN row_type = 'subtotal' THEN CASE WHEN november  <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' AND general_ledger_code IN ('42000005', '61700001') THEN CASE WHEN november  <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' THEN ROUND(COALESCE((november  * 100.0) / NULLIF(sec_m11, 0), 0), 2) ELSE 0.00 END AS pct_nov,
+    CASE WHEN row_type = 'subtotal' THEN CASE WHEN december  <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' AND general_ledger_code IN ('42000005', '61700001') THEN CASE WHEN december  <> 0 THEN 100.00 ELSE 0.00 END WHEN row_type = 'gl' THEN ROUND(COALESCE((december  * 100.0) / NULLIF(sec_m12, 0), 0), 2) ELSE 0.00 END AS pct_dec
+FROM resolved_rows
+ORDER BY row_order ASC;
