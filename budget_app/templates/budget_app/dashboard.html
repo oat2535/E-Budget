@@ -103,11 +103,13 @@
                 <div class="col-12 col-xl-auto d-flex flex-wrap align-items-center gap-2">
                     <span class="fw-bold text-primary me-1"><i class="fas fa-table me-1"></i>ตารางสรุป P&amp;L ตาม GL Code</span>
                     <span id="dashboard-fs-branch-label" class="badge bg-primary fs-only-badge d-none"></span>
+                    {% comment "Temporarily hidden pending user discussion (remove comment tags to re-enable column preset buttons)" %}
                     <div class="btn-group btn-group-sm" role="group" aria-label="Column presets">
                         <button type="button" class="btn btn-primary" data-col-preset="full">ครบทุกคอลัมน์ (33)</button>
                         <button type="button" class="btn btn-outline-secondary" data-col-preset="no-pct">ไม่มี % รายเดือน</button>
                         <button type="button" class="btn btn-outline-secondary" data-col-preset="compare">สรุปเทียบ Actual</button>
                     </div>
+                    {% endcomment %}
                     <span id="dashboard-row-count" class="badge bg-light text-dark border small">{% if selected_branch %}กำลังเตรียม...{% else %}รอเลือกสาขา{% endif %}</span>
                 </div>
 
