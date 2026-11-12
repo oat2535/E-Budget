@@ -17,6 +17,7 @@ from budget_app.constants import (
     VIEW_ONLY_ROLES,
     STATUS_CANCELLED,
     GL_ACTUAL_TEMPLATE_BRANCHES,
+    is_privileged_user_account,
 )
 
 logger = logging.getLogger(__name__)
@@ -744,8 +745,7 @@ def is_executive_view_only_user(request):
     and ALL_BRANCH_USERNAMES bypass this to preserve admin/privileged capabilities."""
     if not request or not getattr(request, 'user', None) or not request.user.is_authenticated:
         return False
-    from budget_app.constants import ALL_BRANCH_USERNAMES
-    if request.user.is_superuser or request.user.username in ALL_BRANCH_USERNAMES:
+    if is_privileged_user_account(request.user):
         return False
     session = getattr(request, 'session', None)
     if session is not None:
@@ -766,8 +766,7 @@ def is_district_view_only_user(request):
     and ALL_BRANCH_USERNAMES bypass this to preserve admin/privileged capabilities."""
     if not request or not getattr(request, 'user', None) or not request.user.is_authenticated:
         return False
-    from budget_app.constants import ALL_BRANCH_USERNAMES
-    if request.user.is_superuser or request.user.username in ALL_BRANCH_USERNAMES:
+    if is_privileged_user_account(request.user):
         return False
     session = getattr(request, 'session', None)
     if session is not None:
@@ -788,8 +787,7 @@ def is_view_only_user(request):
     Local superusers and ALL_BRANCH_USERNAMES bypass this to preserve admin capabilities."""
     if not request or not getattr(request, 'user', None) or not request.user.is_authenticated:
         return False
-    from budget_app.constants import ALL_BRANCH_USERNAMES
-    if request.user.is_superuser or request.user.username in ALL_BRANCH_USERNAMES:
+    if is_privileged_user_account(request.user):
         return False
     session = getattr(request, 'session', None)
     if session is not None:

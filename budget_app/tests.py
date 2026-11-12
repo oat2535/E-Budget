@@ -4566,3 +4566,191 @@ class DashboardAccessAndMatrixTests(SimpleTestCase):
         self.assertEqual(float(res['by_code']['H6']['sales_ratio']), 15.00)
         self.assertEqual(float(res['by_code']['H7']['sales_ratio']), 1.50)
         self.assertEqual(float(res['by_code']['H8']['sales_ratio']), 13.50)
+
+
+class BudgetCloseFreezeEnforcementTests(SimpleTestCase):
+    """When budget close (SystemSettings.is_frozen=1) is active, non-exempt users
+    must be completely blocked from creating, editing, and cancelling documents across
+    UI (sidebar menu + detail modal buttons + client JS) and backend (all Gunicorn
+    workers regardless of LocMemCache, both GET and POST), while exempt users
+    (pattida_y, nattchai_u, kanchana_a) retain full access."""
+
+    def _frozen_settings(self):
+        return type('Settings', (), {
+            'is_frozen': 1,
+            'frozen_message': 'ระบบอยู่ระหว่างปิดงบประมาณชั่วคราว',
+            'active_budget_year': 2026,
+        })()
+
+    @patch('budget_app.models.SystemSettings.load')
+    def test_site_status_disables_create_and_edit_cancel_when_frozen_for_regular_users(self, mock_load):
+        mock_load.return_value = self._frozen_settings()
+        factory = RequestFactory()
+
+        # Regular user while frozen -> cannot add, edit, or cancel
+        req_reg = factory.get('/')
+        req_reg.user = User(username='mgr01')
+        req_reg.session = {'branch_info': {'is_view_only': False, 'is_executive_view_only': False, 'is_district_view_only': False}}
+        ctx_reg = site_status(req_reg)
+        self.assertTrue(ctx_reg['system_frozen'])
+        self.assertFalse(ctx_reg['is_privileged_user'])
+        self.assertFalse(ctx_reg['can_add_budget'])
+        self.assertFalse(ctx_reg['can_edit_own_documents'])
+
+        # Exempt users (including mixed-case variants) retain full capabilities while frozen
+        for uname in ['pattida_y', 'nattchai_u', 'kanchana_a', 'Pattida_Y', 'NATTCHAI_U', 'Kanchana_A']:
+            req_priv = factory.get('/')
+            req_priv.user = User(username=uname)
+            req_priv.session = {'branch_info': {'is_view_only': False, 'is_executive_view_only': False, 'is_district_view_only': False}}
+            ctx_priv = site_status(req_priv)
+            self.assertTrue(ctx_priv['is_privileged_user'], f"{uname} must stay privileged")
+            self.assertTrue(ctx_priv['can_add_budget'], f"{uname} can still create when frozen")
+            self.assertTrue(ctx_priv['can_edit_own_documents'], f"{uname} can still edit/cancel when frozen")
+
+    @patch('budget_app.services.BudgetService.get_all_branches', return_value=[])
+    @patch('master_data.models.ebudget_gl_actual_template_row.objects')
+    @patch('master_data.models.ebudget_cost_center_master.objects')
+    @patch('master_data.models.ebudget_budget_item_master.objects')
+    @patch('master_data.models.ebudget_budget_category_master.objects')
+    @patch('budget_app.models.SystemSettings.load')
+    def test_budget_list_html_hides_edit_and_cancel_controls_when_frozen_for_regular_user(
+        self, mock_load, mock_cat, mock_item, mock_cc, mock_glat_row, mock_branches
+    ):
+        mock_load.return_value = self._frozen_settings()
+        mock_cats = MagicMock()
+        mock_cats.exists.return_value = True
+        mock_cats.__iter__.return_value = iter([])
+        mock_cat.filter.return_value.order_by.return_value = mock_cats
+        mock_item.filter.return_value.order_by.return_value.values.return_value = []
+        mock_cc.values.return_value.order_by.return_value = []
+        mock_glat_row.order_by.return_value.values.return_value = []
+
+        from budget_app.views import budget_list_view
+        factory = RequestFactory()
+
+        # Regular user while frozen -> Edit, Save, Cancel buttons absent from all 4 modals + Add menu absent
+        req_reg = factory.get('/')
+        req_reg.user = User(username='mgr01', first_name='Mgr')
+        req_reg.session = {'branch_info': {'branches': ['AP'], 'needs_selection': False, 'is_view_only': False, 'is_executive_view_only': False, 'is_district_view_only': False}}
+        resp_reg = budget_list_view(req_reg)
+        html_reg = resp_reg.content.decode('utf-8')
+        self.assertIn('ปิดงบประมาณชั่วคราว', html_reg)
+        self.assertIn('data-system-frozen="true"', html_reg)
+        self.assertNotIn('id="addBudgetToggle"', html_reg)
+        for btn_id in [
+            'btnEditMode', 'btnSaveDocument', 'btnCancelDocument',
+            'btnAdjEditMode', 'btnAdjSaveDocument', 'btnAdjCancelDocument',
+            'btnGlEditMode', 'btnGlSaveDocument', 'btnGlCancelDocument',
+            'btnGlatEditMode', 'btnGlatSaveDocument', 'btnGlatCancelDocument',
+        ]:
+            self.assertNotIn(f'id="{btn_id}"', html_reg, f"{btn_id} must be hidden when frozen for regular user")
+
+        # Exempt users while frozen -> still have Add Budget menu and modal Edit/Cancel buttons
+        for exempt_user in ['pattida_y', 'nattchai_u', 'kanchana_a']:
+            req_priv = factory.get('/')
+            req_priv.user = User(username=exempt_user, first_name=exempt_user)
+            req_priv.session = {'branch_info': {'branches': ['AP'], 'needs_selection': False, 'is_view_only': False, 'is_executive_view_only': False, 'is_district_view_only': False}}
+            resp_priv = budget_list_view(req_priv)
+            html_priv = resp_priv.content.decode('utf-8')
+            self.assertIn('id="addBudgetToggle"', html_priv, f"{exempt_user} must still see Add Budget menu")
+            self.assertIn('id="btnEditMode"', html_priv)
+            self.assertIn('id="btnCancelDocument"', html_priv)
+
+    @patch('budget_app.models.SystemSettings.load')
+    def test_require_not_frozen_blocks_create_get_and_post_plus_update_and_cancel_apis(self, mock_load):
+        from budget_app.views import (
+            budget_add_view,
+            budget_add_non_vet_view,
+            budget_add_adjustment_view,
+            budget_add_medical_equipment_view,
+            budget_add_gl_entry_view,
+            budget_add_revenue_view,
+            cancel_document_api,
+            update_document_api,
+        )
+        mock_load.return_value = self._frozen_settings()
+        factory = RequestFactory()
+        reg_session = {'branch_info': {'branches': ['AP'], 'needs_selection': False, 'is_view_only': False, 'is_executive_view_only': False, 'is_district_view_only': False}}
+
+        # 1. GET to add pages blocked via 302 redirect to budget_list while frozen
+        for add_view in [
+            budget_add_view,
+            budget_add_non_vet_view,
+            budget_add_adjustment_view,
+            budget_add_medical_equipment_view,
+            budget_add_gl_entry_view,
+            budget_add_revenue_view,
+        ]:
+            req_get = factory.get('/')
+            req_get.user = User(username='mgr01')
+            req_get.session = reg_session
+            res_get = add_view(req_get)
+            self.assertEqual(res_get.status_code, 302, f"{add_view.__name__} GET must redirect when frozen")
+            self.assertEqual(res_get.url, reverse('budget_list'))
+
+        # 2. POST to create, update, cancel blocked with 403 JSON frozen message
+        req_add_post = factory.post(reverse('budget_add'), data='[{}]', content_type='application/json')
+        req_add_post.user = User(username='mgr01')
+        req_add_post.session = reg_session
+        res_add_post = budget_add_view(req_add_post)
+        self.assertEqual(res_add_post.status_code, 403)
+        self.assertEqual(json.loads(res_add_post.content)['message'], 'ระบบอยู่ระหว่างปิดงบประมาณชั่วคราว')
+
+        req_upd = factory.post('/api/document/update/VET/DOC1/', data='[{}]', content_type='application/json')
+        req_upd.user = User(username='mgr01')
+        req_upd.session = reg_session
+        res_upd = update_document_api(req_upd, 'VET', 'DOC1')
+        self.assertEqual(res_upd.status_code, 403)
+        self.assertEqual(json.loads(res_upd.content)['message'], 'ระบบอยู่ระหว่างปิดงบประมาณชั่วคราว')
+
+        req_can = factory.post('/api/document/cancel/VET/DOC1/', data='{"cancel_reason":"x"}', content_type='application/json')
+        req_can.user = User(username='mgr01')
+        req_can.session = reg_session
+        res_can = cancel_document_api(req_can, 'VET', 'DOC1')
+        self.assertEqual(res_can.status_code, 403)
+        self.assertEqual(json.loads(res_can.content)['message'], 'ระบบอยู่ระหว่างปิดงบประมาณชั่วคราว')
+
+        # 3. Exempt users (exact and mixed case) pass @require_not_frozen on both create, update, and cancel
+        for exempt in ['pattida_y', 'nattchai_u', 'kanchana_a', 'Pattida_Y', 'NATTCHAI_U', 'Kanchana_A']:
+            with patch('budget_app.views._resolve_model_class', return_value=None):
+                req_c = factory.post('/api/document/cancel/VET/DOC1/', data='{"cancel_reason":"test"}', content_type='application/json')
+                req_c.user = User(username=exempt)
+                req_c.session = reg_session
+                res_c = cancel_document_api(req_c, 'VET', 'DOC1')
+                self.assertNotEqual(res_c.status_code, 403, f"{exempt} must bypass freeze on cancel")
+
+            with patch('budget_app.models.ebudget_vet_manpower.objects') as mock_objs:
+                mock_objs.filter.return_value.exists.return_value = False
+                req_u = factory.post('/api/document/update/VET/DOC1/', data='[{"cost_center_name":"CC1"}]', content_type='application/json')
+                req_u.user = User(username=exempt)
+                req_u.session = reg_session
+                res_u = update_document_api(req_u, 'VET', 'DOC1')
+                self.assertNotEqual(res_u.status_code, 403, f"{exempt} must bypass freeze on update")
+
+            req_a = factory.post(reverse('budget_add'), data='[]', content_type='application/json')
+            req_a.user = User(username=exempt)
+            req_a.session = reg_session
+            res_a = budget_add_view(req_a)
+            self.assertNotEqual(res_a.status_code, 403, f"{exempt} must bypass freeze on add POST")
+
+    def test_system_settings_load_ignores_stale_locmem_cache_across_workers(self):
+        from django.core.cache import cache
+        stale_unfrozen = SystemSettings(id=1, is_frozen=0, active_budget_year=2026)
+        fresh_frozen = SystemSettings(id=2, is_frozen=1, active_budget_year=2026)
+
+        cache.set('system_settings', stale_unfrozen, 300)
+        try:
+            with patch('budget_app.models.SystemSettings.objects') as mock_qs:
+                mock_qs.order_by.return_value.first.return_value = fresh_frozen
+                loaded = SystemSettings.load()
+            self.assertEqual(loaded.is_frozen, 1, 'SystemSettings.load() must not return stale per-worker LocMemCache')
+        finally:
+            cache.delete('system_settings')
+
+    def test_budget_list_js_checks_frozen_state_and_handles_403_json_message(self):
+        js_path = os.path.join(settings.BASE_DIR, 'budget_app', 'static', 'budget_app', 'js', 'budget_list.js')
+        with open(js_path, 'r', encoding='utf-8') as f:
+            js_content = f.read()
+        self.assertIn('dataset.systemFrozen', js_content)
+        self.assertIn('isSystemFrozen', js_content)
+        self.assertIn('response.status === 403', js_content)

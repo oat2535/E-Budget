@@ -1,5 +1,4 @@
 from datetime import datetime
-from django.core.cache import cache
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from budget_app.constants import DEFAULT_FROZEN_MESSAGE, DOCUMENT_STATUS_CHOICES, STATUS_PENDING
@@ -8,12 +7,12 @@ class Timestamp0Field(models.DateTimeField):
     def db_type(self, connection):
         return 'timestamp(0)'
 
-# site_status() (context_processors.py) calls SystemSettings.load() on every
-# request for every logged-in page, and the DB is a remote host — caching
-# here saves that round trip on every page, not just this one. The TTL is a
-# safety net, not the correctness mechanism: callers that write
-# SystemSettings (toggle_freeze_view, set_active_year_view in views.py) must
-# cache.delete(SYSTEM_SETTINGS_CACHE_KEY) right after saving.
+# Kept for backwards compatibility with any external imports. SystemSettings.load()
+# intentionally queries PostgreSQL directly (PK-descending index scan over
+# persistent CONN_MAX_AGE=60 connections) rather than reading process-local
+# LocMemCache, because Gunicorn runs multiple worker processes (--workers 3) and
+# invalidating cache in one worker would leave stale freeze/year state in sibling
+# workers for up to TTL seconds.
 SYSTEM_SETTINGS_CACHE_KEY = 'system_settings'
 SYSTEM_SETTINGS_CACHE_TTL = 300
 
@@ -36,14 +35,11 @@ class SystemSettings(models.Model):
     unfrozen_date = Timestamp0Field(null=True, blank=True)
 
     @classmethod
-    def load(cls):
-        obj = cache.get(SYSTEM_SETTINGS_CACHE_KEY)
-        if obj is not None:
-            return obj
-        obj = cls.objects.order_by('-id').first()
+    def load(cls, for_update=False):
+        qs = cls.objects.select_for_update() if for_update else cls.objects
+        obj = qs.order_by('-id').first()
         if obj is None:
             obj = cls.objects.create()
-        cache.set(SYSTEM_SETTINGS_CACHE_KEY, obj, SYSTEM_SETTINGS_CACHE_TTL)
         return obj
 
     class Meta:
