@@ -17,6 +17,7 @@ from budget_app.constants import (
     VIEW_ONLY_ROLES,
     STATUS_CANCELLED,
     GL_ACTUAL_TEMPLATE_BRANCHES,
+    is_privileged_user_account,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,13 @@ class BudgetService:
         if not bank_account_note:
             return False
         return BudgetService.is_executive_role(bank_account_note) or BudgetService.is_district_role(bank_account_note)
+
+    @staticmethod
+    def is_manager_role(bank_account_note):
+        """Checks if a bank_account_note contains MANAGER role."""
+        if not bank_account_note:
+            return False
+        return 'MANAGER' in (bank_account_note or '').strip().upper()
 
     @staticmethod
     def get_branch_info_from_imedx(username):
@@ -299,6 +307,30 @@ class BudgetService:
         except Exception as e:
             logger.warning(f"Error fetching all branches from base_sub_branch: {e}")
         return [{'code': code, 'name': name} for code, name in GL_ACTUAL_TEMPLATE_BRANCHES]
+
+    @staticmethod
+    def get_tlph_branches():
+        """Returns branches belonging to TLPH (branch_id_id = 'TLPH') from base_sub_branch."""
+        branches = []
+        try:
+            with connections['default'].cursor() as cursor:
+                cursor.execute(
+                    "SELECT sub_branch_id, sub_branch_name FROM base_sub_branch "
+                    "WHERE branch_id_id = 'TLPH' ORDER BY sub_branch_id"
+                )
+                rows = cursor.fetchall()
+                if rows:
+                    for code, name in rows:
+                        if code and name:
+                            branches.append({'code': code.strip(), 'name': name.strip()})
+                    return branches
+        except Exception as e:
+            logger.warning(f"Error fetching TLPH branches from base_sub_branch: {e}")
+        return [
+            {'code': code, 'name': name}
+            for code, name in GL_ACTUAL_TEMPLATE_BRANCHES
+            if not code.startswith('MY-')
+        ]
 
     @staticmethod
     def get_master_fks(item_name_val):
@@ -713,8 +745,7 @@ def is_executive_view_only_user(request):
     and ALL_BRANCH_USERNAMES bypass this to preserve admin/privileged capabilities."""
     if not request or not getattr(request, 'user', None) or not request.user.is_authenticated:
         return False
-    from budget_app.constants import ALL_BRANCH_USERNAMES
-    if request.user.is_superuser or request.user.username in ALL_BRANCH_USERNAMES:
+    if is_privileged_user_account(request.user):
         return False
     session = getattr(request, 'session', None)
     if session is not None:
@@ -735,8 +766,7 @@ def is_district_view_only_user(request):
     and ALL_BRANCH_USERNAMES bypass this to preserve admin/privileged capabilities."""
     if not request or not getattr(request, 'user', None) or not request.user.is_authenticated:
         return False
-    from budget_app.constants import ALL_BRANCH_USERNAMES
-    if request.user.is_superuser or request.user.username in ALL_BRANCH_USERNAMES:
+    if is_privileged_user_account(request.user):
         return False
     session = getattr(request, 'session', None)
     if session is not None:
@@ -757,8 +787,7 @@ def is_view_only_user(request):
     Local superusers and ALL_BRANCH_USERNAMES bypass this to preserve admin capabilities."""
     if not request or not getattr(request, 'user', None) or not request.user.is_authenticated:
         return False
-    from budget_app.constants import ALL_BRANCH_USERNAMES
-    if request.user.is_superuser or request.user.username in ALL_BRANCH_USERNAMES:
+    if is_privileged_user_account(request.user):
         return False
     session = getattr(request, 'session', None)
     if session is not None:
@@ -780,4 +809,10 @@ def can_access_gl_actual_template(request):
         return False
     from budget_app.constants import GL_ACTUAL_TEMPLATE_ALLOWED_USERNAMES
     return (request.user.username or '').strip().lower() in GL_ACTUAL_TEMPLATE_ALLOWED_USERNAMES
+
+
+def can_access_dashboard(request):
+    """Returns True if the authenticated user can access the single-branch E-Budget Dashboard."""
+    from budget_app.dashboard_service import can_access_dashboard as _can_access_dashboard
+    return _can_access_dashboard(request)
 

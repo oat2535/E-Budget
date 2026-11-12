@@ -157,6 +157,13 @@
                         <div class="nav accordion flex-grow-1" id="accordionSidenav">
         <!-- Sidenav Menu Heading (Core)-->
         <div class="sidenav-menu-heading">E-Budget</div>
+
+        {% if can_access_dashboard %}
+        <a class="nav-link {% if request.resolver_match.url_name == 'budget_dashboard' %}active{% endif %}" href="{% url 'budget_dashboard' %}">
+            <div class="nav-link-icon"><i data-feather="bar-chart-2"></i></div>
+            Dashboard
+        </a>
+        {% endif %}
         
         <a class="nav-link {% if request.resolver_match.url_name == 'budget_list' %}active{% endif %}" href="{% url 'budget_list' %}">
             <div class="nav-link-icon"><i data-feather="list"></i></div>

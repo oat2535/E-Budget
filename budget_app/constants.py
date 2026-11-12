@@ -6,6 +6,23 @@ ALL_BRANCH_USERNAMES = {'nattchai_u', 'kanchana', 'kanchana_a', 'pattida_y'}
 # Usernames allowed to see and access the "GL Actual Template" menu and creation page.
 GL_ACTUAL_TEMPLATE_ALLOWED_USERNAMES = {'nattchai_u', 'kanchana_a', 'pattida_y'}
 
+
+def is_privileged_user_account(user):
+    """Return True if *user* is an authenticated superuser or belongs to
+    ALL_BRANCH_USERNAMES (case- and whitespace-normalized).
+
+    Uses strict identity/type checks so unconfigured MagicMock instances in
+    unit tests do not evaluate as truthy superusers or usernames.
+    """
+    if not user or getattr(user, 'is_authenticated', False) is not True:
+        return False
+    if getattr(user, 'is_superuser', False) is True:
+        return True
+    raw_username = getattr(user, 'username', None)
+    if not isinstance(raw_username, str):
+        return False
+    return raw_username.strip().lower() in ALL_BRANCH_USERNAMES
+
 # Executive roles from iMedX (bank_account_note) that have read-only visibility
 # across all documents in the system (can see all documents in list and view details,
 # but cannot edit, create, or cancel documents).

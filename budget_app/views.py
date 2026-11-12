@@ -17,7 +17,7 @@ from django.core.cache import cache
 from budget_app.models import ebudget_vet_manpower, ebudget_non_vet_manpower, ebudget_position_adjustment, ebudget_medical_equipment, ebudget_computer_equipment, ebudget_furniture, ebudget_tools_equipment, ebudget_car, ebudget_renovate, ebudget_software, ebudget_gl_entry, ebudget_revenue, ebudget_budget_plan_item, ebudget_gl_actual_template, SystemSettings, SYSTEM_SETTINGS_CACHE_KEY
 from budget_app.services import BudgetService, is_executive_view_only_user, is_district_view_only_user, is_view_only_user
 from budget_app.constants import (
-    ALL_BRANCH_USERNAMES, STATUS_PENDING, STATUS_APPROVED, STATUS_CANCELLED,
+    is_privileged_user_account, STATUS_PENDING, STATUS_APPROVED, STATUS_CANCELLED,
     EXPENSE_PAGE_EXCLUDED_GL_CODES, VET_CUSTOM_POSITION_GL_CODE,
     NON_VET_SALARY_GL_CODE, NON_VET_ALLOWANCE_GL_CODE,
     MEDICAL_EQUIPMENT_GL_CODE_HIGH, MEDICAL_EQUIPMENT_GL_CODE_LOW, MEDICAL_EQUIPMENT_GL_PRICE_THRESHOLD,
@@ -204,7 +204,12 @@ def resolve_equipment_gl_code(doc_type, purchase_price, fallback_gl_code=None):
     elif doc_type == 'Software':
         return SOFTWARE_GL_CODE
     return fallback_gl_code
-from budget_app.decorators import require_not_frozen, require_not_executive_view_only, require_gl_actual_template_access
+from budget_app.decorators import (
+    require_dashboard_access,
+    require_gl_actual_template_access,
+    require_not_executive_view_only,
+    require_not_frozen,
+)
 
 def login_required_json(view_func):
     """Like login_required, but for fetch()/AJAX endpoints: an expired or
@@ -262,7 +267,7 @@ def get_document_visibility_filter_kwargs(request):
     the same field/comparison cancel_document_api's ownership check already uses
     (request.user.username), so a document keeps showing to its creator even if
     its branch is later reassigned via the edit-mode branch dropdown."""
-    if request.user.username in ALL_BRANCH_USERNAMES or request.user.is_superuser:
+    if is_privileged_user_account(request.user):
         return {}
     if is_executive_view_only_user(request):
         return {}
@@ -376,7 +381,7 @@ def login_view(request):
             # freeze state via the navbar lock icon/badge, so this is for
             # everyone else, who'd otherwise have no reason to expect adding
             # budget data to be blocked until they tried it.
-            if user.username not in ALL_BRANCH_USERNAMES:
+            if not is_privileged_user_account(user):
                 settings_obj = SystemSettings.load()
                 if settings_obj.is_frozen:
                     messages.info(request, settings_obj.frozen_message)
@@ -1403,10 +1408,10 @@ def update_document_api(request, doc_type, doc_no):
         }, status=403)
         
     # Ownership & permission check:
-    # Privileged users (nattchai_u, kanchana, pattida_y, and superusers) may edit
-    # any document. Other users may edit documents they created themselves —
+    # Privileged users (nattchai_u, kanchana, kanchana_a, pattida_y, and superusers)
+    # may edit any document. Other users may edit documents they created themselves —
     # validated below once first_item.create_eid is loaded.
-    is_privileged = request.user.username in ALL_BRANCH_USERNAMES or request.user.is_superuser
+    is_privileged = is_privileged_user_account(request.user)
 
     try:
         data = json.loads(request.body)
@@ -1830,7 +1835,7 @@ def approve_document_api(request, doc_type, doc_no):
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
 
-    if not (request.user.username in ALL_BRANCH_USERNAMES or request.user.is_superuser):
+    if not is_privileged_user_account(request.user):
         return JsonResponse({'status': 'error', 'message': 'ไม่มีสิทธิ์ในการอนุมัติเอกสาร'})
 
     try:
@@ -1887,7 +1892,7 @@ def cancel_document_api(request, doc_type, doc_no):
     if not reason:
         return JsonResponse({'status': 'error', 'message': 'กรุณาระบุเหตุผลการยกเลิก'})
 
-    is_privileged = request.user.username in ALL_BRANCH_USERNAMES or request.user.is_superuser
+    is_privileged = is_privileged_user_account(request.user)
 
     try:
         model_class = _resolve_model_class(doc_type)
@@ -2459,34 +2464,35 @@ def budget_add_gl_actual_template_view(request):
 def toggle_freeze_view(request):
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
-    if not (request.user.username in ALL_BRANCH_USERNAMES or request.user.is_superuser):
+    if not is_privileged_user_account(request.user):
         return JsonResponse({'status': 'error', 'message': 'ไม่มีสิทธิ์ในการดำเนินการนี้'}, status=403)
 
     try:
         data = json.loads(request.body or '{}')
-        current = SystemSettings.load()
         now = datetime.now().replace(microsecond=0)
 
-        if current.is_frozen:
-            # Closing out the currently-open freeze episode: update the same
-            # row in place so frozen_eid/frozen_date stay intact alongside
-            # the new unfrozen_eid/unfrozen_date.
-            current.is_frozen = 0
-            current.unfrozen_eid = request.user.username
-            current.unfrozen_date = now
-            current.save()
-            settings_obj = current
-        else:
-            # Starting a new freeze episode: a fresh row, carrying forward
-            # the active_budget_year that wasn't touched by this action.
-            custom_message = (data.get('message') or '').strip()
-            settings_obj = SystemSettings.objects.create(
-                is_frozen=1,
-                frozen_message=custom_message or current.frozen_message,
-                active_budget_year=current.active_budget_year,
-                frozen_eid=request.user.username,
-                frozen_date=now,
-            )
+        with transaction.atomic():
+            current = SystemSettings.load(for_update=True)
+            if current.is_frozen:
+                # Closing out the currently-open freeze episode: update the same
+                # row in place so frozen_eid/frozen_date stay intact alongside
+                # the new unfrozen_eid/unfrozen_date.
+                current.is_frozen = 0
+                current.unfrozen_eid = request.user.username
+                current.unfrozen_date = now
+                current.save()
+                settings_obj = current
+            else:
+                # Starting a new freeze episode: a fresh row, carrying forward
+                # the active_budget_year that wasn't touched by this action.
+                custom_message = (data.get('message') or '').strip()
+                settings_obj = SystemSettings.objects.create(
+                    is_frozen=1,
+                    frozen_message=custom_message or current.frozen_message,
+                    active_budget_year=current.active_budget_year,
+                    frozen_eid=request.user.username,
+                    frozen_date=now,
+                )
 
         cache.delete(SYSTEM_SETTINGS_CACHE_KEY)
         return JsonResponse({
@@ -2497,11 +2503,113 @@ def toggle_freeze_view(request):
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})
 
+@login_required_hybrid
+@require_dashboard_access
+def dashboard_view(request):
+    """Render TLPH E-Budget Dashboard page (single-branch or ALL TLPH for privileged roles)."""
+    from budget_app.dashboard_service import (
+        can_view_all_branches_dashboard,
+        get_allowed_branches_for_dashboard,
+        get_dashboard_budget_years,
+    )
+
+    allowed_branches = get_allowed_branches_for_dashboard(request)
+    can_view_all = can_view_all_branches_dashboard(request)
+    settings_obj = SystemSettings.load()
+    active_year = int(settings_obj.active_budget_year)
+    budget_years = get_dashboard_budget_years()
+
+    requested_year = request.GET.get('year')
+    selected_year = active_year
+    if requested_year:
+        try:
+            parsed_year = int(requested_year)
+            if parsed_year in budget_years:
+                selected_year = parsed_year
+        except (TypeError, ValueError):
+            pass
+
+    allowed_codes = [b['code'] for b in allowed_branches]
+    requested_branch = (request.GET.get('branch') or '').strip().upper()
+    selected_branch = requested_branch if (requested_branch and requested_branch in allowed_codes) else ''
+
+    return render(request, 'budget_app/dashboard.html', {
+        'allowed_branches': allowed_branches,
+        'selected_branch': selected_branch,
+        'is_single_branch_locked': len(allowed_branches) == 1,
+        'can_view_all_branches': can_view_all,
+        'budget_years': budget_years,
+        'selected_year': selected_year,
+    })
+
+
+def _resolve_dashboard_payload_or_error(request):
+    """Validate branch (TLPH or ALL) + year query params and compute Dashboard payload or HTTP error JsonResponse."""
+    from budget_app.dashboard_service import (
+        build_dashboard_data,
+        validate_dashboard_branch,
+    )
+
+    if request.method != 'GET':
+        return None, None, JsonResponse({'status': 'error', 'message': 'Method not allowed'}, status=405)
+
+    branch_dict, err_msg, err_status = validate_dashboard_branch(request, request.GET.get('branch'))
+    if err_msg:
+        return None, None, JsonResponse({'status': 'error', 'message': err_msg}, status=err_status)
+
+    raw_year = request.GET.get('year')
+    if raw_year is None or str(raw_year).strip() == '':
+        budget_year = int(SystemSettings.load().active_budget_year)
+    else:
+        try:
+            budget_year = int(str(raw_year).strip())
+        except ValueError:
+            return None, None, JsonResponse({'status': 'error', 'message': 'ปีงบประมาณไม่ถูกต้อง'}, status=400)
+
+    payload = build_dashboard_data(branch_dict, budget_year)
+    return branch_dict, budget_year, payload
+
+
+@login_required_json
+@require_dashboard_access
+def dashboard_data_api(request):
+    """Return TLPH branch (or ALL TLPH) P&L matrix JSON payload (all numbers rounded to 2 decimals)."""
+    _, _, result = _resolve_dashboard_payload_or_error(request)
+    if isinstance(result, JsonResponse):
+        return result
+    return JsonResponse({'status': 'ok', **result})
+
+
+@login_required_json
+@require_dashboard_access
+def dashboard_export_excel_api(request):
+    """Export selected TLPH branch (or ALL TLPH) Dashboard data as styled .xlsx matching Dashboard.xlsx (33 cols, 2dp)."""
+    import re
+    from django.http import HttpResponse
+    from budget_app.xlsx_export import build_dashboard_xlsx
+
+    branch_dict, budget_year, result = _resolve_dashboard_payload_or_error(request)
+    if isinstance(result, JsonResponse):
+        return result
+
+    xlsx_bytes = build_dashboard_xlsx(result)
+
+    safe_branch = re.sub(r'[^A-Za-z0-9_-]', '', branch_dict['code']) or 'branch'
+    filename = f'Dashboard_{safe_branch}_{budget_year}.xlsx'
+    response = HttpResponse(
+        xlsx_bytes,
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
 @login_required_json
 def set_active_year_view(request):
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
-    if not (request.user.username in ALL_BRANCH_USERNAMES or request.user.is_superuser):
+    if not is_privileged_user_account(request.user):
         return JsonResponse({'status': 'error', 'message': 'ไม่มีสิทธิ์ในการดำเนินการนี้'}, status=403)
 
     try:
@@ -2511,9 +2619,10 @@ def set_active_year_view(request):
         # in place rather than inserting, regardless of frozen state (doing
         # otherwise while frozen would create a second is_frozen=1 row that
         # never gets closed by the eventual unfreeze).
-        current = SystemSettings.load()
-        current.active_budget_year = year
-        current.save()
+        with transaction.atomic():
+            current = SystemSettings.load(for_update=True)
+            current.active_budget_year = year
+            current.save()
         cache.delete(SYSTEM_SETTINGS_CACHE_KEY)
         return JsonResponse({'status': 'success', 'active_budget_year': current.active_budget_year})
     except (TypeError, ValueError):

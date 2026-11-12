@@ -1,21 +1,39 @@
 from functools import wraps
 from django.http import JsonResponse
-from budget_app.constants import ALL_BRANCH_USERNAMES
+from budget_app.constants import is_privileged_user_account
 
 
 def require_not_frozen(view_func):
-    """Blocks POST access to a budget-mutating view while the system is
-    frozen (budget closing), for everyone except ALL_BRANCH_USERNAMES —
+    """Blocks access to budget-creating and budget-mutating views/APIs while
+    the system is frozen (budget closing), for everyone except privileged
+    users (is_privileged_user_account: ALL_BRANCH_USERNAMES / superuser) —
     who need to keep working during a freeze to actually close things out
-    or lift it. Enforced server-side regardless of what the UI shows, since
-    the navbar's blocking modal is a UX affordance, not the real gate."""
+    or lift it.
+
+    - /api/*, non-GET requests, and AJAX requests return 403 JsonResponse
+      with settings_obj.frozen_message.
+    - Browser GET requests to creation pages record a warning message
+      (fail-silent when MessageMiddleware is absent in tests) and redirect
+      to budget_list.
+    Enforced server-side regardless of what the UI shows, since the navbar's
+    blocking modal is a UX affordance, not the real gate."""
     @wraps(view_func)
     def wrapper(request, *args, **kwargs):
-        if request.method == 'POST' and request.user.username not in ALL_BRANCH_USERNAMES:
+        if not is_privileged_user_account(getattr(request, 'user', None)):
             from budget_app.models import SystemSettings
             settings_obj = SystemSettings.load()
             if settings_obj.is_frozen:
-                return JsonResponse({'status': 'error', 'message': settings_obj.frozen_message}, status=403)
+                is_api_or_mutation = (
+                    request.path.startswith('/api/')
+                    or request.method != 'GET'
+                    or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+                )
+                if is_api_or_mutation:
+                    return JsonResponse({'status': 'error', 'message': settings_obj.frozen_message}, status=403)
+                from django.contrib import messages
+                from django.shortcuts import redirect
+                messages.warning(request, settings_obj.frozen_message, fail_silently=True)
+                return redirect('budget_list')
         return view_func(request, *args, **kwargs)
     return wrapper
 
@@ -58,6 +76,26 @@ def require_gl_actual_template_access(view_func):
                 return JsonResponse({
                     'status': 'error',
                     'message': 'ท่านไม่มีสิทธิ์เข้าใช้งานเมนู GL Actual Template'
+                }, status=403)
+            from django.shortcuts import redirect
+            return redirect('budget_list')
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
+
+def require_dashboard_access(view_func):
+    """Restricts access to Dashboard views and APIs strictly to authorized roles:
+    - /api/* or POST: returns 403 Forbidden JsonResponse
+    - HTML GET: redirects to budget_list"""
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        from budget_app.services import can_access_dashboard
+        if not can_access_dashboard(request):
+            is_api = request.path.startswith('/api/') or request.method != 'GET' or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+            if is_api:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': 'ท่านไม่มีสิทธิ์เข้าใช้งานหน้า Dashboard'
                 }, status=403)
             from django.shortcuts import redirect
             return redirect('budget_list')

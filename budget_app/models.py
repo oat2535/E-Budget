@@ -1,5 +1,4 @@
 from datetime import datetime
-from django.core.cache import cache
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from budget_app.constants import DEFAULT_FROZEN_MESSAGE, DOCUMENT_STATUS_CHOICES, STATUS_PENDING
@@ -8,12 +7,12 @@ class Timestamp0Field(models.DateTimeField):
     def db_type(self, connection):
         return 'timestamp(0)'
 
-# site_status() (context_processors.py) calls SystemSettings.load() on every
-# request for every logged-in page, and the DB is a remote host — caching
-# here saves that round trip on every page, not just this one. The TTL is a
-# safety net, not the correctness mechanism: callers that write
-# SystemSettings (toggle_freeze_view, set_active_year_view in views.py) must
-# cache.delete(SYSTEM_SETTINGS_CACHE_KEY) right after saving.
+# Kept for backwards compatibility with any external imports. SystemSettings.load()
+# intentionally queries PostgreSQL directly (PK-descending index scan over
+# persistent CONN_MAX_AGE=60 connections) rather than reading process-local
+# LocMemCache, because Gunicorn runs multiple worker processes (--workers 3) and
+# invalidating cache in one worker would leave stale freeze/year state in sibling
+# workers for up to TTL seconds.
 SYSTEM_SETTINGS_CACHE_KEY = 'system_settings'
 SYSTEM_SETTINGS_CACHE_TTL = 300
 
@@ -36,14 +35,11 @@ class SystemSettings(models.Model):
     unfrozen_date = Timestamp0Field(null=True, blank=True)
 
     @classmethod
-    def load(cls):
-        obj = cache.get(SYSTEM_SETTINGS_CACHE_KEY)
-        if obj is not None:
-            return obj
-        obj = cls.objects.order_by('-id').first()
+    def load(cls, for_update=False):
+        qs = cls.objects.select_for_update() if for_update else cls.objects
+        obj = qs.order_by('-id').first()
         if obj is None:
             obj = cls.objects.create()
-        cache.set(SYSTEM_SETTINGS_CACHE_KEY, obj, SYSTEM_SETTINGS_CACHE_TTL)
         return obj
 
     class Meta:
@@ -111,6 +107,9 @@ class ebudget_vet_manpower(models.Model):
         db_table = 'ebudget_vet_manpower'
         verbose_name = "VET Manpower Budget"
         verbose_name_plural = "VET Manpower Budgets"
+        indexes = [
+            models.Index(fields=['base_branch_id', 'budget_year', 'status'], name='idx_vet_br_yr_st'),
+        ]
 
     def __str__(self):
         return f"{self.position_name} - {self.salary}"
@@ -178,6 +177,9 @@ class ebudget_non_vet_manpower(models.Model):
         db_table = 'ebudget_non_vet_manpower'
         verbose_name = "NON VET Manpower Budget"
         verbose_name_plural = "NON VET Manpower Budgets"
+        indexes = [
+            models.Index(fields=['base_branch_id', 'budget_year', 'status'], name='idx_nonvet_br_yr_st'),
+        ]
 
     def __str__(self):
         return f"{self.position_name} - {self.salary}"
@@ -254,6 +256,9 @@ class ebudget_position_adjustment(models.Model):
         db_table = 'ebudget_position_adjustment'
         verbose_name = "Position Adjustment"
         verbose_name_plural = "Position Adjustments"
+        indexes = [
+            models.Index(fields=['base_branch_id', 'budget_year', 'status'], name='idx_posadj_br_yr_st'),
+        ]
 
     def __str__(self):
         return f"{self.document_no} - {self.old_position_name} -> {self.new_position_name}"
@@ -314,6 +319,9 @@ class ebudget_medical_equipment(models.Model):
         db_table = 'ebudget_medical_equipment'
         verbose_name = "Medical Equipment Budget"
         verbose_name_plural = "Medical Equipment Budgets"
+        indexes = [
+            models.Index(fields=['base_branch_id', 'budget_year', 'status'], name='idx_medeq_br_yr_st'),
+        ]
 
     def __str__(self):
         return f"{self.item_name} - {self.purchase_price}"
@@ -374,6 +382,9 @@ class ebudget_computer_equipment(models.Model):
         db_table = 'ebudget_computer_equipment'
         verbose_name = "Computer Equipment Budget"
         verbose_name_plural = "Computer Equipment Budgets"
+        indexes = [
+            models.Index(fields=['base_branch_id', 'budget_year', 'status'], name='idx_compeq_br_yr_st'),
+        ]
 
     def __str__(self):
         return f"{self.item_name} - {self.purchase_price}"
@@ -434,6 +445,9 @@ class ebudget_furniture(models.Model):
         db_table = 'ebudget_furniture'
         verbose_name = "Furniture Budget"
         verbose_name_plural = "Furniture Budgets"
+        indexes = [
+            models.Index(fields=['base_branch_id', 'budget_year', 'status'], name='idx_furn_br_yr_st'),
+        ]
 
     def __str__(self):
         return f"{self.item_name} - {self.purchase_price}"
@@ -494,6 +508,9 @@ class ebudget_tools_equipment(models.Model):
         db_table = 'ebudget_tools_equipment'
         verbose_name = "Tools & Equipment Budget"
         verbose_name_plural = "Tools & Equipment Budgets"
+        indexes = [
+            models.Index(fields=['base_branch_id', 'budget_year', 'status'], name='idx_tooleq_br_yr_st'),
+        ]
 
     def __str__(self):
         return f"{self.item_name} - {self.purchase_price}"
@@ -551,6 +568,9 @@ class ebudget_car(models.Model):
         db_table = 'ebudget_car'
         verbose_name = "CAR Budget"
         verbose_name_plural = "CAR Budgets"
+        indexes = [
+            models.Index(fields=['base_branch_id', 'budget_year', 'status'], name='idx_car_br_yr_st'),
+        ]
 
     def __str__(self):
         return f"{self.item_name} - {self.purchase_price}"
@@ -608,6 +628,9 @@ class ebudget_renovate(models.Model):
         db_table = 'ebudget_renovate'
         verbose_name = "Renovate Budget"
         verbose_name_plural = "Renovate Budgets"
+        indexes = [
+            models.Index(fields=['base_branch_id', 'budget_year', 'status'], name='idx_reno_br_yr_st'),
+        ]
 
     def __str__(self):
         return f"{self.item_name} - {self.purchase_price}"
@@ -665,6 +688,9 @@ class ebudget_software(models.Model):
         db_table = 'ebudget_software'
         verbose_name = "Software Budget"
         verbose_name_plural = "Software Budgets"
+        indexes = [
+            models.Index(fields=['base_branch_id', 'budget_year', 'status'], name='idx_soft_br_yr_st'),
+        ]
 
     def __str__(self):
         return f"{self.item_name} - {self.purchase_price}"
@@ -764,6 +790,9 @@ class ebudget_gl_entry(models.Model):
         db_table = 'ebudget_gl_entry'
         verbose_name = "GL Monthly Entry"
         verbose_name_plural = "GL Monthly Entries"
+        indexes = [
+            models.Index(fields=['base_branch_id', 'budget_year', 'status'], name='idx_glent_br_yr_st'),
+        ]
 
     def __str__(self):
         return f"{self.document_no} - {self.general_ledger_code}"
@@ -834,6 +863,9 @@ class ebudget_revenue(models.Model):
         db_table = 'ebudget_revenue'
         verbose_name = "Revenue Monthly Entry"
         verbose_name_plural = "Revenue Monthly Entries"
+        indexes = [
+            models.Index(fields=['base_branch_id', 'budget_year', 'status'], name='idx_rev_br_yr_st'),
+        ]
 
     def __str__(self):
         return f"{self.document_no} - {self.general_ledger_code}"
@@ -910,6 +942,9 @@ class ebudget_budget_plan_item(models.Model):
         db_table = 'ebudget_budget_plan_item'
         verbose_name = "Budget Plan Item"
         verbose_name_plural = "Budget Plan Items"
+        indexes = [
+            models.Index(fields=['base_branch_id', 'budget_year', 'status'], name='idx_bplan_br_yr_st'),
+        ]
 
     def __str__(self):
         return f"{self.document_no} - {self.description}"
@@ -989,6 +1024,9 @@ class ebudget_gl_actual_template(models.Model):
         ordering = ['row_order']
         verbose_name = "GL Actual Template"
         verbose_name_plural = "GL Actual Templates"
+        indexes = [
+            models.Index(fields=['base_branch_id', 'budget_year', 'status'], name='idx_glact_br_yr_st'),
+        ]
 
     def __str__(self):
         return f"{self.document_no} - {self.code}"

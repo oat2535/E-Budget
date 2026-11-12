@@ -371,6 +371,13 @@ const BudgetApp = (function() {
     const currentUsername = document.body.dataset.username || '';
     const isPrivilegedUser = document.body.dataset.privileged === 'true';
     const isExecutiveViewOnly = document.body.dataset.executiveViewOnly === 'true';
+    const isSystemFrozen = document.body.dataset.systemFrozen === 'true';
+
+    function canMutateDocumentsClientSide() {
+        if (isExecutiveViewOnly) return false;
+        if (isSystemFrozen && !isPrivilegedUser) return false;
+        return true;
+    }
 
     // status is included here (not just ownership) because APPROVED and
     // CANCELLED are both terminal, locked for everyone including privileged
@@ -378,7 +385,7 @@ const BudgetApp = (function() {
     // is clicked (see the matching lock check in update_document_api).
     function applyEditButtonVisibility(btnEl, createEid, status) {
         if (!btnEl) return;
-        if (isExecutiveViewOnly) {
+        if (!canMutateDocumentsClientSide()) {
             btnEl.style.display = 'none';
             return;
         }
@@ -401,7 +408,7 @@ const BudgetApp = (function() {
     // Cancel allows creators or privileged users to cancel documents in PENDING state
     function applyCancelButtonVisibility(btnEl, createEid, status) {
         if (!btnEl) return;
-        if (isExecutiveViewOnly) {
+        if (!canMutateDocumentsClientSide()) {
             btnEl.style.display = 'none';
             return;
         }
@@ -470,6 +477,12 @@ const BudgetApp = (function() {
                 });
             }
             return Promise.reject(new Error(SESSION_EXPIRED));
+        }
+        if (response.status === 403) {
+            return response.json().catch(() => ({
+                status: 'error',
+                message: 'ไม่มีสิทธิ์ดำเนินการ หรือระบบปิดงบประมาณชั่วคราว'
+            }));
         }
         if (!response.ok) {
             throw new Error('Network response was not ok');
