@@ -146,7 +146,12 @@
                             <h2 class="text-center mb-4 fw-bolder" style="color: #2a3547 !important; letter-spacing: 0.5px;">E-Budget</h2>
                             
                             <form method="POST" action="{% url 'login' %}">
-                                {% csrf_token %}
+                                {% csrf_token %}
+                                {% if next %}
+                                    <input type="hidden" name="next" value="{{ next }}" />
+                                {% elif request.GET.next %}
+                                    <input type="hidden" name="next" value="{{ request.GET.next }}" />
+                                {% endif %}
                                 
                                 <div class="mb-3">
                                     <input class="form-control login-input" name="employee_id" type="text" placeholder="Employee ID" required autocomplete="off" />
