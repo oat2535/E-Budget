@@ -4169,6 +4169,8 @@ class DashboardAccessAndMatrixTests(SimpleTestCase):
         mock_load.return_value = type('S', (), {'is_frozen': 0, 'frozen_message': '', 'active_budget_year': 2025})()
         factory = RequestFactory()
 
+        # Note: Dashboard is temporarily commented out in production base.html pending rollout.
+        # When un-commenting in base.html, change assertNotIn back to assertIn.
         for allowed_session in (
             {'is_view_only': False, 'is_executive_view_only': False, 'is_district_view_only': False, 'is_manager': True},
             {'is_view_only': True, 'is_executive_view_only': True, 'is_district_view_only': False, 'is_manager': False},
@@ -4178,7 +4180,7 @@ class DashboardAccessAndMatrixTests(SimpleTestCase):
             req.user = self._mock_user('role_user')
             req.session = {'branch_info': allowed_session}
             html = render_to_string('budget_app/base.html', {}, request=req)
-            self.assertIn('href="/dashboard/"', html)
+            self.assertNotIn('href="/dashboard/"', html)
 
         # Staff member with partial or non-manager session must NOT see Dashboard menu
         req_staff = factory.get('/list/')

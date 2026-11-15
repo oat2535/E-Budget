@@ -158,12 +158,15 @@
         <!-- Sidenav Menu Heading (Core)-->
         <div class="sidenav-menu-heading">E-Budget</div>
 
+        {# Dashboard temporarily hidden in production (requested); code left intact, can be un-commented later #}
+        {% comment %}
         {% if can_access_dashboard %}
         <a class="nav-link {% if request.resolver_match.url_name == 'budget_dashboard' %}active{% endif %}" href="{% url 'budget_dashboard' %}">
             <div class="nav-link-icon"><i data-feather="bar-chart-2"></i></div>
             Dashboard
         </a>
         {% endif %}
+        {% endcomment %}
         
         <a class="nav-link {% if request.resolver_match.url_name == 'budget_list' %}active{% endif %}" href="{% url 'budget_list' %}">
             <div class="nav-link-icon"><i data-feather="list"></i></div>
