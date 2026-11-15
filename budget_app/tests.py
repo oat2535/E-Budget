@@ -5,7 +5,7 @@ import re
 from unittest.mock import patch, MagicMock
 
 from django.conf import settings
-from django.contrib.auth.models import User
+from django.contrib.auth.models import User, AnonymousUser
 from django.test import RequestFactory, SimpleTestCase, TestCase
 from django.urls import reverse
 
@@ -3924,7 +3924,7 @@ class SessionTimeoutAndHybridAuthTests(SimpleTestCase):
 
     def test_authenticated_session_keepalive_returns_200_and_idle_timeout(self):
         from unittest.mock import MagicMock
-        from django.contrib.auth.models import User
+        from django.contrib.auth.models import User, AnonymousUser
         from budget_app.views import session_keepalive_api
         factory = RequestFactory()
         req = factory.get('/api/session/keepalive/')
@@ -4756,3 +4756,126 @@ class BudgetCloseFreezeEnforcementTests(SimpleTestCase):
         self.assertIn('dataset.systemFrozen', js_content)
         self.assertIn('isSystemFrozen', js_content)
         self.assertIn('response.status === 403', js_content)
+
+
+class PageLoadOptimizationTests(SimpleTestCase):
+    """Verifies page load performance optimizations:
+    1. Unauthenticated root GET / renders login page directly with HTTP 200 (eliminating the 302 round-trip).
+    2. Authenticated GET /login/ redirects straight to budget_list.
+    3. Login view preserves and safely redirects to next URL upon successful login.
+    4. Database CONN_MAX_AGE is tuned to at least 300s to avoid cold connection teardowns.
+    5. Master data static context is cached in-memory and clearable.
+    6. Login page contains LCP image preload and avoids render-blocking scripts.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from budget_app.views import clear_budget_list_static_cache
+        clear_budget_list_static_cache()
+
+    def tearDown(self):
+        from budget_app.views import clear_budget_list_static_cache
+        clear_budget_list_static_cache()
+        super().tearDown()
+
+    @patch('budget_app.models.SystemSettings.load')
+    def test_unauthenticated_root_renders_login_page_with_200_no_redirect(self, mock_load):
+        from budget_app.views import budget_list_view
+        mock_load.return_value = type('S', (), {'is_frozen': 0, 'frozen_message': '', 'active_budget_year': 2026})()
+        factory = RequestFactory()
+        req = factory.get('/')
+        req.user = AnonymousUser()
+        from django.contrib.sessions.middleware import SessionMiddleware
+        from django.contrib.messages.middleware import MessageMiddleware
+        SessionMiddleware(lambda r: None).process_request(req)
+        MessageMiddleware(lambda r: None).process_request(req)
+
+        resp = budget_list_view(req)
+        self.assertEqual(resp.status_code, 200, "Unauthenticated / must render login page with 200 (no 302 redirect)")
+        content = resp.content.decode('utf-8')
+        self.assertIn('E-Budget', content)
+        self.assertIn('name="employee_id"', content)
+        self.assertIn('name="password"', content)
+
+    def test_authenticated_get_login_page_redirects_to_budget_list(self):
+        from budget_app.views import login_view
+        factory = RequestFactory()
+        req = factory.get('/login/')
+        req.user = User(username='test_user')
+
+        resp = login_view(req)
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse('budget_list'))
+
+    @patch('budget_app.models.SystemSettings.load')
+    @patch('budget_app.views.login')
+    @patch('budget_app.views.authenticate')
+    def test_login_post_redirects_to_safe_next_url(self, mock_auth, mock_login, mock_load):
+        from budget_app.views import login_view
+        mock_load.return_value = type('S', (), {'is_frozen': 0, 'frozen_message': '', 'active_budget_year': 2026})()
+        user = User(username='test_user')
+        mock_auth.return_value = user
+
+        factory = RequestFactory()
+        req = factory.post('/login/?next=/dashboard/', data={'employee_id': 'test_user', 'password': 'secret_password'})
+        req.user = AnonymousUser()
+        from django.contrib.sessions.middleware import SessionMiddleware
+        from django.contrib.messages.middleware import MessageMiddleware
+        SessionMiddleware(lambda r: None).process_request(req)
+        MessageMiddleware(lambda r: None).process_request(req)
+
+        resp = login_view(req)
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, '/dashboard/')
+
+    def test_database_conn_max_age_configured_for_reuse(self):
+        self.assertGreaterEqual(settings.DATABASES['default']['CONN_MAX_AGE'], 300)
+        self.assertGreaterEqual(settings.DATABASES['imedx']['CONN_MAX_AGE'], 300)
+
+    @patch('budget_app.services.BudgetService.get_all_branches', return_value=[])
+    @patch('master_data.models.ebudget_gl_actual_template_row.objects')
+    @patch('master_data.models.ebudget_cost_center_master.objects')
+    @patch('master_data.models.ebudget_budget_item_master.objects')
+    @patch('master_data.models.ebudget_budget_category_master.objects')
+    def test_static_context_cache_and_clear_lifecycle(
+        self, mock_cat, mock_item, mock_cc, mock_glat_row, mock_branches
+    ):
+        from budget_app.views import get_budget_list_static_context, clear_budget_list_static_cache
+
+        mock_cats = MagicMock()
+        mock_cats.exists.return_value = True
+        mock_cats.__iter__.return_value = iter([])
+        mock_cat.filter.return_value.order_by.return_value = mock_cats
+        mock_item.filter.return_value.order_by.return_value.values.return_value = []
+        mock_cc.values.return_value.order_by.return_value = []
+        mock_glat_row.order_by.return_value.values.return_value = []
+
+        # Calling function returns populated dict
+        ctx1 = get_budget_list_static_context()
+        self.assertIn('categories', ctx1)
+        self.assertIn('items_vet_json', ctx1)
+        self.assertIn('cost_centers_json', ctx1)
+
+        # Clear cache function clears without error
+        clear_budget_list_static_cache()
+
+    @patch('budget_app.models.SystemSettings.load')
+    def test_login_page_has_lcp_preload_and_no_render_blocking_scripts(self, mock_load):
+        mock_load.return_value = type('S', (), {'is_frozen': 0, 'frozen_message': '', 'active_budget_year': 2026})()
+        from django.template.loader import render_to_string
+        factory = RequestFactory()
+        req = factory.get('/')
+        req.user = AnonymousUser()
+        from django.contrib.sessions.middleware import SessionMiddleware
+        from django.contrib.messages.middleware import MessageMiddleware
+        SessionMiddleware(lambda r: None).process_request(req)
+        MessageMiddleware(lambda r: None).process_request(req)
+
+        html = render_to_string('budget_app/login.html', {}, request=req)
+        self.assertIn('rel="preload" as="image"', html)
+        self.assertIn('fetchpriority="high"', html)
+        self.assertIn('decoding="async"', html)
+        self.assertNotIn('feather-icons', html)
+        self.assertNotIn('font-awesome', html)
+        self.assertNotIn('sweetalert2', html)
+

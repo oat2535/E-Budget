@@ -132,7 +132,7 @@ DATABASES = {
         'PASSWORD': os.environ.get('DB_DEFAULT_PASSWORD'),
         'HOST': os.environ.get('DB_DEFAULT_HOST'), 
         'PORT': os.environ.get('DB_DEFAULT_PORT'),
-        'CONN_MAX_AGE': 60,
+        'CONN_MAX_AGE': int(os.environ.get('DB_CONN_MAX_AGE', 600)),
         'OPTIONS': {
             'options': '-c search_path=intra_tl'
         },
@@ -144,7 +144,7 @@ DATABASES = {
         'PASSWORD': os.environ.get('DB_IMEDX_PASSWORD'),
         'HOST': os.environ.get('DB_IMEDX_HOST'), 
         'PORT': os.environ.get('DB_IMEDX_PORT'),
-        'CONN_MAX_AGE': 60,
+        'CONN_MAX_AGE': int(os.environ.get('DB_CONN_MAX_AGE', 600)),
         'OPTIONS': {
             'options': '-c search_path=public'
         }
