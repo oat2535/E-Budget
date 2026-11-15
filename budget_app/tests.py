@@ -5,7 +5,7 @@ import re
 from unittest.mock import patch, MagicMock
 
 from django.conf import settings
-from django.contrib.auth.models import User
+from django.contrib.auth.models import User, AnonymousUser
 from django.test import RequestFactory, SimpleTestCase, TestCase
 from django.urls import reverse
 
@@ -3924,7 +3924,7 @@ class SessionTimeoutAndHybridAuthTests(SimpleTestCase):
 
     def test_authenticated_session_keepalive_returns_200_and_idle_timeout(self):
         from unittest.mock import MagicMock
-        from django.contrib.auth.models import User
+        from django.contrib.auth.models import User, AnonymousUser
         from budget_app.views import session_keepalive_api
         factory = RequestFactory()
         req = factory.get('/api/session/keepalive/')
@@ -4855,4 +4855,25 @@ class PageLoadOptimizationTests(SimpleTestCase):
 
         # Clear cache function clears without error
         clear_budget_list_static_cache()
+
+    @patch('budget_app.models.SystemSettings.load')
+    def test_login_page_has_lcp_preload_and_no_render_blocking_scripts(self, mock_load):
+        mock_load.return_value = type('S', (), {'is_frozen': 0, 'frozen_message': '', 'active_budget_year': 2026})()
+        from django.template.loader import render_to_string
+        factory = RequestFactory()
+        req = factory.get('/')
+        req.user = AnonymousUser()
+        from django.contrib.sessions.middleware import SessionMiddleware
+        from django.contrib.messages.middleware import MessageMiddleware
+        SessionMiddleware(lambda r: None).process_request(req)
+        MessageMiddleware(lambda r: None).process_request(req)
+
+        html = render_to_string('budget_app/login.html', {}, request=req)
+        self.assertIn('rel="preload" as="image"', html)
+        self.assertIn('fetchpriority="high"', html)
+        self.assertIn('decoding="async"', html)
+        self.assertNotIn('feather-icons', html)
+        self.assertNotIn('font-awesome', html)
+        self.assertNotIn('sweetalert2', html)
+
 

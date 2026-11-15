@@ -370,7 +370,8 @@ def get_general_ledgers_api(request):
     return JsonResponse({'status': 'success', 'general_ledgers': get_general_ledgers_json()})
 
 def login_view(request):
-    if request.user.is_authenticated and request.method == 'GET':
+    user_obj = getattr(request, 'user', None)
+    if user_obj and user_obj.is_authenticated and request.method == 'GET':
         return redirect('budget_list')
 
     if request.method == 'POST':
