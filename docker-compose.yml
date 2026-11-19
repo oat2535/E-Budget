@@ -1,7 +1,6 @@
 services:
   web:
     container_name: e-budget-web-uat
-    image: e-budget-web-uat:latest
     build: .
     restart: unless-stopped
     ports:
