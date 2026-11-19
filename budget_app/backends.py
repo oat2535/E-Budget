@@ -66,11 +66,12 @@ class ImedxAuthBackend(BaseBackend):
                         user.first_name = first_name_str[:150]
                         user.last_name = (lastname or '')[:150]
                         
-                        # Ensure user always has unusable local password so iMedX remains single source of truth
+                        # Ensure user always has unusable local password so iMedX remains single source of truth.
+                        # Explicitly enforce is_staff=False and is_superuser=False so iMedX role
+                        # (emp.bank_account_note) is the authoritative source of truth.
                         user.set_unusable_password()
-                        if created:
-                            user.is_staff = False
-                            
+                        user.is_staff = False
+                        user.is_superuser = False
                         user.save()
                         return user
         except Exception as e:

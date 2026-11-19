@@ -261,15 +261,15 @@ def get_branch_info(request):
 
 def get_document_visibility_filter_kwargs(request):
     """Filter kwargs scoping which budget documents a user can see (list +
-    detail). ALL_BRANCH_USERNAMES, superusers, and executive view-only users
-    (CHRO, CFO, COO) see everything (empty dict).
+    detail). Privileged admin users (emp.bank_account_note like %ADMIN), superusers,
+    and executive view-only users (CHRO, CFO, COO) see everything (empty dict).
     District Managers and Directors (DISTRICT MANAGER, DIRECTOR) see all documents
     across branches listed in their bank_sub_name.
     Everyone else sees only documents they personally created — matched by create_eid,
     the same field/comparison cancel_document_api's ownership check already uses
     (request.user.username), so a document keeps showing to its creator even if
     its branch is later reassigned via the edit-mode branch dropdown."""
-    if is_privileged_user_account(request.user):
+    if is_privileged_user_account(request.user, request=request):
         return {}
     if is_executive_view_only_user(request):
         return {}
@@ -282,11 +282,15 @@ def get_document_visibility_filter_kwargs(request):
 
 def get_branch_selection_context(request):
     """Extra template context for the add-budget branch-picker dropdown —
-    only populated when the user actually belongs to more than one branch
-    (see BudgetService.get_branch_info_from_imedx), so the ~91% of users
-    who don't need it don't pay for the extra imedx round trip to resolve
-    branch names."""
+    populated when the user belongs to more than one branch or is a privileged
+    admin user who can create documents for any branch."""
     info = get_branch_info(request)
+    if is_privileged_user_account(request.user, request=request):
+        all_branches = BudgetService.get_tlph_branches()
+        options = [{'code': b['code'], 'name': b['name']} for b in all_branches]
+        if not any(o['code'] == 'HO' for o in options):
+            options.insert(0, {'code': 'HO', 'name': 'สำนักงานใหญ่ (HO)'})
+        return {'needs_branch_selection': True, 'branch_options_json': options}
     if not info['needs_selection']:
         return {'needs_branch_selection': False, 'branch_options_json': []}
     names = BudgetService.get_branch_names_from_imedx(info['branches'])
@@ -296,14 +300,22 @@ def get_branch_selection_context(request):
 def resolve_branch_for_create(request, data):
     """Determines the (base_branch_id, department_id) to stamp on a new
     document, from the session-cached branch info. When the user belongs
-    to more than one branch, the add-budget page must send back which one
-    the user picked (data[0]['branch_code'], same per-document-not-per-row
-    convention cost_center_name already uses) — validated against the
-    user's own branch list so a crafted request can't stamp a branch they
-    don't belong to. base_branch_id is None if no branch could be resolved
-    at all, matching the pre-existing fail-closed behavior."""
+    to more than one branch (or is a privileged admin), the add-budget page
+    must send back which one the user picked (data[0]['branch_code'], same
+    per-document-not-per-row convention cost_center_name already uses).
+    Validated against the user's branch list (unless privileged admin) so
+    a crafted request can't stamp a branch they don't belong to.
+    base_branch_id is None if no branch could be resolved at all, matching
+    the pre-existing fail-closed behavior."""
     info = get_branch_info(request)
     branches = info['branches']
+    if is_privileged_user_account(request.user, request=request):
+        chosen = data[0].get('branch_code') if data else None
+        if chosen:
+            return chosen, info.get('department_id')
+        if branches:
+            return branches[0], info.get('department_id')
+        return 'HO', info.get('department_id')
     if not branches:
         return None, info['department_id']
     if info['needs_selection']:
@@ -317,11 +329,13 @@ def resolve_branch_for_update(request, data, current_branch_id):
     """Determines the base_branch_id to stamp on a document being edited.
     Single-branch users (and back-office/BACK- users) have nothing to pick
     from, so the branch just stays whatever it already was — same as
-    before this dropdown existed. Multi-branch users may now change it via
-    the same branch_code convention resolve_branch_for_create uses,
-    validated the same way (their own branch list only, so a crafted
-    request can't move a document to a branch they don't belong to)."""
+    before this dropdown existed. Multi-branch users (and privileged admins)
+    may now change it via the same branch_code convention resolve_branch_for_create
+    uses."""
     info = get_branch_info(request)
+    if is_privileged_user_account(request.user, request=request):
+        chosen = data[0].get('branch_code') if data else None
+        return chosen if chosen else current_branch_id
     if not info['needs_selection']:
         return current_branch_id
     chosen = data[0].get('branch_code') if data else None
@@ -387,7 +401,7 @@ def login_view(request):
             # freeze state via the navbar lock icon/badge, so this is for
             # everyone else, who'd otherwise have no reason to expect adding
             # budget data to be blocked until they tried it.
-            if not is_privileged_user_account(user):
+            if not is_privileged_user_account(user, request=request):
                 settings_obj = SystemSettings.load()
                 if settings_obj.is_frozen:
                     messages.info(request, settings_obj.frozen_message)
@@ -1472,10 +1486,10 @@ def update_document_api(request, doc_type, doc_no):
         }, status=403)
         
     # Ownership & permission check:
-    # Privileged users (nattchai_u, kanchana, kanchana_a, pattida_y, and superusers)
+    # Privileged users (emp.bank_account_note LIKE '%ADMIN' or superuser)
     # may edit any document. Other users may edit documents they created themselves —
     # validated below once first_item.create_eid is loaded.
-    is_privileged = is_privileged_user_account(request.user)
+    is_privileged = is_privileged_user_account(request.user, request=request)
 
     try:
         data = json.loads(request.body)
@@ -1899,7 +1913,7 @@ def approve_document_api(request, doc_type, doc_no):
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
 
-    if not is_privileged_user_account(request.user):
+    if not is_privileged_user_account(request.user, request=request):
         return JsonResponse({'status': 'error', 'message': 'ไม่มีสิทธิ์ในการอนุมัติเอกสาร'})
 
     try:
@@ -1956,7 +1970,7 @@ def cancel_document_api(request, doc_type, doc_no):
     if not reason:
         return JsonResponse({'status': 'error', 'message': 'กรุณาระบุเหตุผลการยกเลิก'})
 
-    is_privileged = is_privileged_user_account(request.user)
+    is_privileged = is_privileged_user_account(request.user, request=request)
 
     try:
         model_class = _resolve_model_class(doc_type)
@@ -2528,7 +2542,7 @@ def budget_add_gl_actual_template_view(request):
 def toggle_freeze_view(request):
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
-    if not is_privileged_user_account(request.user):
+    if not is_privileged_user_account(request.user, request=request):
         return JsonResponse({'status': 'error', 'message': 'ไม่มีสิทธิ์ในการดำเนินการนี้'}, status=403)
 
     try:
@@ -2673,7 +2687,7 @@ def dashboard_export_excel_api(request):
 def set_active_year_view(request):
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
-    if not is_privileged_user_account(request.user):
+    if not is_privileged_user_account(request.user, request=request):
         return JsonResponse({'status': 'error', 'message': 'ไม่มีสิทธิ์ในการดำเนินการนี้'}, status=403)
 
     try:

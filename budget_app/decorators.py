@@ -19,7 +19,7 @@ def require_not_frozen(view_func):
     blocking modal is a UX affordance, not the real gate."""
     @wraps(view_func)
     def wrapper(request, *args, **kwargs):
-        if not is_privileged_user_account(getattr(request, 'user', None)):
+        if not is_privileged_user_account(getattr(request, 'user', None), request=request):
             from budget_app.models import SystemSettings
             settings_obj = SystemSettings.load()
             if settings_obj.is_frozen:

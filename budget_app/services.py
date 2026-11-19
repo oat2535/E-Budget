@@ -18,6 +18,7 @@ from budget_app.constants import (
     STATUS_CANCELLED,
     GL_ACTUAL_TEMPLATE_BRANCHES,
     is_privileged_user_account,
+    is_admin_role,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,16 @@ class BudgetService:
         if not bank_account_note:
             return False
         return 'MANAGER' in (bank_account_note or '').strip().upper()
+
+    @staticmethod
+    def is_admin_role(bank_account_note):
+        """Checks if a bank_account_note matches admin role (emp.bank_account_note like %ADMIN).
+        Matches (case-insensitive and trimmed) strings ending with ADMIN (e.g. 'ADMIN', 'IT-ADMIN', 'ACC-ADMIN')
+        as well as containing ADMIN."""
+        if not bank_account_note:
+            return False
+        note = str(bank_account_note).strip().upper()
+        return note.endswith('ADMIN') or 'ADMIN' in note
 
     @staticmethod
     def get_branch_info_from_imedx(username):
@@ -106,6 +117,7 @@ class BudgetService:
             'needs_selection': False,
             'department_id': None,
             'is_manager': False,
+            'is_admin': False,
             'bank_account_note': None,
             'is_executive_view_only': False,
             'is_district_view_only': False,
@@ -135,10 +147,11 @@ class BudgetService:
             return empty
 
         sub_name_upper = sub_name_clean.upper()
+        is_admin = BudgetService.is_admin_role(note_clean)
         is_manager = 'MANAGER' in note_clean.upper()
         is_executive = BudgetService.is_executive_role(note_clean)
         is_district = BudgetService.is_district_role(note_clean)
-        is_view_only = is_executive or is_district
+        is_view_only = (is_executive or is_district) and not is_admin
 
         if bank_sub_name and 'BACK' in sub_name_upper:
             valid_branch_ids = {code for code, _ in GL_ACTUAL_TEMPLATE_BRANCHES if code != 'HO'}
@@ -189,6 +202,7 @@ class BudgetService:
                     'needs_selection': len(branches) > 1,
                     'department_id': department_id,
                     'is_manager': is_manager,
+                    'is_admin': is_admin,
                     'bank_account_note': note_clean,
                     'is_executive_view_only': is_executive,
                     'is_district_view_only': is_district,
@@ -200,6 +214,7 @@ class BudgetService:
                     'needs_selection': False,
                     'department_id': department_id,
                     'is_manager': is_manager,
+                    'is_admin': is_admin,
                     'bank_account_note': note_clean,
                     'is_executive_view_only': is_executive,
                     'is_district_view_only': is_district,
@@ -214,6 +229,7 @@ class BudgetService:
                     'needs_selection': len(branches) > 1,
                     'department_id': None,
                     'is_manager': is_manager,
+                    'is_admin': is_admin,
                     'bank_account_note': note_clean,
                     'is_executive_view_only': is_executive,
                     'is_district_view_only': is_district,
@@ -226,6 +242,7 @@ class BudgetService:
                 'needs_selection': False,
                 'department_id': None,
                 'is_manager': is_manager,
+                'is_admin': is_admin,
                 'bank_account_note': note_clean,
                 'is_executive_view_only': is_executive,
                 'is_district_view_only': is_district,
@@ -236,6 +253,7 @@ class BudgetService:
             'needs_selection': False,
             'department_id': None,
             'is_manager': is_manager,
+            'is_admin': is_admin,
             'bank_account_note': note_clean,
             'is_executive_view_only': is_executive,
             'is_district_view_only': is_district,
@@ -745,7 +763,7 @@ def is_executive_view_only_user(request):
     and ALL_BRANCH_USERNAMES bypass this to preserve admin/privileged capabilities."""
     if not request or not getattr(request, 'user', None) or not request.user.is_authenticated:
         return False
-    if is_privileged_user_account(request.user):
+    if is_privileged_user_account(request.user, request=request):
         return False
     session = getattr(request, 'session', None)
     if session is not None:
@@ -766,7 +784,7 @@ def is_district_view_only_user(request):
     and ALL_BRANCH_USERNAMES bypass this to preserve admin/privileged capabilities."""
     if not request or not getattr(request, 'user', None) or not request.user.is_authenticated:
         return False
-    if is_privileged_user_account(request.user):
+    if is_privileged_user_account(request.user, request=request):
         return False
     session = getattr(request, 'session', None)
     if session is not None:
@@ -787,7 +805,7 @@ def is_view_only_user(request):
     Local superusers and ALL_BRANCH_USERNAMES bypass this to preserve admin capabilities."""
     if not request or not getattr(request, 'user', None) or not request.user.is_authenticated:
         return False
-    if is_privileged_user_account(request.user):
+    if is_privileged_user_account(request.user, request=request):
         return False
     session = getattr(request, 'session', None)
     if session is not None:
@@ -803,12 +821,13 @@ def is_view_only_user(request):
 
 
 def can_access_gl_actual_template(request):
-    """Returns True only if the authenticated user's username is explicitly in
-    GL_ACTUAL_TEMPLATE_ALLOWED_USERNAMES (nattchai_u, kanchana_a, pattida_y)."""
+    """Returns True if the authenticated user is allowed to access and view the
+    GL Actual Template page / menu. Restricted to privileged admin users
+    (emp.bank_account_note like %ADMIN) and superusers."""
     if not request or not getattr(request, 'user', None) or not request.user.is_authenticated:
         return False
-    from budget_app.constants import GL_ACTUAL_TEMPLATE_ALLOWED_USERNAMES
-    return (request.user.username or '').strip().lower() in GL_ACTUAL_TEMPLATE_ALLOWED_USERNAMES
+    from budget_app.constants import is_privileged_user_account
+    return is_privileged_user_account(request.user, request=request)
 
 
 def can_access_dashboard(request):

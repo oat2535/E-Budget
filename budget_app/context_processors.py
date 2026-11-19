@@ -28,7 +28,7 @@ def site_status(request):
     is_executive = is_executive_view_only_user(request)
     is_district = is_district_view_only_user(request)
 
-    is_privileged = is_privileged_user_account(request.user) and not is_view_only
+    is_privileged = is_privileged_user_account(request.user, request=request) and not is_view_only
 
     settings_obj = SystemSettings.load()
     current_year = datetime.now().year
