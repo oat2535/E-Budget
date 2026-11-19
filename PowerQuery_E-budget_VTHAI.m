@@ -915,8 +915,14 @@ WHERE status <> 'CANCELLED'"
 & "ORDER BY create_date DESC, month, item_id, row_type DESC NULLS LAST;",
 
     // -------------------------------------------------------------------------
-    // 5. เชื่อมต่อฐานข้อมูลและรันคิวรี่ (PostgreSQL Native Query)
+    // 5. เชื่อมต่อฐานข้อมูลและรันคิวรี่ (Database Connection Execution)
     // -------------------------------------------------------------------------
+    // วิธีที่ 1 (แนะนำ - Best Practice & Performance): ใช้ PostgreSQL Native Connector
+    // * ข้อกำหนด: ต้องติดตั้ง Npgsql 4.0.10 (เลือก Npgsql GAC Installation) บนเครื่อง Windows
     Source = PostgreSQL.Database(ServerHost, DatabaseName, [Query = SqlQuery])
+
+    // วิธีที่ 2 (สำรองกรณีใช้ ODBC): หากในเครื่องมี PostgreSQL ODBC Driver (psqlODBC 64-bit)
+    // ให้คอมเมนต์วิธีที่ 1 ด้านบน แล้วเปิดบรรทัดล่างนี้แทน:
+    // Source = Odbc.Query("Driver={PostgreSQL Unicode(x64)};Server=" & ServerHost & ";Database=" & DatabaseName & ";", SqlQuery)
 in
     Source
