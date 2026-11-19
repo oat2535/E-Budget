@@ -312,34 +312,50 @@ const BudgetApp = (function() {
         if (currentValue) ts.setValue(currentValue, true);
     }
 
-    // GL dropdown source for editing GL Entry/Budget Plan documents — same
-    // gl_name-displayed/gl_code-stored pattern as budget_add_gl_entry.html.
-    // Fetched lazily (not embedded in the page) since it's only ever needed
-    // once a document's GL edit mode is actually entered (toggleGlEditMode
-    // below) — the full GL master table doesn't belong in every landing-page
-    // load. generalLedgersPromise dedupes concurrent callers so a rapid
-    // double-toggle of edit mode doesn't fire the fetch twice.
+    // GL dropdown source for editing GL Entry (EXPENSE), Revenue, and Budget Plan documents.
+    // Fetched lazily since it's only ever needed once a document's GL edit mode is entered.
+    // GL options are segregated by document type:
+    // - EXPENSE ('GL Entry'): excludes EXPENSE_PAGE_EXCLUDED_GL_CODES (same as budget_add_gl_entry.html)
+    // - Revenue: only names starting with 'รายได้' (same as budget_add_revenue.html)
+    // - Budget Plan: all GL items
+    let allGeneralLedgers = [];
+    let generalLedgersByDocType = {};
     let generalLedgers = null;
     let glNames = [];
     let generalLedgersPromise = null;
-    function ensureGeneralLedgersLoaded() {
-        if (generalLedgers !== null) return Promise.resolve();
+
+    function ensureGeneralLedgersLoaded(docType) {
         if (!generalLedgersPromise) {
             generalLedgersPromise = fetch(window.APP_CONFIG.urls.apiGeneralLedgers)
                 .then(handleApiResponse)
                 .then(data => {
-                    generalLedgers = data.general_ledgers;
-                    // Sorted once here (not inside the dropdown's per-click
-                    // rebuild, which jspreadsheet/jSuites always re-sorts
-                    // internally regardless — pre-sorting lets that repeated
-                    // internal sort do less work).
-                    glNames = generalLedgers.map(g => g.gl_name).sort((a, b) => a.localeCompare(b, 'th'));
+                    allGeneralLedgers = data.all_general_ledgers || data.general_ledgers || [];
+                    if (data.by_doc_type) {
+                        generalLedgersByDocType = data.by_doc_type;
+                    } else {
+                        generalLedgersByDocType = {
+                            'GL Entry': allGeneralLedgers,
+                            'EXPENSE': allGeneralLedgers,
+                            'Revenue': allGeneralLedgers.filter(g => (g.gl_name || '').startsWith('รายได้')),
+                            'Budget Plan': allGeneralLedgers,
+                        };
+                    }
                 });
         }
-        return generalLedgersPromise;
+        return generalLedgersPromise.then(() => {
+            const key = (docType === 'Revenue') ? 'Revenue' : (docType === 'Budget Plan' ? 'Budget Plan' : 'GL Entry');
+            generalLedgers = generalLedgersByDocType[key] || allGeneralLedgers;
+            glNames = generalLedgers.map(g => g.gl_name).sort((a, b) => a.localeCompare(b, 'th'));
+            ensureModalGlDatalist();
+        });
     }
+
     const getGlCode = (name) => {
-        const match = (generalLedgers || []).find(g => g.gl_name === name);
+        const activeList = generalLedgers || [];
+        let match = activeList.find(g => g.gl_name === name);
+        if (!match && allGeneralLedgers && allGeneralLedgers.length > 0) {
+            match = allGeneralLedgers.find(g => g.gl_name === name);
+        }
         return match ? match.gl_code : null;
     };
 
@@ -2136,10 +2152,16 @@ const BudgetApp = (function() {
             const input = cell.querySelector('input');
             const val = input ? input.value.trim() : (cell.innerText || '').trim();
             if (!val) return '';
-            const match = generalLedgers.find(g => g.gl_name === val);
+            const activeList = generalLedgers || [];
+            const match = activeList.find(g => g.gl_name === val);
             if (match) return match.gl_name;
-            const ciMatch = generalLedgers.find(g => g.gl_name.toLowerCase() === val.toLowerCase());
+            const ciMatch = activeList.find(g => g.gl_name.toLowerCase() === val.toLowerCase());
             if (ciMatch) return ciMatch.gl_name;
+            // Also accept if cell already had this exact valid GL from allGeneralLedgers (unchanged legacy cell)
+            const allMatch = (allGeneralLedgers || []).find(g => g.gl_name === val || g.gl_name.toLowerCase() === val.toLowerCase());
+            if (allMatch && (cell.innerText || '').trim() === allMatch.gl_name) {
+                return allMatch.gl_name;
+            }
             if (typeof Swal !== 'undefined') {
                 Swal.fire({
                     toast: true,
@@ -2581,7 +2603,7 @@ const BudgetApp = (function() {
                     });
                 });
             }
-            await ensureGeneralLedgersLoaded();
+            await ensureGeneralLedgersLoaded(currentGlDocType);
             renderGlDetailSpreadsheet(currentGlDocType, items, true);
 
             const containerEl = document.getElementById('glDetailTableContainer');
