@@ -745,6 +745,25 @@ WITH all_ebudget_data AS (
     FROM intra_tl.ebudget_gl_actual_template v
     LEFT JOIN intra_tl.base_sub_branch bsb ON bsb.sub_branch_id = v.base_branch_id
     LEFT JOIN intra_tl.master_data_ebudget_general_ledger_master glm ON glm.gl_code = v.code
+),
+ebudget_with_users AS (
+    SELECT
+        d.*,
+        COALESCE(
+            NULLIF(TRIM(CONCAT(cu.first_name, ' ', cu.last_name)), ''),
+            NULLIF(TRIM(CONCAT(ce.prename, ce.firstname, ' ', ce.lastname)), ''),
+            d.create_eid
+        ) AS create_name,
+        COALESCE(
+            NULLIF(TRIM(CONCAT(mu.first_name, ' ', mu.last_name)), ''),
+            NULLIF(TRIM(CONCAT(me.prename, me.firstname, ' ', me.lastname)), ''),
+            d.modify_eid
+        ) AS modify_name
+    FROM all_ebudget_data d
+    LEFT JOIN intra_tl.auth_user cu ON LOWER(cu.username) = LOWER(d.create_eid)
+    LEFT JOIN public.employee ce ON LOWER(ce.employee_id) = LOWER(d.create_eid)
+    LEFT JOIN intra_tl.auth_user mu ON LOWER(mu.username) = LOWER(d.modify_eid)
+    LEFT JOIN public.employee me ON LOWER(me.employee_id) = LOWER(d.modify_eid)
 )
 SELECT
     doc_type AS "ประเภท",
@@ -759,8 +778,10 @@ SELECT
     cost_center_name AS "ชื่อ Cost Center",
     cost_center_description AS "คำอธิบาย Cost Center",
     create_eid AS "รหัสผู้สร้าง",
+    create_name AS "ชื่อผู้สร้าง",
     create_date AS "วันที่สร้าง",
     modify_eid AS "รหัสผู้แก้ไข",
+    modify_name AS "ชื่อผู้แก้ไขล่าสุด",
     modify_date AS "วันที่แก้ไขล่าสุด",
     general_ledger_code AS "รหัส GL",
     gl_name AS "ชื่อบัญชี GL",
@@ -841,7 +862,11 @@ SELECT
         --    ตั้งเป็น 0 เพื่อไม่ให้นำ Actual ทั้งปีไปบวกซ้ำกับงบประมาณรายเดือนใน Pivot และไม่หลุดเข้าสูตรค่าเสื่อม
         ELSE 0::numeric(14, 2)
     END AS "ยอดงบประมาณรวม (Pivot)"
-FROM all_ebudget_data
+FROM ebudget_with_users
 WHERE status <> 'CANCELLED'   -- (แนะนำ) เปิดใช้เพื่อตัดเอกสารที่ยกเลิกออก
 --   AND budget_year = 2025       -- (แนะนำ) เปิดใช้เพื่อกรองเฉพาะปีงบประมาณ
+--   AND create_date >= '2025-01-01 00:00:00' AND create_date < '2026-01-01 00:00:00'  -- (แนะนำ) กรองช่วงวันที่สร้าง (SARGable/Performance)
+--   AND modify_date >= '2025-01-01 00:00:00' AND modify_date < '2026-01-01 00:00:00'  -- (แนะนำ) กรองช่วงวันที่แก้ไขล่าสุด (SARGable/Performance)
+--   AND create_date::date = '2025-01-01'  -- ตัวอย่างกรองเฉพาะวันที่สร้าง
+--   AND modify_date::date = '2025-01-01'  -- ตัวอย่างกรองเฉพาะวันที่แก้ไขล่าสุด
 ORDER BY create_date DESC, month, item_id, row_type DESC NULLS LAST;

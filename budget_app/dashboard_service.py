@@ -147,14 +147,17 @@ def _resolve_session_or_live_branch_info(request):
 
 
 def _has_all_branch_dashboard_access(user, branch_info) -> bool:
-    username = (getattr(user, 'username', '') or '').strip().lower()
-    if getattr(user, 'is_superuser', False) or username in ALL_BRANCH_USERNAMES:
+    if getattr(user, 'is_superuser', False):
         return True
-    if branch_info and branch_info.get('is_executive_view_only'):
-        return True
-    from budget_app.services import BudgetService
-    note = (branch_info or {}).get('bank_account_note')
-    return BudgetService.is_executive_role(note)
+    if branch_info:
+        if branch_info.get('is_admin') or branch_info.get('is_executive_view_only'):
+            return True
+        from budget_app.services import BudgetService
+        note = branch_info.get('bank_account_note')
+        if BudgetService.is_admin_role(note) or BudgetService.is_executive_role(note):
+            return True
+    from budget_app.constants import is_privileged_user_account
+    return is_privileged_user_account(user)
 
 
 def can_access_dashboard(request) -> bool:

@@ -1,27 +1,83 @@
-# Usernames allowed to view/edit budget documents across every branch,
-# freeze the system, and change the active budget year — the privileged
-# user tier (nattchai_u, kanchana / kanchana_a, pattida_y).
-ALL_BRANCH_USERNAMES = {'nattchai_u', 'kanchana', 'kanchana_a', 'pattida_y'}
+# Previously hardcoded privileged users (pattida_y, nattchai_u, kanchana_a, kanchana)
+# are deprecated; privileged permissions are now resolved dynamically from iMedX:
+# emp.bank_account_note LIKE '%ADMIN' (or superuser).
+ALL_BRANCH_USERNAMES = set()
 
-# Usernames allowed to see and access the "GL Actual Template" menu and creation page.
-GL_ACTUAL_TEMPLATE_ALLOWED_USERNAMES = {'nattchai_u', 'kanchana_a', 'pattida_y'}
+# Usernames allowed to see and access the "GL Actual Template" menu and creation page
+# (now granted to all privileged admin users via emp.bank_account_note LIKE '%ADMIN').
+GL_ACTUAL_TEMPLATE_ALLOWED_USERNAMES = set()
 
 
-def is_privileged_user_account(user):
+def is_admin_role(bank_account_note):
+    """Checks if a bank_account_note matches admin role (emp.bank_account_note like %ADMIN).
+    Matches (case-insensitive and trimmed) strings ending with ADMIN (e.g. 'ADMIN', 'IT-ADMIN', 'ACC-ADMIN')
+    as well as containing ADMIN."""
+    if not isinstance(bank_account_note, str):
+        return False
+    note = bank_account_note.strip().upper()
+    return note.endswith('ADMIN') or 'ADMIN' in note
+
+
+def is_privileged_user_account(user, request=None):
     """Return True if *user* is an authenticated superuser or belongs to
-    ALL_BRANCH_USERNAMES (case- and whitespace-normalized).
+    privileged admin tier in iMedX (emp.bank_account_note LIKE '%ADMIN').
 
     Uses strict identity/type checks so unconfigured MagicMock instances in
     unit tests do not evaluate as truthy superusers or usernames.
     """
     if not user or getattr(user, 'is_authenticated', False) is not True:
         return False
-    if getattr(user, 'is_superuser', False) is True:
+    cached = getattr(user, '_is_admin_cached', None)
+    if isinstance(cached, bool):
+        return cached
+
+    # Check session if request was provided or attached to user
+    req = request or getattr(user, '_request', None)
+    if req is not None:
+        session = getattr(req, 'session', None)
+        if session and 'branch_info' in session:
+            info = session['branch_info']
+            is_adm = bool(info.get('is_admin'))
+            user._is_admin_cached = is_adm
+            return is_adm
+
+    # Check if bank_account_note is explicitly set on user (for tests or mocked user)
+    note = getattr(user, 'bank_account_note', None)
+    if isinstance(note, str):
+        is_adm = is_admin_role(note)
+        user._is_admin_cached = is_adm
+        return is_adm
+
+    if getattr(user, 'is_admin', False) is True:
         return True
+
     raw_username = getattr(user, 'username', None)
-    if not isinstance(raw_username, str):
+    clean_username = raw_username.strip().lower() if isinstance(raw_username, str) else ''
+
+    # Handle Django superuser:
+    # 1. Django root superuser ('admin') or unlinked mock superuser in tests is granted.
+    # 2. For an active iMedX employee, emp.bank_account_note is authoritative.
+    if getattr(user, 'is_superuser', False) is True:
+        if clean_username in ('admin', ''):
+            user._is_admin_cached = True
+            return True
+
+        from budget_app.services import BudgetService
+        info = BudgetService.get_branch_info_from_imedx(raw_username.strip())
+        if info.get('branches') or info.get('bank_account_note'):
+            is_adm = bool(info.get('is_admin'))
+            user._is_admin_cached = is_adm
+            return is_adm
+        return True
+
+    if not clean_username:
         return False
-    return raw_username.strip().lower() in ALL_BRANCH_USERNAMES
+
+    from budget_app.services import BudgetService
+    info = BudgetService.get_branch_info_from_imedx(raw_username.strip())
+    is_adm = bool(info.get('is_admin'))
+    user._is_admin_cached = is_adm
+    return is_adm
 
 # Executive roles from iMedX (bank_account_note) that have read-only visibility
 # across all documents in the system (can see all documents in list and view details,

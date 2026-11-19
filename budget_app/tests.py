@@ -1251,15 +1251,20 @@ class ManpowerIntegerHeadcountTests(SimpleTestCase):
 class BudgetListDocumentPermissionTests(SimpleTestCase):
     """Test permission rules for editing and cancelling documents in budget list:
     - Regular users can edit/cancel only documents they created themselves.
-    - Privileged users (nattchai_u, kanchana, kanchana_a, pattida_y, superuser)
+    - Privileged users (emp.bank_account_note like %ADMIN, superuser)
       can edit/cancel both their own documents and other people's documents.
     """
 
     def test_constants_privileged_usernames(self):
-        self.assertIn('nattchai_u', ALL_BRANCH_USERNAMES)
-        self.assertIn('kanchana', ALL_BRANCH_USERNAMES)
-        self.assertIn('kanchana_a', ALL_BRANCH_USERNAMES)
-        self.assertIn('pattida_y', ALL_BRANCH_USERNAMES)
+        from budget_app.constants import is_admin_role
+        self.assertTrue(is_admin_role('ADMIN'))
+        self.assertTrue(is_admin_role('IT-ADMIN'))
+        self.assertTrue(is_admin_role('ACC-ADMIN'))
+        self.assertTrue(is_admin_role('admin'))
+        self.assertFalse(is_admin_role('MANAGER'))
+        self.assertFalse(is_admin_role('FRONT'))
+        self.assertFalse(is_admin_role('IT'))
+        self.assertFalse(is_admin_role(None))
 
     @patch('budget_app.models.SystemSettings.load')
     def test_context_processor_permissions(self, mock_settings):
@@ -1279,19 +1284,20 @@ class BudgetListDocumentPermissionTests(SimpleTestCase):
 
         # Regular user
         req_reg = factory.get('/')
-        req_reg.user = MagicMock(is_authenticated=True, username='somchai', is_superuser=False)
-        req_reg.session = {'branch_info': {'is_executive_view_only': False}}
+        req_reg.user = MagicMock(is_authenticated=True, username='somchai', is_superuser=False, bank_account_note='FRONT')
+        req_reg.session = {'branch_info': {'is_executive_view_only': False, 'is_admin': False}}
         ctx_reg = site_status(req_reg)
         self.assertTrue(ctx_reg['can_edit_own_documents'])
         self.assertFalse(ctx_reg['is_privileged_user'])
 
-        # Privileged users
-        for priv_username in ['nattchai_u', 'kanchana', 'kanchana_a', 'pattida_y']:
+        # Privileged admin users (emp.bank_account_note like %ADMIN)
+        for admin_role in ['ADMIN', 'IT-ADMIN', 'ACC-ADMIN']:
             req_priv = factory.get('/')
-            req_priv.user = MagicMock(is_authenticated=True, username=priv_username, is_superuser=False)
+            req_priv.user = MagicMock(is_authenticated=True, username='admin_user', is_superuser=False, bank_account_note=admin_role)
+            req_priv.session = {'branch_info': {'is_admin': True, 'is_executive_view_only': False}}
             ctx_priv = site_status(req_priv)
             self.assertTrue(ctx_priv['can_edit_own_documents'])
-            self.assertTrue(ctx_priv['is_privileged_user'], f"{priv_username} should be privileged")
+            self.assertTrue(ctx_priv['is_privileged_user'], f"{admin_role} should be privileged")
 
         # Superuser
         req_admin = factory.get('/')
@@ -1319,40 +1325,27 @@ class BudgetListDocumentPermissionTests(SimpleTestCase):
 
         # Regular user 'user_b' tries to cancel user_a's doc -> REJECTED
         req_b = factory.post('/api/document/cancel/VET/DOC001/', data=json.dumps({'cancel_reason': 'test'}), content_type='application/json')
-        req_b.user = MagicMock(is_authenticated=True, username='user_b', is_superuser=False)
-        req_b.session = {'branch_info': {'is_executive_view_only': False}}
+        req_b.user = MagicMock(is_authenticated=True, username='user_b', is_superuser=False, bank_account_note='FRONT')
+        req_b.session = {'branch_info': {'is_executive_view_only': False, 'is_admin': False}}
         res_b = cancel_document_api(req_b, 'VET', 'DOC001')
         self.assertEqual(res_b.status_code, 200)
         self.assertEqual(json.loads(res_b.content).get('message'), 'คุณยกเลิกได้เฉพาะเอกสารที่ตัวเองสร้างเท่านั้น')
 
         # Regular user 'user_a' cancels their own doc -> ALLOWED
         req_a = factory.post('/api/document/cancel/VET/DOC001/', data=json.dumps({'cancel_reason': 'test'}), content_type='application/json')
-        req_a.user = MagicMock(is_authenticated=True, username='user_a', is_superuser=False)
-        req_a.session = {'branch_info': {'is_executive_view_only': False}}
+        req_a.user = MagicMock(is_authenticated=True, username='user_a', is_superuser=False, bank_account_note='FRONT')
+        req_a.session = {'branch_info': {'is_executive_view_only': False, 'is_admin': False}}
         res_a = cancel_document_api(req_a, 'VET', 'DOC001')
         self.assertEqual(res_a.status_code, 200)
         self.assertEqual(json.loads(res_a.content).get('status'), 'success')
 
-        # Privileged user 'nattchai_u' cancels user_a's doc -> ALLOWED
+        # Privileged user with admin note cancels user_a's doc -> ALLOWED
         req_priv = factory.post('/api/document/cancel/VET/DOC001/', data=json.dumps({'cancel_reason': 'test'}), content_type='application/json')
-        req_priv.user = MagicMock(is_authenticated=True, username='nattchai_u', is_superuser=False)
+        req_priv.user = MagicMock(is_authenticated=True, username='admin_u', is_superuser=False, bank_account_note='IT-ADMIN')
+        req_priv.session = {'branch_info': {'is_admin': True, 'is_executive_view_only': False}}
         res_priv = cancel_document_api(req_priv, 'VET', 'DOC001')
         self.assertEqual(res_priv.status_code, 200)
         self.assertEqual(json.loads(res_priv.content).get('status'), 'success')
-
-        # Privileged user 'kanchana' cancels user_a's doc -> ALLOWED
-        req_kanchana = factory.post('/api/document/cancel/VET/DOC001/', data=json.dumps({'cancel_reason': 'test'}), content_type='application/json')
-        req_kanchana.user = MagicMock(is_authenticated=True, username='kanchana', is_superuser=False)
-        res_kanchana = cancel_document_api(req_kanchana, 'VET', 'DOC001')
-        self.assertEqual(res_kanchana.status_code, 200)
-        self.assertEqual(json.loads(res_kanchana.content).get('status'), 'success')
-
-        # Privileged user 'pattida_y' cancels user_a's doc -> ALLOWED
-        req_pattida = factory.post('/api/document/cancel/VET/DOC001/', data=json.dumps({'cancel_reason': 'test'}), content_type='application/json')
-        req_pattida.user = MagicMock(is_authenticated=True, username='pattida_y', is_superuser=False)
-        res_pattida = cancel_document_api(req_pattida, 'VET', 'DOC001')
-        self.assertEqual(res_pattida.status_code, 200)
-        self.assertEqual(json.loads(res_pattida.content).get('status'), 'success')
 
     @patch('budget_app.views.get_branch_info')
     @patch('budget_app.services.BudgetService.save_monthly_data')
@@ -1366,7 +1359,7 @@ class BudgetListDocumentPermissionTests(SimpleTestCase):
         from budget_app.views import update_document_api
 
         mock_settings.return_value = MagicMock(is_frozen=0, active_budget_year=2026)
-        mock_branch_info.return_value = {'is_manager': True, 'branch_codes': ['B01'], 'needs_selection': False}
+        mock_branch_info.return_value = {'is_manager': True, 'branch_codes': ['B01'], 'needs_selection': False, 'is_admin': False}
         mock_fks.return_value = {'Vet Nurse': (1, 1)}
         factory = RequestFactory()
 
@@ -1385,16 +1378,16 @@ class BudgetListDocumentPermissionTests(SimpleTestCase):
 
         # Regular user 'user_b' tries to update user_a's doc -> REJECTED
         req_b = factory.post('/api/document/update/VET/DOC001/', data=json.dumps(sample_data), content_type='application/json')
-        req_b.user = MagicMock(is_authenticated=True, username='user_b', is_superuser=False)
-        req_b.session = {'branch_info': {'is_executive_view_only': False}}
+        req_b.user = MagicMock(is_authenticated=True, username='user_b', is_superuser=False, bank_account_note='FRONT')
+        req_b.session = {'branch_info': {'is_executive_view_only': False, 'is_admin': False}}
         res_b = update_document_api(req_b, 'VET', 'DOC001')
         self.assertEqual(res_b.status_code, 200)
         self.assertEqual(json.loads(res_b.content).get('message'), 'คุณแก้ไขได้เฉพาะเอกสารที่ตัวเองสร้างเท่านั้น')
 
-        # Privileged user 'nattchai_u' updates user_a's doc -> ALLOWED past permission gate
+        # Privileged admin user updates user_a's doc -> ALLOWED past permission gate
         req_priv = factory.post('/api/document/update/VET/DOC001/', data=json.dumps(sample_data), content_type='application/json')
-        req_priv.user = MagicMock(is_authenticated=True, username='nattchai_u', is_superuser=False)
-        req_priv.session = {}
+        req_priv.user = MagicMock(is_authenticated=True, username='admin_u', is_superuser=False, bank_account_note='IT-ADMIN')
+        req_priv.session = {'branch_info': {'is_admin': True, 'is_executive_view_only': False}}
         res_priv = update_document_api(req_priv, 'VET', 'DOC001')
         self.assertEqual(res_priv.status_code, 200)
         self.assertEqual(json.loads(res_priv.content).get('status'), 'success', f"Got: {res_priv.content.decode('utf-8')}")
@@ -4009,21 +4002,31 @@ class ItemMasterOrderByIdAscTests(SimpleTestCase):
 
 class GlActualTemplateAccessControlTests(SimpleTestCase):
     """Verifies that the 'GL Actual Template' menu and add view are visible
-    and accessible strictly to users nattchai_u, kanchana_a, and pattida_y."""
+    and accessible to users with admin role (emp.bank_account_note like %ADMIN) and superusers."""
 
     def test_can_access_gl_actual_template_helper(self):
         from budget_app.services import can_access_gl_actual_template
         from django.contrib.auth.models import AnonymousUser
         factory = RequestFactory()
 
-        for allowed in ['nattchai_u', 'kanchana_a', 'pattida_y', 'NATTCHAI_U', 'Pattida_Y']:
+        for allowed_role in ['ADMIN', 'IT-ADMIN', 'ACC-ADMIN', 'admin']:
             req = factory.get('/')
-            req.user = User(username=allowed)
-            self.assertTrue(can_access_gl_actual_template(req), f"{allowed} should be allowed")
+            req.user = User(username='adm_user')
+            req.user.bank_account_note = allowed_role
+            req.session = {'branch_info': {'is_admin': True}}
+            self.assertTrue(can_access_gl_actual_template(req), f"{allowed_role} should be allowed")
 
-        for disallowed in ['kanchana', 'admin', 'sutep', 'khanitta', 'mgr01', 'regular_emp']:
+        # Superuser is allowed
+        req_su = factory.get('/')
+        req_su.user = User(username='admin', is_superuser=True)
+        self.assertTrue(can_access_gl_actual_template(req_su))
+
+        # Non-admin users are disallowed
+        for disallowed in ['MANAGER', 'FRONT', 'IT', 'CHRO']:
             req = factory.get('/')
-            req.user = User(username=disallowed, is_superuser=(disallowed == 'admin'))
+            req.user = User(username='reg_user')
+            req.user.bank_account_note = disallowed
+            req.session = {'branch_info': {'is_admin': False}}
             self.assertFalse(can_access_gl_actual_template(req), f"{disallowed} should NOT be allowed")
 
         req_anon = factory.get('/')
@@ -4038,12 +4041,14 @@ class GlActualTemplateAccessControlTests(SimpleTestCase):
 
         req_allowed = factory.get('/')
         req_allowed.user = User(username='pattida_y')
-        req_allowed.session = {'branch_info': {'is_view_only': False, 'is_executive_view_only': False, 'is_district_view_only': False}}
+        req_allowed.user.bank_account_note = 'ACC-ADMIN'
+        req_allowed.session = {'branch_info': {'is_admin': True, 'is_view_only': False, 'is_executive_view_only': False, 'is_district_view_only': False}}
         self.assertTrue(site_status(req_allowed)['can_access_gl_actual_template'])
 
         req_denied = factory.get('/')
         req_denied.user = User(username='mgr01')
-        req_denied.session = {'branch_info': {'is_view_only': False, 'is_executive_view_only': False, 'is_district_view_only': False}}
+        req_denied.user.bank_account_note = 'MANAGER'
+        req_denied.session = {'branch_info': {'is_admin': False, 'is_view_only': False, 'is_executive_view_only': False, 'is_district_view_only': False}}
         self.assertFalse(site_status(req_denied)['can_access_gl_actual_template'])
 
     @patch('budget_app.models.SystemSettings.load')
@@ -4052,20 +4057,22 @@ class GlActualTemplateAccessControlTests(SimpleTestCase):
         mock_load.return_value = mock_settings
         factory = RequestFactory()
 
-        for allowed_username in ['nattchai_u', 'kanchana_a', 'pattida_y']:
+        for allowed_role in ['ADMIN', 'IT-ADMIN', 'ACC-ADMIN']:
             req = factory.get('/')
-            req.user = User(username=allowed_username, first_name=allowed_username)
-            req.session = {'branch_info': {'is_view_only': False, 'is_executive_view_only': False, 'is_district_view_only': False}}
+            req.user = User(username='admin_u', first_name='Admin')
+            req.user.bank_account_note = allowed_role
+            req.session = {'branch_info': {'is_admin': True, 'is_view_only': False, 'is_executive_view_only': False, 'is_district_view_only': False}}
             out = render_to_string('budget_app/base.html', {'csrf_token': 'dummy'}, request=req)
-            self.assertIn(reverse('budget_add_gl_actual_template'), out, f"{allowed_username} should see GL Actual Template menu")
+            self.assertIn(reverse('budget_add_gl_actual_template'), out, f"{allowed_role} should see GL Actual Template menu")
             self.assertIn('GL Actual Template', out)
 
-        for denied_username in ['mgr01', 'kanchana', 'sutep', 'khanitta']:
+        for denied_role in ['MANAGER', 'FRONT', 'IT']:
             req = factory.get('/')
-            req.user = User(username=denied_username, first_name=denied_username)
-            req.session = {'branch_info': {'is_view_only': False, 'is_executive_view_only': False, 'is_district_view_only': False}}
+            req.user = User(username='staff_u', first_name='Staff')
+            req.user.bank_account_note = denied_role
+            req.session = {'branch_info': {'is_admin': False, 'is_view_only': False, 'is_executive_view_only': False, 'is_district_view_only': False}}
             out = render_to_string('budget_app/base.html', {'csrf_token': 'dummy'}, request=req)
-            self.assertNotIn(reverse('budget_add_gl_actual_template'), out, f"{denied_username} should NOT see GL Actual Template menu")
+            self.assertNotIn(reverse('budget_add_gl_actual_template'), out, f"{denied_role} should NOT see GL Actual Template menu")
             self.assertNotIn('GL Actual Template', out)
 
     @patch('budget_app.models.SystemSettings.load')
@@ -4075,17 +4082,19 @@ class GlActualTemplateAccessControlTests(SimpleTestCase):
         mock_load.return_value = mock_settings
         factory = RequestFactory()
 
-        for denied_user in ['mgr01', 'kanchana', 'admin']:
+        for denied_user in ['mgr01', 'sutep']:
             req_get = factory.get(reverse('budget_add_gl_actual_template'))
-            req_get.user = User(username=denied_user, is_superuser=(denied_user == 'admin'))
-            req_get.session = {'branch_info': {'is_view_only': False}}
+            req_get.user = User(username=denied_user, is_superuser=False)
+            req_get.user.bank_account_note = 'MANAGER'
+            req_get.session = {'branch_info': {'is_admin': False, 'is_view_only': False}}
             res_get = budget_add_gl_actual_template_view(req_get)
             self.assertEqual(res_get.status_code, 302)
             self.assertEqual(res_get.url, reverse('budget_list'))
 
             req_post = factory.post(reverse('budget_add_gl_actual_template'), data='[]', content_type='application/json')
-            req_post.user = User(username=denied_user, is_superuser=(denied_user == 'admin'))
-            req_post.session = {'branch_info': {'is_view_only': False}}
+            req_post.user = User(username=denied_user, is_superuser=False)
+            req_post.user.bank_account_note = 'MANAGER'
+            req_post.session = {'branch_info': {'is_admin': False, 'is_view_only': False}}
             res_post = budget_add_gl_actual_template_view(req_post)
             self.assertEqual(res_post.status_code, 403)
             data = json.loads(res_post.content)
@@ -4119,11 +4128,12 @@ class DashboardAccessAndMatrixTests(SimpleTestCase):
         )
         factory = RequestFactory()
 
-        # 1. Special all-branch users (nattchai_u, pattida_y, kanchana_a) -> ALL + TLPH branches
+        # 1. Special all-branch users (emp.bank_account_note like %ADMIN) -> ALL + TLPH branches
         for uname in ('nattchai_u', 'pattida_y', 'kanchana_a'):
             req = factory.get('/dashboard/')
             req.user = self._mock_user(uname)
-            req.session = {'branch_info': {'branches': ['HO'], 'is_manager': False, 'is_executive_view_only': False, 'is_district_view_only': False, 'bank_account_note': 'IT'}}
+            req.user.bank_account_note = 'IT-ADMIN'
+            req.session = {'branch_info': {'branches': ['HO'], 'is_manager': False, 'is_admin': True, 'is_executive_view_only': False, 'is_district_view_only': False, 'bank_account_note': 'IT-ADMIN'}}
             self.assertTrue(can_access_dashboard(req), msg=f'{uname} must have dashboard access')
             self.assertTrue(can_view_all_branches_dashboard(req), msg=f'{uname} must have ALL branch option')
             self.assertEqual([b['code'] for b in get_allowed_branches_for_dashboard(req)], ['ALL', 'AP', 'CA', 'PM', 'R5', 'SR'])
@@ -4239,16 +4249,18 @@ class DashboardAccessAndMatrixTests(SimpleTestCase):
             self.assertEqual(res_bad.status_code, expected_code, msg=f'query={bad_q} body={res_bad.content}')
             self.assertEqual(json.loads(res_bad.content)['status'], 'error')
 
-        # Privileged All-Branch user (nattchai_u / CFO) gets 200 on ?branch=ALL & TLPH branches, but 403 on non-TLPH MY-BS
-        all_session = {'branch_info': {'branches': ['HO'], 'is_manager': False, 'is_executive_view_only': False, 'is_district_view_only': False, 'bank_account_note': 'IT'}}
+        # Privileged All-Branch user (admin role / CFO) gets 200 on ?branch=ALL & TLPH branches, but 403 on non-TLPH MY-BS
+        all_session = {'branch_info': {'branches': ['HO'], 'is_manager': False, 'is_admin': True, 'is_executive_view_only': False, 'is_district_view_only': False, 'bank_account_note': 'IT-ADMIN'}}
         for ok_branch in ('ALL', 'PM', 'CA'):
             req_ok = factory.get(f'/api/dashboard/data/?branch={ok_branch}&year=2025')
             req_ok.user = self._mock_user('nattchai_u')
+            req_ok.user.bank_account_note = 'IT-ADMIN'
             req_ok.session = all_session
             res_ok = dashboard_data_api(req_ok)
             self.assertEqual(res_ok.status_code, 200, msg=f'branch={ok_branch} body={res_ok.content}')
         req_my = factory.get('/api/dashboard/data/?branch=MY-BS&year=2025')
         req_my.user = self._mock_user('nattchai_u')
+        req_my.user.bank_account_note = 'IT-ADMIN'
         req_my.session = all_session
         self.assertEqual(dashboard_data_api(req_my).status_code, 403)
 
@@ -4287,10 +4299,11 @@ class DashboardAccessAndMatrixTests(SimpleTestCase):
         self.assertNotIn('ALL_ACTIVE', body)
         self.assertNotIn('ทุกสาขา', body)
 
-        # All-Branch user (nattchai_u / CFO) -> waits for user branch selection on initial entry (placeholder selected, ALL unselected)
+        # All-Branch user (admin role / CFO) -> waits for user branch selection on initial entry (placeholder selected, ALL unselected)
         req_all = factory.get('/dashboard/')
         req_all.user = self._mock_user('nattchai_u')
-        req_all.session = {'branch_info': {'branches': ['HO'], 'is_manager': False, 'is_executive_view_only': False, 'is_district_view_only': False, 'bank_account_note': 'IT'}}
+        req_all.user.bank_account_note = 'IT-ADMIN'
+        req_all.session = {'branch_info': {'branches': ['HO'], 'is_manager': False, 'is_admin': True, 'is_executive_view_only': False, 'is_district_view_only': False, 'bank_account_note': 'IT-ADMIN'}}
         res_all = dashboard_view(req_all)
         self.assertEqual(res_all.status_code, 200)
         body_all = res_all.content.decode('utf-8')
