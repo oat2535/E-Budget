@@ -377,11 +377,34 @@ def get_general_ledgers_json(exclude_codes=None, name_startswith=None):
 @login_required_json
 def get_general_ledgers_api(request):
     """Lazy-loaded counterpart to get_general_ledgers_json() for
-    budget_list.html: that page only needs the full GL master list once a
-    user opens a document's GL edit mode (see toggleGlEditMode in
-    budget_list.js), not on every landing-page load, so it fetches this
-    instead of getting the whole table embedded in the page unconditionally."""
-    return JsonResponse({'status': 'success', 'general_ledgers': get_general_ledgers_json()})
+    budget_list.html: only fetched when a user opens a document's GL edit mode.
+    Returns GL options tailored to the requested doc_type (e.g. 'GL Entry'/EXPENSE
+    excludes EXPENSE_PAGE_EXCLUDED_GL_CODES, 'Revenue' only includes gl_name starting with 'รายได้'),
+    as well as all categories pre-grouped in by_doc_type so the frontend avoids redundant roundtrips."""
+    doc_type = (request.GET.get('doc_type') or '').strip()
+
+    all_gls = get_general_ledgers_json()
+    expense_gls = [g for g in all_gls if g.get('gl_code') not in EXPENSE_PAGE_EXCLUDED_GL_CODES]
+    revenue_gls = [g for g in all_gls if (g.get('gl_name') or '').startswith('รายได้')]
+
+    if doc_type in ('GL Entry', 'EXPENSE'):
+        target_gls = expense_gls
+    elif doc_type == 'Revenue':
+        target_gls = revenue_gls
+    else:
+        target_gls = all_gls
+
+    return JsonResponse({
+        'status': 'success',
+        'general_ledgers': target_gls,
+        'all_general_ledgers': all_gls,
+        'by_doc_type': {
+            'GL Entry': expense_gls,
+            'EXPENSE': expense_gls,
+            'Revenue': revenue_gls,
+            'Budget Plan': all_gls,
+        }
+    })
 
 def login_view(request):
     user_obj = getattr(request, 'user', None)

@@ -4886,9 +4886,61 @@ class PageLoadOptimizationTests(SimpleTestCase):
         html = render_to_string('budget_app/login.html', {}, request=req)
         self.assertIn('rel="preload" as="image"', html)
         self.assertIn('fetchpriority="high"', html)
-        self.assertIn('decoding="async"', html)
+        self.assertIn('loading="eager"', html)
         self.assertNotIn('feather-icons', html)
         self.assertNotIn('font-awesome', html)
         self.assertNotIn('sweetalert2', html)
+
+    @patch('budget_app.views.get_general_ledgers_json')
+    def test_get_general_ledgers_api_filtering_by_doc_type(self, mock_gls):
+        from budget_app.views import get_general_ledgers_api
+        from budget_app.constants import EXPENSE_PAGE_EXCLUDED_GL_CODES
+        factory = RequestFactory()
+        user = User(username='test_user')
+
+        mock_gls.return_value = [
+            {'id': 1, 'gl_code': '61300006', 'gl_name': 'ค่าเสื่อมราคา - เครื่องมือแพทย์ (EXCLUDED)'},
+            {'id': 2, 'gl_code': '60100001', 'gl_name': 'เงินเดือน'},
+            {'id': 3, 'gl_code': '41100001', 'gl_name': 'รายได้ค่ารักษาพยาบาล'},
+            {'id': 4, 'gl_code': '41200001', 'gl_name': 'รายได้ค่าตรวจทางห้องปฏิบัติการ'},
+            {'id': 5, 'gl_code': '60500001', 'gl_name': 'ค่าใช้จ่ายทั่วไป'},
+        ]
+
+        func = getattr(get_general_ledgers_api, '__wrapped__', get_general_ledgers_api)
+
+        # 1. Unfiltered request (returns all, plus by_doc_type dict)
+        req_all = factory.get('/api/general_ledgers/')
+        req_all.user = user
+        resp_all = func(req_all)
+        self.assertEqual(resp_all.status_code, 200)
+        data_all = json.loads(resp_all.content)
+        self.assertEqual(data_all['status'], 'success')
+        self.assertEqual(len(data_all['general_ledgers']), 5)
+        self.assertIn('by_doc_type', data_all)
+        self.assertIn('GL Entry', data_all['by_doc_type'])
+        self.assertIn('Revenue', data_all['by_doc_type'])
+        self.assertIn('Budget Plan', data_all['by_doc_type'])
+
+        # 2. Expense / GL Entry request (must exclude EXPENSE_PAGE_EXCLUDED_GL_CODES)
+        req_exp = factory.get('/api/general_ledgers/?doc_type=GL+Entry')
+        req_exp.user = user
+        resp_exp = func(req_exp)
+        self.assertEqual(resp_exp.status_code, 200)
+        data_exp = json.loads(resp_exp.content)
+        expense_gl_codes = {g['gl_code'] for g in data_exp['general_ledgers']}
+        self.assertTrue(expense_gl_codes.isdisjoint(EXPENSE_PAGE_EXCLUDED_GL_CODES))
+        self.assertNotIn('61300006', expense_gl_codes)
+        self.assertIn('60100001', expense_gl_codes)
+
+        # 3. Revenue request (all returned gl_name must start with "รายได้")
+        req_rev = factory.get('/api/general_ledgers/?doc_type=Revenue')
+        req_rev.user = user
+        resp_rev = func(req_rev)
+        self.assertEqual(resp_rev.status_code, 200)
+        data_rev = json.loads(resp_rev.content)
+        self.assertEqual(len(data_rev['general_ledgers']), 2)
+        for gl in data_rev['general_ledgers']:
+            self.assertTrue(gl['gl_name'].startswith('รายได้'), f"GL {gl} must start with 'รายได้'")
+
 
 
