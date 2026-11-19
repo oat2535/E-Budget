@@ -29,3 +29,9 @@ env/
 # itself is the tracked source; recreate the junction after a fresh clone with:
 #   New-Item -ItemType Junction -Path .claude\skills -Target .agents\skills
 .claude/skills
+
+# Local query & documentation files
+คิวรี่ดึงข้อมูล E-budget_VTHAI.txt
+คิวรี่ดึงข้อมูล E-budget(Jeab)l.txt
+คู่มือการติดตั้ง_PowerQuery_E-Budget.txt
+
