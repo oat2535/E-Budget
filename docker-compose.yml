@@ -1,7 +1,6 @@
 services:
   web:
     container_name: e-budget-web-prd
-    image: e-budget-web-prd:latest
     build: .
     restart: unless-stopped
     ports:
